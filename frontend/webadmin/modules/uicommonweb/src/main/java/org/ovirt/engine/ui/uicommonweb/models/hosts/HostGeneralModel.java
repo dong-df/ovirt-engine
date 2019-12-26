@@ -3,8 +3,11 @@ package org.ovirt.engine.ui.uicommonweb.models.hosts;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.ovirt.engine.core.common.ActionUtils;
@@ -18,7 +21,6 @@ import org.ovirt.engine.core.common.businessentities.VDSStatus;
 import org.ovirt.engine.core.common.businessentities.VdsSpmStatus;
 import org.ovirt.engine.core.common.businessentities.gluster.PeerStatus;
 import org.ovirt.engine.core.common.businessentities.gluster.ServiceType;
-import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.compat.RpmVersion;
 import org.ovirt.engine.ui.frontend.Frontend;
 import org.ovirt.engine.ui.uicommonweb.UICommand;
@@ -37,6 +39,7 @@ import org.ovirt.engine.ui.uicompat.UIMessages;
 
 @SuppressWarnings("unused")
 public class HostGeneralModel extends EntityModel<VDS> {
+    public static final String SUPPORTED_CPUS_PROPERTY_CHANGE = "supportedCpus"; //$NON-NLS-1$
     private static final UIConstants constants = ConstantsManager.getInstance().getConstants();
     private static final UIMessages messages = ConstantsManager.getInstance().getMessages();
 
@@ -736,6 +739,32 @@ public class HostGeneralModel extends EntityModel<VDS> {
         }
     }
 
+    private Set<String> missingCpuFlags;
+
+    public Set<String> getMissingCpuFlags() {
+        if (missingCpuFlags == null) {
+            return new HashSet<>();
+        }
+        return missingCpuFlags;
+    }
+
+    public void setMissingCpuFlags(Set<String> missingCpuFlags) {
+        this.missingCpuFlags = missingCpuFlags;
+    }
+
+    private List<String> supportedCpus;
+
+    public List<String> getSupportedCpus() {
+        return supportedCpus;
+    }
+
+    public void setSupportedCpus(List<String> supportedCpus) {
+        if (!Objects.equals(this.supportedCpus, supportedCpus)) {
+            this.supportedCpus = supportedCpus;
+            onPropertyChanged(new PropertyChangedEventArgs(SUPPORTED_CPUS_PROPERTY_CHANGE)); //$NON-NLS-1$
+        }
+    }
+
     private NonOperationalReason nonOperationalReasonEntity;
 
     public NonOperationalReason getNonOperationalReasonEntity() {
@@ -1019,8 +1048,8 @@ public class HostGeneralModel extends EntityModel<VDS> {
         setOnlineCores(onlineCores);
 
         setKernelFeatures(formatKernelFeatures(vds.getKernelFeatures()));
-
         setvncEncryptionEnabled(vds.isVncEncryptionEnabled());
+        setFipsEnabled(vds.isFipsEnabled());
     }
 
     private String formatKernelFeatures(Map<String, Object> kernelFeatures) {
@@ -1055,16 +1084,13 @@ public class HostGeneralModel extends EntityModel<VDS> {
         setHasNICsAlert(false);
         setHasGlusterDisconnectedAlert(false);
         setHasDefaultRouteAlert(false);
+        setMissingCpuFlags(null);
 
 
         // Check the network alert presense.
         setHasNICsAlert(getEntity().getNetConfigDirty() == null ? false : getEntity().getNetConfigDirty());
 
-        if ((Boolean) AsyncDataProvider.getInstance()
-            .getConfigValuePreConverted(ConfigValues.DefaultRouteReportedByVdsm,
-            getEntity().getClusterCompatibilityVersion().getValue())) {
-                setHasDefaultRouteAlert(!getEntity().isDefaultRouteRoleNetworkAttached());
-        }
+        setHasDefaultRouteAlert(!getEntity().isDefaultRouteRoleNetworkAttached());
 
         // Check manual fence alert presense.
         if (getEntity().getStatus() == VDSStatus.NonResponsive
@@ -1096,6 +1122,10 @@ public class HostGeneralModel extends EntityModel<VDS> {
         // Update SMT status
         setHasSmtDiscrepancyAlert(getEntity() != null && getEntity().hasSmtDiscrepancyAlert());
         setHasSmtClusterDiscrepancyAlert(getEntity() != null && getEntity().hasSmtClusterDiscrepancyAlert());
+
+        // Set cpu information
+        setMissingCpuFlags(getEntity() == null ? null : getEntity().getCpuFlagsMissing());
+        setSupportedCpus(getEntity().getSupportedCpus());
 
         setNonOperationalReasonEntity(getEntity().getNonOperationalReason() == NonOperationalReason.NONE ?
                 null : getEntity().getNonOperationalReason());
@@ -1177,13 +1207,7 @@ public class HostGeneralModel extends EntityModel<VDS> {
     }
 
     public static Model createUpgradeModel(final VDS host) {
-        Model model;
-        if (host.isOvirtVintageNode()) {
-            model = new UpgradeModel(host);
-        } else {
-            model = new UpgradeConfirmationModel(host);
-        }
-        return model;
+        return new UpgradeConfirmationModel(host);
     }
 
     private boolean vncEncryptionEnabled;
@@ -1196,6 +1220,19 @@ public class HostGeneralModel extends EntityModel<VDS> {
         if (vncEncryptionEnabled != value) {
             vncEncryptionEnabled = value;
             onPropertyChanged(new PropertyChangedEventArgs("vncEncryptionEnabled")); //$NON-NLS-1$
+        }
+    }
+
+    private boolean fipsEnabled;
+
+    public boolean isFipsEnabled() {
+        return fipsEnabled;
+    }
+
+    public void setFipsEnabled(boolean value) {
+        if (fipsEnabled != value) {
+            fipsEnabled = value;
+            onPropertyChanged(new PropertyChangedEventArgs("fipsEnabled")); //$NON-NLS-1$
         }
     }
 }

@@ -223,8 +223,6 @@ public interface ApplicationConstants extends CommonApplicationConstants {
 
     String computeLabel();
 
-    String externalProviderExplanation();
-
     String networkLabel();
 
     String networkLabelNetworksTab();
@@ -311,6 +309,8 @@ public interface ApplicationConstants extends CommonApplicationConstants {
     String storagePopupFormatTypeLabel();
 
     String storagePopupHostLabel();
+
+    String hostToUseToolTip();
 
     String activateDomainLabel();
 
@@ -401,6 +401,10 @@ public interface ApplicationConstants extends CommonApplicationConstants {
     String clusterGlusterHooksSubTabLabel();
 
     String affinityGroupSubTabLabel();
+
+    String affinityLabelsImplicitGroupInfo();
+
+    String affinityLabelsImplicitGroupLabel();
 
     String affinityLabelsNameLabel();
 
@@ -582,10 +586,6 @@ public interface ApplicationConstants extends CommonApplicationConstants {
 
     String vgpuSeparatedPlacementLabel();
 
-    String networkProviderButtonLabel();
-
-    String externalNetworkProviderLabel();
-
     String enableConsoleAddressOverride();
 
     String enableConsoleAddressOverrideHelpMessage();
@@ -679,6 +679,8 @@ public interface ApplicationConstants extends CommonApplicationConstants {
     String clusterPopupDescriptionLabel();
 
     String clusterPopupCPUTypeLabel();
+
+    String clusterPopupBiosTypeLabel();
 
     String clusterPopupArchitectureLabel();
 
@@ -1026,6 +1028,8 @@ public interface ApplicationConstants extends CommonApplicationConstants {
 
     String hostOutOfSync();
 
+    String hostsOutOfSyncWarning();
+
     String hostForOutOfSyncSentence();
 
     String dcForOutOfSyncSentence();
@@ -1183,6 +1187,8 @@ public interface ApplicationConstants extends CommonApplicationConstants {
     String clusterHost();
 
     String dcHost();
+
+    String statusCluster();
 
     String statusHost();
 
@@ -2568,8 +2574,6 @@ public interface ApplicationConstants extends CommonApplicationConstants {
     @Override
     String unknown();
 
-    String providerPopupAgentConfigurationTabLabel();
-
     String providerPopupGeneralTabLabel();
 
     String nameProvider();
@@ -2647,18 +2651,6 @@ public interface ApplicationConstants extends CommonApplicationConstants {
     String providerNetworksSubTabLabel();
 
     String providerSecretsSubTabLabel();
-
-    String messagingConfiguration();
-
-    String messagingBrokerType();
-
-    String messagingServer();
-
-    String messagingServerPort();
-
-    String messagingServerUsername();
-
-    String messagingServerPassword();
 
     String externalIdProviderNetwork();
 
@@ -2941,9 +2933,13 @@ public interface ApplicationConstants extends CommonApplicationConstants {
 
     String fencingPolicyTabLabel();
 
+    String statusAffinityGroup();
+
     String nameAffinityGroup();
 
     String descriptionAffinityGroup();
+
+    String priorityAffinityGroup();
 
     String polarityAffinityGroup();
 
@@ -2953,9 +2949,15 @@ public interface ApplicationConstants extends CommonApplicationConstants {
 
     String hostEnforceAffinityGroup();
 
+    String hostLabelsAffinityGroup();
+
     String hostMembersAffinityGroup();
 
+    String vmLabelsAffinityGroup();
+
     String vmMembersAffinityGroup();
+
+    String noLabelsAffinityGroup();
 
     String noMembersAffinityGroup();
 
@@ -2965,7 +2967,15 @@ public interface ApplicationConstants extends CommonApplicationConstants {
 
     String removeAffinityGroupLabel();
 
+    String affinityGroupStatusOk();
+
+    String affinityGroupStatusBroken();
+
     String affinityGroupNameLabel();
+
+    String affinityGroupPriorityLabel();
+
+    String affinityGroupPriorityInfo();
 
     String affinityGroupPolarityLabel();
 
@@ -3511,9 +3521,35 @@ public interface ApplicationConstants extends CommonApplicationConstants {
 
     String vncEncryptionLabel();
 
+    String fipsEnabledLabel();
+
     String vdsmName();
 
     String portSecurityEnabledLabel();
 
     String networkNameInfo();
+
+    String bondLengthNameWarning();
+
+    String physicalNetworkCustomInfo();
+
+    String tscFrequency();
+
+    String tscScalingOn();
+
+    String tscScalingOff();
+
+    String clusterHasHostWithMissingCpuFlagsWarning();
+
+    String vmCpuTypeDoesNotMatchClusterCpuType();
+
+    String supportedCpusInfo();
+
+    String noSupportedCpusInfo();
+
+    String clusterSerialNumberPolicyPanelLabel();
+
+    String clusterSerialNumberPolicy();
+
+    String clusterCustomSerialNumber();
 }

@@ -11,6 +11,7 @@ import javax.inject.Singleton;
 
 import org.ovirt.engine.core.common.businessentities.ActionGroup;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
+import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.OriginType;
 import org.ovirt.engine.core.common.businessentities.QuotaEnforcementTypeEnum;
 import org.ovirt.engine.core.common.businessentities.VM;
@@ -345,6 +346,8 @@ public class VmDaoImpl extends BaseDao implements VmDao {
         entity.setVmPoolId(getGuid(rs, "vm_pool_id"));
         entity.setRunOnVdsName(rs.getString("run_on_vds_name"));
         entity.setClusterCpuName(rs.getString("cluster_cpu_name"));
+        entity.setClusterCpuFlags(rs.getString("cluster_cpu_flags"));
+        entity.setClusterCpuVerb(rs.getString("cluster_cpu_verb"));
         entity.setStoragePoolId(getGuidDefaultEmpty(rs, "storage_pool_id"));
         entity.setStoragePoolName(rs.getString("storage_pool_name"));
         entity.setTransparentHugePages(rs.getBoolean("transparent_hugepages"));
@@ -356,6 +359,7 @@ public class VmDaoImpl extends BaseDao implements VmDao {
         entity.setNextRunConfigurationExists(rs.getBoolean("next_run_config_exists"));
         entity.setPreviewSnapshot(rs.getBoolean("is_previewing_snapshot"));
         entity.setHasIllegalImages(rs.getBoolean("has_illegal_images"));
+        entity.setClusterBiosType(BiosType.forValue(rs.getInt("cluster_bios_type")));
         return entity;
     };
 

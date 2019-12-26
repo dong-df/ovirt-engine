@@ -1,0 +1,4 @@
+- name: Run vdsm-certificates role
+  include_role:
+    name: ovirt-host-deploy-vdsm-certificates
+    public: yes

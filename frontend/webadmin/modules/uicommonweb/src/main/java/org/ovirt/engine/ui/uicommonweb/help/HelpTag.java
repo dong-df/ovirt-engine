@@ -190,7 +190,9 @@ public enum HelpTag {
 
     edit_instance_type("edit_instance_type", HelpTagType.WEBADMIN, "Configure' dialog -> 'Instance Types' section -> 'Edit Instance Type' dialog"), //$NON-NLS-1$ //$NON-NLS-2$
 
-    edit_virtual_disk("edit_virtual_disk", HelpTagType.WEBADMIN, "VMs Tab > Virtual Disks Sub-Tab > Edit Virtual Disk"), //$NON-NLS-1$ //$NON-NLS-2$
+    edit_virtual_vm_disk("edit_virtual_vm_disk", HelpTagType.WEBADMIN, "VMs Tab > Virtual Disks Sub-Tab > Edit Virtual Disk"), //$NON-NLS-1$ //$NON-NLS-2$
+
+    edit_virtual_disk("edit_virtual_disk", HelpTagType.WEBADMIN, "Disks Tab > Edit Virtual Disk"), //$NON-NLS-1$ //$NON-NLS-2$
 
     edit_vm("edit_vm", HelpTagType.WEBADMIN, "'VMs' main tab -> 'Edit VM' dialog [replaces the old 'Edit Desktop' (edit_desktop) and 'Edit Server' (edit_server)]"), //$NON-NLS-1$ //$NON-NLS-2$
 
@@ -219,6 +221,8 @@ public enum HelpTag {
     import_storage_domain_confirmation("import_storage_domain_confirmation", HelpTagType.WEBADMIN, "Storage Tab > Import Domain > Confirm import storage domain"), //$NON-NLS-1$ //$NON-NLS-2$
 
     attach_storage_domain_confirmation("attach_storage_domain_confirmation", HelpTagType.WEBADMIN, "Storage main-tab > Data Center sub-tab > Attach > Confirm attach storage domain"), //$NON-NLS-1$ //$NON-NLS-2$
+
+    attach_storage_from_dc_confirmation("attach_storage_from_dc_confirmation", HelpTagType.WEBADMIN, "Data Center main-tab > Storage sub-tab > Attach > Confirm attach storage domain"), //$NON-NLS-1$ //$NON-NLS-2$
 
     general("general", HelpTagType.UNKNOWN), //$NON-NLS-1$
 
@@ -426,6 +430,8 @@ public enum HelpTag {
 
     remove_disk("remove_disk", HelpTagType.WEBADMIN, "VMs Tab > Disks Sub-Tab > Remove Disk(s)"), //$NON-NLS-1$ //$NON-NLS-2$
 
+    remove_unregistered_disk("remove_unregistered_disk", HelpTagType.WEBADMIN, "Storage Tab > Disk Import > Remove Disk(s)"), //$NON-NLS-1$ //$NON-NLS-2$
+
     sparsify_disk("sparsify_disk", HelpTagType.WEBADMIN, "VMs Tab > Disks Sub-Tab > Sparsify Disk(s)"), //$NON-NLS-1$ //$NON-NLS-2$
 
     remove_external_subnet("remove_external_subnet", HelpTagType.WEBADMIN, "Networks main tab -> External Subnet sub tab -> Remove"), //$NON-NLS-1$ //$NON-NLS-2$
@@ -470,6 +476,8 @@ public enum HelpTag {
 
     remove_template("remove_template", HelpTagType.WEBADMIN, "Templates Tab > Remove Template(s)"), //$NON-NLS-1$ //$NON-NLS-2$
 
+    remove_unregistered_template("remove_unregistered_template", HelpTagType.WEBADMIN, "Storage Tab > Import Template > Remove Template(s)"), //$NON-NLS-1$ //$NON-NLS-2$
+
     remove_instance_type("remove_instance_type", HelpTagType.WEBADMIN, "Configure' dialog -> 'Instance Types' section -> 'Remove Instance Type'"), //$NON-NLS-1$ //$NON-NLS-2$
 
     remove_template_disks("remove_template_disks", HelpTagType.WEBADMIN, "Templates Tab > Storage Sub-Tab > Remove Disk Instance From Storage"), //$NON-NLS-1$ //$NON-NLS-2$
@@ -477,6 +485,8 @@ public enum HelpTag {
     remove_user("remove_user", HelpTagType.WEBADMIN, "Users Tab > Remove User(s)"), //$NON-NLS-1$ //$NON-NLS-2$
 
     remove_virtual_machine("remove_virtual_machine", HelpTagType.WEBADMIN, "VMs Tab > Remove Desktop(s)"), //$NON-NLS-1$ //$NON-NLS-2$
+
+    remove_unregistered_virtual_machine("remove_unregistered_virtual_machine", HelpTagType.WEBADMIN, "Storage Tab > Import VM > Remove VM(s)"), //$NON-NLS-1$ //$NON-NLS-2$
 
     remove_vnic_prfoile("remove_vnic_prfoile", HelpTagType.WEBADMIN, "'Networks' main tab -> 'Profiles' sub-tab -> 'Remove VM (Network) Interface Profile(s)' dialog"), //$NON-NLS-1$ //$NON-NLS-2$
 

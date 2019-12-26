@@ -107,6 +107,8 @@ public class InitVdsOnUpCommand extends StorageHandlingCommandBase<HostStoragePo
     private StorageDomainStaticDao storageDomainStaticDao;
     @Inject
     private HostedEngineHelper hostedEngineHelper;
+    @Inject
+    private ClusterCpuFlagsManager clusterCpuFlagsManager;
 
     public InitVdsOnUpCommand(HostStoragePoolParametersBase parameters, CommandContext commandContext) {
         super(parameters, commandContext);
@@ -123,7 +125,7 @@ public class InitVdsOnUpCommand extends StorageHandlingCommandBase<HostStoragePo
         hosts.add(getVds().getHostName());
         List<AttestationValue> value = new ArrayList<>();
         try {
-            value = AttestationService.getInstance().attestHosts(hosts);
+            value = AttestationService.INSTANCE.attestHosts(hosts);
         } catch (Exception e) {
             log.error("Encounter an exception while attesting host's trustworthiness for Host '{}': {}",
                     hosts,
@@ -143,6 +145,10 @@ public class InitVdsOnUpCommand extends StorageHandlingCommandBase<HostStoragePo
         Cluster cluster = getCluster();
 
         boolean initSucceeded = true;
+
+        // make sure the CPU flags are stored in the DB
+        vdsDynamicDao.updateCpuFlags(getVds().getId(), getVds().getCpuFlags());
+        clusterCpuFlagsManager.updateClusterCpuFlags(getCluster());
 
         initHostKdumpDetectionStatus();
 
@@ -271,15 +277,13 @@ public class InitVdsOnUpCommand extends StorageHandlingCommandBase<HostStoragePo
      */
     private EventResult connectHostToPool() {
         final VDS vds = getVds();
-        EventResult result =
-                eventQueue.submitEventSync(new Event(getStoragePool().getId(),
-                                null,
-                                vds.getId(),
-                                EventType.VDSCONNECTTOPOOL,
-                                "Trying to connect host " + vds.getHostName() + " with id " + vds.getId()
-                                        + " to the pool " + getStoragePool().getId()),
-                        () -> runConnectHostToPoolEvent(getStoragePool().getId(), vds));
-        return result;
+        return eventQueue.submitEventSync(new Event(getStoragePool().getId(),
+                        null,
+                        vds.getId(),
+                        EventType.VDSCONNECTTOPOOL,
+                        "Trying to connect host " + vds.getHostName() + " with id " + vds.getId()
+                                + " to the pool " + getStoragePool().getId()),
+                () -> runConnectHostToPoolEvent(getStoragePool().getId(), vds));
     }
 
     private EventResult runConnectHostToPoolEvent(final Guid storagePoolId, final VDS vds) {

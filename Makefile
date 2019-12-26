@@ -1,17 +1,6 @@
 # ====================================================================
-# Copyright 2008-2016 Red Hat, Inc. and/or its affiliates.
-#
-#  Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
+# Copyright oVirt Authors
+# SPDX-License-Identifier: Apache-2.0
 # ====================================================================
 
 #
@@ -40,9 +29,10 @@ VMCONSOLE_PKI_DIR=/etc/pki/ovirt-vmconsole
 PACKAGE_NAME=ovirt-engine
 ENGINE_NAME=$(PACKAGE_NAME)
 MVN=mvn
-PYTHON=python
+PYTHON=python2
 PYTHON3=$(shell which python3 2> /dev/null)
 PYFLAKES=$(shell which pyflakes 2> /dev/null)
+PY_VERSION=$(if $(PYTHON3),3,2)
 PEP8=pep8
 ISORT=isort
 PREFIX=/usr/local
@@ -170,6 +160,7 @@ export ENVFILEC
 
 # Rule to generate files from templates:
 .in:
+	GENERATED_FILE_LIST=$$(echo "$(GENERATED)" | sed -e "s/.gitignore\s//g" -e "s/ /\\\n/g"); \
 	sed \
 	-e "s|@ENGINE_DEFAULTS@|$(DATA_DIR)/services/ovirt-engine/ovirt-engine.conf|g" \
 	-e "s|@ENGINE_VARS@|$(PKG_SYSCONF_DIR)/engine.conf|g" \
@@ -200,6 +191,7 @@ export ENVFILEC
 	-e "s|@DEV_SETUP_ENV_DIR@|$(DEV_SETUP_ENV_DIR)|g" \
 	-e "s|@RPM_VERSION@|$(ENGINE_VERSION)|g" \
 	-e "s|@RPM_RELEASE@|$(RPM_RELEASE)|g" \
+	-e "s|@MILESTONE@|$(MILESTONE)|g" \
 	-e "s|@PACKAGE_NAME@|$(PACKAGE_NAME)|g" \
 	-e "s|@PACKAGE_VERSION@|$(PACKAGE_VERSION)|g" \
 	-e "s|@POSTGRESQL_SYSTEMD_SERVICE@|$(POSTGRESQL_SYSTEMD_SERVICE)|g" \
@@ -212,20 +204,36 @@ export ENVFILEC
 	-e "s|@DEVMODE@|$(BUILD_DEV)|g" \
 	-e "s|@VMCONSOLE_SYSCONF_DIR@|$(VMCONSOLE_SYSCONF_DIR)|g" \
 	-e "s|@VMCONSOLE_PKI_DIR@|$(VMCONSOLE_PKI_DIR)|g" \
+	-e "s|@PY_VERSION@|$(PY_VERSION)|g" \
 	-e "s|@VMCONSOLE_PROXY_HELPER_PATH@|$(LIBEXEC_DIR)/ovirt-vmconsole-proxy-helper/ovirt-vmconsole-list.py|g" \
 	-e "s|@VMCONSOLE_PROXY_HELPER_VARS@|$(PKG_SYSCONF_DIR)/ovirt-vmconsole-proxy-helper.conf|g" \
 	-e "s|@VMCONSOLE_PROXY_HELPER_DEFAULTS@|$(DATA_DIR)/conf/ovirt-vmconsole-proxy-helper.conf|g" \
 	-e "s|@BIN_DIR@|$(BIN_DIR)|g" \
 	-e "s|@AAA_JDBC_USR@|$(DATAROOT_DIR)/ovirt-engine-extension-aaa-jdbc|g" \
+	-e "s|@GENERATED_FILE_LIST@|$${GENERATED_FILE_LIST}|g" \
 	$< > $@
 
 # List of files that will be generated from templates:
+# Once add new template file, if required chmod, add it in generated-files target.
 GENERATED = \
-	build/python-check.sh \
+	.gitignore \
+	automation/milestone-config.sh \
 	ovirt-engine.spec \
+	build/helptag.py \
+	build/helptag_checker.py \
+	build/helptag-oneline-check.py \
+	build/python-check.sh \
+	build/shell-check.sh \
+	packaging/ansible-runner-service-project/project/roles/ovirt-ova-query/files/query_ova.py \
+	packaging/ansible-runner-service-project/project/roles/ovirt-ova-pack/files/pack_ova.py \
+	packaging/ansible-runner-service-project/project/roles/ovirt-ova-extract/files/extract_ova.py \
+	packaging/ansible-runner-service-project/project/roles/ovirt-to-vdsm-network/files/ovirt-to-vdsm-network.py \
 	packaging/bin/engine-backup.sh \
+	packaging/bin/engine-host-update.py \
+	packaging/bin/engine-migrate-he.py \
 	packaging/bin/engine-prolog.sh \
 	packaging/bin/pki-common.sh \
+	packaging/bin/vdsm_to_network_name_map \
 	packaging/conf/notifier-logging.properties \
 	packaging/conf/ovirt-vmconsole-proxy-helper.conf \
 	packaging/conf/ovirt-vmconsole-proxy.conf \
@@ -235,24 +243,32 @@ GENERATED = \
 	packaging/etc/ovirt-vmconsole-proxy-helper.conf.d/README \
 	packaging/etc/ovirt-websocket-proxy.conf.d/README \
 	packaging/libexec/ovirt-vmconsole-proxy-helper/ovirt_vmconsole_conf.py \
+	packaging/libexec/ovirt-vmconsole-proxy-helper/ovirt-vmconsole-list.py \
 	packaging/pythonlib/ovirt_engine/config.py \
 	packaging/services/ovirt-engine-notifier/config.py \
 	packaging/services/ovirt-engine-notifier/ovirt-engine-notifier.conf \
+	packaging/services/ovirt-engine-notifier/ovirt-engine-notifier.py \
 	packaging/services/ovirt-engine-notifier/ovirt-engine-notifier.systemd \
 	packaging/services/ovirt-engine-notifier/ovirt-engine-notifier.sysv \
 	packaging/services/ovirt-engine/config.py \
 	packaging/services/ovirt-engine/ovirt-engine.conf \
+	packaging/services/ovirt-engine/ovirt-engine.py \
 	packaging/services/ovirt-engine/ovirt-engine.systemd \
 	packaging/services/ovirt-engine/ovirt-engine.sysv \
 	packaging/services/ovirt-fence-kdump-listener/config.py \
 	packaging/services/ovirt-fence-kdump-listener/ovirt-fence-kdump-listener.conf \
+	packaging/services/ovirt-fence-kdump-listener/ovirt-fence-kdump-listener.py \
 	packaging/services/ovirt-fence-kdump-listener/ovirt-fence-kdump-listener.systemd \
 	packaging/services/ovirt-fence-kdump-listener/ovirt-fence-kdump-listener.sysv \
 	packaging/services/ovirt-websocket-proxy/config.py \
 	packaging/services/ovirt-websocket-proxy/ovirt-websocket-proxy.conf \
+	packaging/services/ovirt-websocket-proxy/ovirt-websocket-proxy.py \
 	packaging/services/ovirt-websocket-proxy/ovirt-websocket-proxy.systemd \
 	packaging/services/ovirt-websocket-proxy/ovirt-websocket-proxy.sysv \
+	packaging/setup/bin/bundle-ovirt-engine-health \
+	packaging/setup/bin/ovirt-engine-health \
 	packaging/setup/bin/ovirt-engine-setup.env \
+	packaging/setup/bin/ovirt-engine-upgrade-check \
 	packaging/setup/ovirt_engine_setup/config.py \
 	packaging/setup/ovirt_engine_setup/engine/config.py \
 	packaging/setup/ovirt_engine_setup/engine_common/config.py \
@@ -262,6 +278,7 @@ GENERATED = \
 	packaging/sys-etc/logrotate.d/ovirt-engine-notifier \
 	packaging/sys-etc/logrotate.d/ovirt-engine-setup \
 	packaging/cinderlib/config.py \
+	packaging/cinderlib/cinderlib-client.py \
 	$(NULL)
 
 all: \
@@ -271,12 +288,31 @@ all: \
 	$(NULL)
 
 generated-files:	$(GENERATED)
+	chmod a+x build/helptag.py
+	chmod a+x build/helptag_checker.py
+	chmod a+x build/helptag-oneline-check.py
 	chmod a+x build/python-check.sh
+	chmod a+x build/shell-check.sh
 	chmod a+x packaging/bin/engine-backup.sh
+	chmod a+x packaging/bin/engine-host-update.py
+	chmod a+x packaging/bin/engine-migrate-he.py
+	chmod a+x packaging/bin/vdsm_to_network_name_map
+	chmod a+x packaging/libexec/ovirt-vmconsole-proxy-helper/ovirt-vmconsole-list.py
+	chmod a+x packaging/ansible-runner-service-project/project/roles/ovirt-ova-query/files/query_ova.py
+	chmod a+x packaging/ansible-runner-service-project/project/roles/ovirt-ova-pack/files/pack_ova.py
+	chmod a+x packaging/ansible-runner-service-project/project/roles/ovirt-ova-extract/files/extract_ova.py
+	chmod a+x packaging/ansible-runner-service-project/project/roles/ovirt-to-vdsm-network/files/ovirt-to-vdsm-network.py
 	chmod a+x packaging/services/ovirt-engine/ovirt-engine.sysv
+	chmod a+x packaging/services/ovirt-engine-notifier/ovirt-engine-notifier.py
 	chmod a+x packaging/services/ovirt-engine-notifier/ovirt-engine-notifier.sysv
+	chmod a+x packaging/services/ovirt-engine/ovirt-engine.py
+	chmod a+x packaging/services/ovirt-fence-kdump-listener/ovirt-fence-kdump-listener.py
 	chmod a+x packaging/services/ovirt-fence-kdump-listener/ovirt-fence-kdump-listener.sysv
+	chmod a+x packaging/services/ovirt-websocket-proxy/ovirt-websocket-proxy.py
 	chmod a+x packaging/services/ovirt-websocket-proxy/ovirt-websocket-proxy.sysv
+	chmod a+x packaging/cinderlib/cinderlib-client.py
+	chmod a+x packaging/setup/bin/ovirt-engine-health
+	chmod a+x packaging/setup/bin/ovirt-engine-upgrade-check
 	chmod a+x packaging/cinderlib/cinderlib-client.py
 
 # support force run of maven
@@ -296,7 +332,7 @@ clean:
 	rm -rf $(BUILD_FILE) tmp.dev.flist
 
 	# Clean files generated from templates:
-	rm -rf $(GENERATED)
+	rm -rf $$(echo $(GENERATED) | grep -v .gitignore)
 
 test:
 	$(MVN) install $(BUILD_FLAGS) $(EXTRA_BUILD_FLAGS)
@@ -309,7 +345,9 @@ install: \
 	$(NULL)
 
 .PHONY: ovirt-engine.spec.in
+
 ovirt-engine.spec: version.mak
+.gitignore: Makefile
 
 dist:	ovirt-engine.spec
 	git ls-files | tar --files-from /proc/self/fd/0 -czf "$(TARBALL)" ovirt-engine.spec
@@ -367,6 +405,7 @@ validations:	generated-files
                 echo "Performing build validation." &&\
 		build/shell-check.sh && \
 		build/python-check.sh && \
+		build/ansible-check.sh && \
 		build/image-check.sh && \
 		build/helptag-oneline-check.py && \
 		build/dbscripts-duplicate_upgrade_scripts.sh; \
@@ -443,8 +482,8 @@ install-packaging-files: \
 	$(MAKE) copy-recursive SOURCEDIR=packaging/sys-etc TARGETDIR="$(DESTDIR)$(SYSCONF_DIR)" EXCLUDE_GEN="$(GENERATED)"
 	$(MAKE) copy-recursive SOURCEDIR=packaging/etc TARGETDIR="$(DESTDIR)$(PKG_SYSCONF_DIR)" EXCLUDE_GEN="$(GENERATED)"
 	$(MAKE) copy-recursive SOURCEDIR=packaging/pki TARGETDIR="$(DESTDIR)$(PKG_PKI_DIR)" EXCLUDE_GEN="$(GENERATED)"
-	for d in bin conf files firewalld services playbooks cinderlib; do \
-		$(MAKE) copy-recursive SOURCEDIR="packaging/$${d}" TARGETDIR="$(DESTDIR)$(DATA_DIR)/$${d}" EXCLUDE_GEN="$(GENERATED)"; \
+	for d in bin conf files firewalld services playbooks cinderlib ansible-runner-service-project selinux; do \
+		$(MAKE) copy-recursive SOURCEDIR="packaging/$${d}" TARGETDIR="$(DESTDIR)$(DATA_DIR)/$${d}" EXCLUDE_GEN="$(GENERATED)" EXCLUDE="packaging/ansible-runner-service-project/env/.gitkeep"; \
 	done
 	$(MAKE) copy-recursive SOURCEDIR=packaging/doc TARGETDIR="$(DESTDIR)$(PKG_DOC_DIR)" EXCLUDE_GEN="$(GENERATED)"
 	$(MAKE) copy-recursive SOURCEDIR=packaging/man TARGETDIR="$(DESTDIR)$(MAN_DIR)" EXCLUDE_GEN="$(GENERATED)"
@@ -498,9 +537,11 @@ install-layout: \
 	ln -sf "$(DATA_DIR)/bin/ovirt-register-sso-client-tool.sh" "$(DESTDIR)$(BIN_DIR)/ovirt-register-sso-client-tool"
 
 	install -d -m 755 "$(DESTDIR)$(PKG_PKI_DIR)/certs"
+	install -d -m 755 "$(DESTDIR)$(PKG_PKI_DIR)/certs-qemu"
 	install -d -m 755 "$(DESTDIR)$(PKG_PKI_DIR)/keys"
 	install -d -m 750 "$(DESTDIR)$(PKG_PKI_DIR)/private"
 	install -d -m 755 "$(DESTDIR)$(PKG_PKI_DIR)/requests"
+	install -d -m 755 "$(DESTDIR)$(PKG_PKI_DIR)/requests-qemu"
 	install -d -m 755 "$(DESTDIR)$(DATA_DIR)/ui-plugins"
 	install -d -m 755 "$(DESTDIR)$(PKG_SYSCONF_DIR)/branding"
 	install -d -m 750 "$(DESTDIR)$(PKG_STATE_DIR)/backups"

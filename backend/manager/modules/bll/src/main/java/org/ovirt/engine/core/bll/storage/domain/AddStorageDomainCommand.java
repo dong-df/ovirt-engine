@@ -13,15 +13,18 @@ import javax.inject.Inject;
 import org.ovirt.engine.core.bll.context.CommandContext;
 import org.ovirt.engine.core.bll.utils.PermissionSubject;
 import org.ovirt.engine.core.bll.utils.WipeAfterDeleteUtils;
+import org.ovirt.engine.core.bll.validator.storage.StorageDomainToPoolRelationValidator;
 import org.ovirt.engine.core.bll.validator.storage.StorageDomainValidator;
 import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.VdcObjectType;
 import org.ovirt.engine.core.common.action.StorageDomainManagementParameter;
+import org.ovirt.engine.core.common.businessentities.StorageBlockSize;
 import org.ovirt.engine.core.common.businessentities.StorageDomain;
 import org.ovirt.engine.core.common.businessentities.StorageDomainDynamic;
 import org.ovirt.engine.core.common.businessentities.StorageDomainStatic;
 import org.ovirt.engine.core.common.businessentities.StorageDomainType;
 import org.ovirt.engine.core.common.businessentities.StorageFormatType;
+import org.ovirt.engine.core.common.businessentities.StoragePool;
 import org.ovirt.engine.core.common.businessentities.StorageServerConnections;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.config.Config;
@@ -38,6 +41,7 @@ import org.ovirt.engine.core.common.vdscommands.VDSCommandType;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dao.StorageDomainDynamicDao;
 import org.ovirt.engine.core.dao.StorageDomainStaticDao;
+import org.ovirt.engine.core.dao.StoragePoolDao;
 import org.ovirt.engine.core.dao.StorageServerConnectionDao;
 import org.ovirt.engine.core.dao.VdsDao;
 import org.ovirt.engine.core.utils.ReplacementUtils;
@@ -54,6 +58,8 @@ public abstract class AddStorageDomainCommand<T extends StorageDomainManagementP
     private StorageDomainStaticDao storageDomainStaticDao;
     @Inject
     private VdsDao vdsDao;
+    @Inject
+    private StoragePoolDao storagePoolDao;
 
 
     protected AddStorageDomainCommand(Guid commandId) {
@@ -97,11 +103,16 @@ public abstract class AddStorageDomainCommand<T extends StorageDomainManagementP
     }
 
     protected boolean addStorageDomainInIrs() {
+        StorageDomainStatic storageDomainStatic = getStorageDomain().getStorageStaticData();
+        if (isBlockSizeAutoDetectionSupported()) {
+            storageDomainStatic.setBlockSize(StorageBlockSize.BLOCK_AUTO);
+        }
         // No need to run in separate transaction - counting on rollback of external transaction wrapping the command
         return runVdsCommand(
-                        VDSCommandType.CreateStorageDomain,
-                        new CreateStorageDomainVDSCommandParameters(getVds().getId(), getStorageDomain()
-                                .getStorageStaticData(), getStorageArgs())).getSucceeded();
+                VDSCommandType.CreateStorageDomain,
+                new CreateStorageDomainVDSCommandParameters(getVds().getId(),
+                        storageDomainStatic,
+                        getStorageArgs())).getSucceeded();
     }
 
     protected void addStorageDomainInDb() {
@@ -135,7 +146,7 @@ public abstract class AddStorageDomainCommand<T extends StorageDomainManagementP
             getReturnValue().setFault(fault);
             setSucceeded(false);
         } else if (addStorageDomainInIrs()) {
-            updateStorageDomainDynamicFromIrs();
+            updateStorageDomainFromIrs();
             setSucceeded(true);
         }
     }
@@ -229,6 +240,20 @@ public abstract class AddStorageDomainCommand<T extends StorageDomainManagementP
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_STORAGE_DOMAIN_VERSION_UNSUPPORTED, replacements);
         }
         return true;
+    }
+
+    private Boolean isBlockSizeAutoDetectionSupported() {
+        if (getStorageDomain().getStorageFormat().compareTo(StorageFormatType.V5) < 0) {
+            // Block size auto detection is supported only for storage format >= V5
+            return false;
+        }
+        StoragePool storagePool = getStoragePool();
+        if (storagePool == null) {
+            // In case of creating an unattached storage domain
+            storagePool = storagePoolDao.get(getVds().getStoragePoolId());
+        }
+        return new StorageDomainToPoolRelationValidator(getStorageDomain().getStorageStaticData(), storagePool)
+                .isBlockSizeAutoDetectionSupported().isValid();
     }
 
     private void ensureStorageFormatInitialized() {

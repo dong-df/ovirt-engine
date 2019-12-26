@@ -44,6 +44,7 @@ import org.ovirt.engine.core.common.businessentities.HostDevice;
 import org.ovirt.engine.core.common.businessentities.HugePage;
 import org.ovirt.engine.core.common.businessentities.KdumpStatus;
 import org.ovirt.engine.core.common.businessentities.LeaseStatus;
+import org.ovirt.engine.core.common.businessentities.MDevType;
 import org.ovirt.engine.core.common.businessentities.NumaNodeStatistics;
 import org.ovirt.engine.core.common.businessentities.OsType;
 import org.ovirt.engine.core.common.businessentities.SessionState;
@@ -111,6 +112,7 @@ import org.ovirt.engine.core.compat.RpmVersion;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogable;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogableImpl;
+import org.ovirt.engine.core.dao.network.DnsResolverConfigurationDao;
 import org.ovirt.engine.core.dao.network.InterfaceDao;
 import org.ovirt.engine.core.di.Injector;
 import org.ovirt.engine.core.utils.CollectionUtils;
@@ -143,6 +145,8 @@ public class VdsBrokerObjectsBuilder {
     private AuditLogDirector auditLogDirector;
     @Inject
     private InterfaceDao interfaceDao;
+    @Inject
+    private DnsResolverConfigurationDao dnsResolverConfigurationDao;
 
     public VM buildVmsDataFromExternalProvider(Map<String, Object> struct) {
         VmStatic vmStatic = buildVmStaticDataFromExternalProvider(struct);
@@ -1009,9 +1013,14 @@ public class VdsBrokerObjectsBuilder {
                     .collect(Collectors.toSet());
             vds.setSupportedDomainVersions(domain_versions);
         }
+        vds.setSupportedBlockSize((Map<String, Object>) struct.get(VdsProperties.supported_block_size));
+        vds.setTscFrequency(assignStringValue(struct, VdsProperties.TSC_FREQUENCY));
+        vds.setKernelCmdlineFips(assignBoolValue(struct, VdsProperties.FIPS_MODE));
+        vds.setTscScalingEnabled(assignBoolValue(struct, VdsProperties.TSC_SCALING));
+        vds.setFipsEnabled(assignBoolValue(struct, VdsProperties.FIPS_MODE));
     }
 
-    private static void setDnsResolverConfigurationData(VDS vds, Map<String, Object> struct) {
+    private void setDnsResolverConfigurationData(VDS vds, Map<String, Object> struct) {
         String[] nameServersAddresses = assignStringArrayValue(struct, VdsProperties.name_servers);
         if (nameServersAddresses != null) {
             List<NameServer> nameServers = Stream.of(nameServersAddresses)
@@ -1021,7 +1030,7 @@ public class VdsBrokerObjectsBuilder {
             DnsResolverConfiguration reportedDnsResolverConfiguration = new DnsResolverConfiguration();
             reportedDnsResolverConfiguration.setNameServers(nameServers);
 
-            DnsResolverConfiguration oldDnsResolverConfiguration = vds.getReportedDnsResolverConfiguration();
+            DnsResolverConfiguration oldDnsResolverConfiguration = dnsResolverConfigurationDao.get(vds.getId());
             if (oldDnsResolverConfiguration != null) {
                 reportedDnsResolverConfiguration.setId(oldDnsResolverConfiguration.getId());
             }
@@ -1277,7 +1286,7 @@ public class VdsBrokerObjectsBuilder {
 
         Double d = assignDoubleValue(struct, VdsProperties.cpu_load);
         d = (d != null) ? d : 0;
-        vds.setCpuLoad(d.doubleValue() * 100.0);
+        vds.setCpuLoad(d * 100.0);
         vds.setCpuIdle(assignDoubleValue(struct, VdsProperties.cpu_idle));
         vds.setMemAvailable(assignLongValue(struct, VdsProperties.mem_available));
         vds.setMemFree(assignLongValue(struct, VdsProperties.memFree));
@@ -2528,7 +2537,7 @@ public class VdsBrokerObjectsBuilder {
      *        'vendor': 'Intel Corporation',
      *        'vendor_id': '0x8086'
      *        'mdev': {
-     *          'nvidia-11': {'available_instances': '16', 'name': 'GRID M60-0B'}
+     *          'nvidia-11': {'available_instances': '16', 'name': 'GRID M60-0B', 'description': 'mDev detail description'}
      *           ...
      *        }
      *      }
@@ -2562,7 +2571,7 @@ public class VdsBrokerObjectsBuilder {
                     : true);
 
             if (params.containsKey(VdsProperties.MDEV)) {
-                device.setMdevTypes(((Map<String, Object>) params.get(VdsProperties.MDEV)).keySet());
+                device.setMdevTypes(buildMDevTypesList((Map<String, Object>) params.get(VdsProperties.MDEV)));
             }
             if (params.containsKey(VdsProperties.IOMMU_GROUP)) {
                 device.setIommuGroup(Integer.parseInt(params.get(VdsProperties.IOMMU_GROUP).toString()));
@@ -2599,6 +2608,29 @@ public class VdsBrokerObjectsBuilder {
         }
 
         return devices;
+    }
+
+    private static List<MDevType> buildMDevTypesList(Map<String, Object> mDevParams) {
+        List<MDevType> mdevs = new ArrayList<>();
+        for (String mDevName : mDevParams.keySet()) {
+            Integer availableInstances = null;
+            String description = null;
+            if (mDevParams.get(mDevName) instanceof Map) {
+                Map<String, Object> mDevParam = (Map<String, Object>) mDevParams.get(mDevName);
+                if (mDevParam.containsKey(VdsProperties.MDEV_AVAILABLE_INSTANCES)) {
+                    try {
+                        availableInstances = Integer.parseInt(mDevParam.get(VdsProperties.MDEV_AVAILABLE_INSTANCES).toString());
+                    } catch (NumberFormatException e) {
+                        log.error("mdev_type -> available instances value was illegal : {0}", mDevParam.get(VdsProperties.MDEV_AVAILABLE_INSTANCES));
+                    }
+                }
+                if (mDevParam.containsKey(VdsProperties.MDEV_DESCRIPTION)) {
+                    description = mDevParam.get(VdsProperties.MDEV_DESCRIPTION).toString();
+                }
+            }
+            mdevs.add(new MDevType(mDevName, availableInstances, description));
+        }
+        return mdevs;
     }
 
     private static void updateV2VJobs(VDS vds, Map<String, Object> struct) {

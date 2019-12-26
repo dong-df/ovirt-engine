@@ -1,5 +1,17 @@
 #!/bin/bash -xe
 
+# Get the MILESTONE from version.mak, so that we know if we build for a
+# non-release milestone, such as master, alpha, beta, etc., or for a
+# release (and then MILESTONE is empty).
+# Do this methodically, by generating a shell script snippet using make
+# and writing it there, instead of parsing version.mak ourselves.
+make generated-files
+. automation/milestone-config.sh
+
+# Set SUFFIX only for MILESTONEs
+SUFFIX=
+[ -n "${MILESTONE}" ] && SUFFIX=".git$(git rev-parse --short HEAD)"
+
 source automation/jvm-opts.sh
 
 MAVEN_OPTS="$MAVEN_OPTS $JVM_MEM_OPTS"
@@ -8,6 +20,44 @@ export MAVEN_OPTS
 BUILD_UT=0
 RUN_DAO_TESTS=0
 BUILD_GWT=0
+if [ -z "${MILESTONE}" ]; then
+	BUILD_UT=1
+	RUN_DAO_TESTS=1
+	BUILD_GWT=1
+fi
+
+# Check for copyright notices in files that do not also include an SPDX tag.
+non_removed_files=$( \
+	git show --pretty="format:" --name-status | \
+	awk '/^[^D]/ {print $2}' \
+)
+
+copyright_notices_files=
+[ -n "${non_removed_files}" ] && copyright_notices_files=$( \
+	echo "${non_removed_files}" | \
+	xargs grep -il 'Copyright.*Red Hat' \
+) || true
+
+copyright_notices_no_spdx_files=
+[ -n "${copyright_notices_files}" ] && copyright_notices_no_spdx_files=$( \
+	echo "${copyright_notices_files}" | \
+	xargs grep -iL 'SPDX' \
+) || true
+
+if [ -n "${copyright_notices_no_spdx_files}" ]; then
+	cat << __EOF__
+[ERROR] : The following file(s) contain copyright/license notices, and do not contain an SPDX tag:
+============================================================
+${copyright_notices_no_spdx_files}
+============================================================
+Please replace the notices with an SPDX tag. How exactly to do this is language/syntax specific. You should include the following two lines in a comment:
+============================================================
+Copyright oVirt Authors
+SPDX-License-Identifier: Apache-2.0
+============================================================
+__EOF__
+	exit 1
+fi
 
 # Check for DB upgrade scripts modifications without the
 # "Allow-db-upgrade-script-changes:Yes" in the patch header
@@ -56,8 +106,6 @@ if git show --pretty="format:" --name-only | egrep \
     RUN_DAO_TESTS=1
 fi
 
-SUFFIX=".git$(git rev-parse --short HEAD)"
-
 if [ -d /root/.m2/repository/org/ovirt ]; then
     echo "Deleting ovirt folder from maven cache"
     rm -rf /root/.m2/repository/org/ovirt
@@ -73,7 +121,7 @@ export EXTRA_BUILD_FLAGS="-gs $MAVEN_SETTINGS \
 export BUILD_JAVA_OPTS_GWT="$JVM_MEM_OPTS"
 
 # Set the location of the JDK that will be used for compilation:
-export JAVA_HOME="${JAVA_HOME:=/usr/lib/jvm/java-1.8.0}"
+export JAVA_HOME="${JAVA_HOME:=/usr/lib/jvm/java-11-openjdk}"
 
 # Use ovirt mirror if able, fall back to central maven
 mkdir -p "${MAVEN_SETTINGS%/*}"
@@ -111,6 +159,7 @@ rm -rf output
 rm -f ./*tar.gz
 rm -rf exported-artifacts
 mkdir -p exported-artifacts/tests
+
 make clean \
     "EXTRA_BUILD_FLAGS=$EXTRA_BUILD_FLAGS"
 
@@ -120,11 +169,14 @@ automation/packaging-setup-tests.sh
 # perform quick validations
 make validations
 
-# Since findbugs is a pure java task, there's no reason to run it on multiple
+# Since spotbugs is a pure java task, there's no reason to run it on multiple
 # platforms.
-# It seems to be stabler on EL7 for some reason, so we'll run it there:
-if [[ "$STD_CI_DISTRO" = "el7" ]]; then
-    source automation/findbugs.sh
+# Spotbugs currently has false negatives using mvn 3.5.0, which is the current
+# CentOS version from SCL (rh-maven35).
+# We will work with the Fedora version meanwhile which has maven 3.5.4 and is
+# known to work.
+if [[ "$STD_CI_DISTRO" =~ "fc" ]]; then
+    source automation/spotbugs.sh
 fi
 
 # Get the tarball
@@ -134,9 +186,9 @@ make dist
 rpmbuild \
     -D "_srcrpmdir $PWD/output" \
     -D "_topmdir $PWD/rpmbuild" \
-    -D "release_suffix ${SUFFIX}" \
+    ${SUFFIX:+-D "release_suffix ${SUFFIX}"} \
     -D "ovirt_build_extra_flags $EXTRA_BUILD_FLAGS" \
-    -D "ovirt_build_quick 1" \
+    ${MILESTONE:+-D "ovirt_build_quick 1"} \
     -ts ./*.gz
 
 # install any build requirements
@@ -153,20 +205,24 @@ fi
 rpmbuild \
     -D "_rpmdir $PWD/output" \
     -D "_topmdir $PWD/rpmbuild" \
-    -D "release_suffix ${SUFFIX}" \
+    ${SUFFIX:+-D "release_suffix ${SUFFIX}"} \
     -D "ovirt_build_ut $BUILD_UT" \
     -D "ovirt_build_extra_flags $EXTRA_BUILD_FLAGS" \
-    -D "${RPM_BUILD_MODE} 1" \
+    ${MILESTONE:+-D "${RPM_BUILD_MODE} 1"} \
     --rebuild output/*.src.rpm
+
+# Store any relevant artifacts in exported-artifacts for the ci system to
+# archive
+[[ -d exported-artifacts ]] || mkdir -p exported-artifacts
 
 # Move any relevant artifacts to exported-artifacts for the ci system to
 # archive
 find output -iname \*rpm -exec mv "{}" exported-artifacts/ \;
 
-if [[ "$STD_CI_DISTRO" = "el7" ]]; then
-    # Collect any mvn findbugs artifacts
+if [[ "$STD_CI_DISTRO" =~ "fc" ]]; then
+    # Collect any mvn spotbugs artifacts
     mkdir -p exported-artifacts/find-bugs
-    find * -name "*findbugs.xml" -o -name "findbugsXml.xml" | \
+    find * -name "*spotbugs.xml" -o -name "spotbugsXml.xml" | \
         while read source_file; do
             destination_file=$(
                 sed -e 's#/#-#g' -e 's#\(.*\)-#\1.#' <<< "$source_file"
@@ -178,4 +234,7 @@ fi
 
 # Rename junit surefire reports to match jenkins report plugin
 # Error code 4 means nothing changed, ignore it
+if [[ "$(rpm --eval "%dist")" != ".fc30" ]]; then
+# On fc30 following fails, while investigating on it, keeping it working on the other distro
 rename .xml .junit.xml exported-artifacts/tests/* ||  [[ $? -eq 4 ]]
+fi

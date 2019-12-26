@@ -3,7 +3,6 @@ package org.ovirt.engine.ui.uicommonweb.models.vms;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.List;
 import java.util.TreeSet;
 
@@ -13,11 +12,13 @@ import org.ovirt.engine.core.common.businessentities.DisplayType;
 import org.ovirt.engine.core.common.businessentities.GraphicsDevice;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
 import org.ovirt.engine.core.common.businessentities.InitializationType;
+import org.ovirt.engine.core.common.businessentities.Nameable;
 import org.ovirt.engine.core.common.businessentities.ServerCpu;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VmInit;
 import org.ovirt.engine.core.common.businessentities.comparators.LexoNumericComparator;
+import org.ovirt.engine.core.common.businessentities.comparators.LexoNumericNameableComparator;
 import org.ovirt.engine.core.common.businessentities.network.VmNetworkInterface;
 import org.ovirt.engine.core.common.businessentities.storage.Disk;
 import org.ovirt.engine.core.common.businessentities.storage.RepoImage;
@@ -38,19 +39,18 @@ import org.ovirt.engine.ui.uicommonweb.models.EntityModel;
 import org.ovirt.engine.ui.uicommonweb.models.HasEntity;
 import org.ovirt.engine.ui.uicommonweb.models.ListModel;
 import org.ovirt.engine.ui.uicommonweb.models.Model;
+import org.ovirt.engine.ui.uicommonweb.models.SortedListModel;
 import org.ovirt.engine.ui.uicommonweb.models.vms.key_value.KeyValueModel;
 import org.ovirt.engine.ui.uicommonweb.validation.CpuNameValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.I18NExtraNameOrNoneValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.IValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.LengthValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.MatchFieldsValidator;
-import org.ovirt.engine.ui.uicommonweb.validation.NoTrimmingWhitespacesValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.NotEmptyValidation;
 import org.ovirt.engine.ui.uicompat.ConstantsManager;
 import org.ovirt.engine.ui.uicompat.Event;
 import org.ovirt.engine.ui.uicompat.EventArgs;
 import org.ovirt.engine.ui.uicompat.PropertyChangedEventArgs;
-import org.ovirt.engine.ui.uicompat.UIConstants;
 
 public abstract class RunOnceModel extends Model {
 
@@ -97,34 +97,24 @@ public abstract class RunOnceModel extends Model {
         privateAttachIso = value;
     }
 
-    private ListModel<RepoImage> privateIsoImage;
+    private SortedListModel<RepoImage> privateIsoImage;
 
     public ListModel<RepoImage> getIsoImage() {
         return privateIsoImage;
     }
 
-    private void setIsoImage(ListModel<RepoImage> value) {
+    private void setIsoImage(SortedListModel<RepoImage> value) {
         privateIsoImage = value;
     }
 
-    private ListModel<String> kernelImage;
+    private EntityModel<Boolean> attachSysprep;
 
-    public ListModel<String> getKernelImage() {
-        return kernelImage;
+    public EntityModel<Boolean> getAttachSysprep() {
+        return attachSysprep;
     }
 
-    public void setKernelImage(ListModel<String> kernelImage) {
-        this.kernelImage = kernelImage;
-    }
-
-    private ListModel<String> initrdImage;
-
-    public ListModel<String> getInitrdImage() {
-        return initrdImage;
-    }
-
-    public void setInitrdImage(ListModel<String> initrdImage) {
-        this.initrdImage = initrdImage;
+    private void setAttachSysprep(EntityModel<Boolean> value) {
+        attachSysprep = value;
     }
 
     private ListModel<EntityModel<DisplayType>> privateDisplayProtocol;
@@ -135,18 +125,6 @@ public abstract class RunOnceModel extends Model {
 
     private void setDisplayProtocol(ListModel<EntityModel<DisplayType>> value) {
         privateDisplayProtocol = value;
-    }
-
-    // Linux Boot Options tab
-
-    private EntityModel<String> privateKernelParameters;
-
-    public EntityModel<String> getKernelParameters() {
-        return privateKernelParameters;
-    }
-
-    private void setKernel_parameters(EntityModel<String> value) {
-        privateKernelParameters = value;
     }
 
     // Initial Boot tab - Sysprep
@@ -241,16 +219,6 @@ public abstract class RunOnceModel extends Model {
 
     private void setIsVmFirstRun(EntityModel<Boolean> value) {
         privateIsVmFirstRun = value;
-    }
-
-    private EntityModel<Boolean> privateIsLinuxOptionsAvailable;
-
-    public EntityModel<Boolean> getIsLinuxOptionsAvailable() {
-        return privateIsLinuxOptionsAvailable;
-    }
-
-    private void setIsLinuxOptionsAvailable(EntityModel<Boolean> value) {
-        privateIsLinuxOptionsAvailable = value;
     }
 
     // Initial Boot tab - Cloud-Init
@@ -390,17 +358,6 @@ public abstract class RunOnceModel extends Model {
     }
 
     // Misc
-
-    private boolean privateIsLinuxOS;
-
-    public boolean getIsLinuxOS() {
-        return privateIsLinuxOS;
-    }
-
-    public void setIsLinuxOS(boolean value) {
-        privateIsLinuxOS = value;
-    }
-
     private boolean privateIsWindowsOS;
 
     public boolean getIsWindowsOS() {
@@ -508,15 +465,18 @@ public abstract class RunOnceModel extends Model {
     }
 
     // The "sysprep" option was moved from a standalone check box to a
-    // pseudo floppy disk image. In order not to change the back-end
+    // pseudo floppy or cdrom disk image. In order not to change the back-end
     // interface, the Reinitialize variable was changed to a read-only
-    // property and its value is based on the selected floppy image.
+    // property and its value is based on the selected floppy or cdrom image.
     // A similar comparison is done for cloud-init iso images, so the
     // variable was changed from a boolean to an Enum.
     public InitializationType getInitializationType() {
         if (getAttachFloppy().getEntity() != null
                 && getAttachFloppy().getEntity()
                 && "[sysprep]".equals(getFloppyImage().getSelectedItem())) { //$NON-NLS-1$
+            return InitializationType.Sysprep;
+        } else if (getAttachSysprep().getEntity() != null
+                && getAttachSysprep().getEntity()) {
             return InitializationType.Sysprep;
         } else if (getIsCloudInitEnabled().getEntity() != null
                 && getIsCloudInitEnabled().getEntity()) {
@@ -564,15 +524,12 @@ public abstract class RunOnceModel extends Model {
         getFloppyImage().getSelectedItemChangedEvent().addListener(this);
         setAttachIso(new EntityModel<Boolean>());
         getAttachIso().getEntityChangedEvent().addListener(this);
-        setIsoImage(new ListModel<>());
+        setIsoImage(new SortedListModel(new LexoNumericNameableComparator<Nameable>()));
         getIsoImage().getSelectedItemChangedEvent().addListener(this);
+        setAttachSysprep(new EntityModel<Boolean>());
+        getAttachSysprep().getEntityChangedEvent().addListener(this);
         setDisplayProtocol(new ListModel<EntityModel<DisplayType>>());
         setBootSequence(new BootSequenceModel());
-
-        // Linux Boot Options tab
-        setKernel_parameters(new EntityModel<String>());
-        setKernelImage(new ListModel<String>());
-        setInitrdImage(new ListModel<String>());
 
         // Initial Boot tab - Sysprep
         setIsCloudInitEnabled(new EntityModel<>(false));
@@ -642,17 +599,14 @@ public abstract class RunOnceModel extends Model {
         getIsAutoAssign().getEntityChangedEvent().addListener(this);
 
         // availability/visibility
-        setIsLinuxOptionsAvailable(new EntityModel<>(false));
-
         setIsHostTabVisible(true);
 
         setIsCustomPropertiesSheetVisible(true);
 
-        setIsLinuxOS(false);
         setIsWindowsOS(false);
 
         setVolatileRun(new EntityModel<>(false));
-        getVolatileRun().setIsChangeable(AsyncDataProvider.getInstance().isDestroyRebootSupported(vm.getCompatibilityVersion()));
+        getVolatileRun().setIsChangeable(true);
         if (!getVolatileRun().getIsChangable()) {
             getVolatileRun().setChangeProhibitionReason(
                     ConstantsManager.getInstance().getMessages().optionNotSupportedClusterVersionTooOld(vm.getCompatibilityVersion().toString()));
@@ -670,15 +624,11 @@ public abstract class RunOnceModel extends Model {
         setHashName("run_once_virtual_machine"); //$NON-NLS-1$
         setIsoImagePath(vm.getIsoPath()); // needs to be called before iso list is updated
         getAttachFloppy().setEntity(false);
+        getAttachSysprep().setEntity(false);
         getBootMenuEnabled().setEntity(true);
         getRunAsStateless().setEntity(vm.isStateless());
         getRunAndPause().setEntity(vm.isRunAndPause());
 
-        // passing Kernel parameters
-        getKernelParameters().setEntity(vm.getKernelParams());
-
-        setIsLinuxOS(AsyncDataProvider.getInstance().isLinuxOsType(vm.getVmOsId()));
-        getIsLinuxOptionsAvailable().setEntity(getIsLinuxOS());
         setIsWindowsOS(AsyncDataProvider.getInstance().isWindowsOsType(vm.getVmOsId()));
         getIsVmFirstRun().setEntity(!vm.isInitialized());
 
@@ -689,8 +639,8 @@ public abstract class RunOnceModel extends Model {
         updateDomainList();
         updateSystemTabLists();
         updateIsoList();
-        updateUnknownTypeImagesList();
         updateFloppyImages();
+        updateSysprep();
         updateInitialRunFields();
 
         // Boot sequence.
@@ -730,6 +680,8 @@ public abstract class RunOnceModel extends Model {
             if (!isFloppySupported) {
                 getAttachFloppy().setIsAvailable(false);
                 getFloppyImage().setIsAvailable(false);
+            } else {
+                getAttachSysprep().setIsAvailable(false);
             }
 
         }), vm.getOs(), vm.getCompatibilityVersion());
@@ -740,10 +692,12 @@ public abstract class RunOnceModel extends Model {
             getIsCloudInitEnabled().setEntity(false);
             getIsSysprepEnabled().setEntity(false);
             getAttachFloppy().setEntity(false);
+            getAttachSysprep().setEntity(false);
         } else if (!isInitialized) {
             if (getIsWindowsOS()) {
                 getIsSysprepEnabled().setEntity(true);
                 getAttachFloppy().setEntity(true);
+                getAttachSysprep().setEntity(true);
             } else {
                 getIsCloudInitEnabled().setEntity(true);
             }
@@ -761,21 +715,6 @@ public abstract class RunOnceModel extends Model {
         params.setRunAsStateless(getRunAsStateless().getEntity());
         params.setInitializationType(getInitializationType());
         params.setCustomProperties(getCustomPropertySheet().serialize());
-
-        // kernel params
-        String selectedKernelImage = getKernelImage().getSelectedItem();
-        if (StringHelper.isNotNullOrEmpty(selectedKernelImage)) {
-            params.setKernelUrl(selectedKernelImage);
-        }
-
-        if (getKernelParameters().getEntity() != null) {
-            params.setKernelParams(getKernelParameters().getEntity());
-        }
-
-        String selectedInitrdImage = getInitrdImage().getSelectedItem();
-        if (StringHelper.isNotNullOrEmpty(selectedInitrdImage)) {
-            params.setInitrdUrl(selectedInitrdImage);
-        }
 
         // Sysprep params
         if (getSysPrepUserName().getEntity() != null) {
@@ -856,6 +795,19 @@ public abstract class RunOnceModel extends Model {
                 vm.getStoragePoolId());
     }
 
+    protected void updateSysprep() {
+        VM selectedVM = vm;
+
+        if (AsyncDataProvider.getInstance().isWindowsOsType(selectedVM.getVmOsId())) {
+            // Add a pseudo CDROM disk image used for Windows' sysprep.
+            if (!selectedVM.isInitialized() && vm.getVmInit() != null) {
+                getAttachSysprep().setEntity(true);
+            }
+        } else {
+            getAttachSysprep().setIsAvailable(false);
+        }
+    }
+
     private void setIsBootFromHardDiskAllowedForVm() {
         Frontend.getInstance().runQuery(QueryType.GetAllDisksByVmId, new IdQueryParameters(vm.getId()),
                 new AsyncQuery<QueryReturnValue>(returnValue -> {
@@ -926,30 +878,10 @@ public abstract class RunOnceModel extends Model {
         updateIsoList(false);
     }
 
-    public void updateUnknownTypeImagesList() {
-        updateUnknownTypeImagesList(false);
-    }
-
-    public void updateUnknownTypeImagesList(boolean forceRefresh) {
-        ImagesDataProvider.getUnknownImageList(new AsyncQuery<>(images -> {
-            getKernelImage().setItems(images);
-            getInitrdImage().setItems(images);
-
-            getKernelImage().setSelectedItem(null);
-            getInitrdImage().setSelectedItem(null);
-        }), vm.getStoragePoolId(), forceRefresh);
-    }
-
     public void updateIsoList(boolean forceRefresh) {
         ImagesDataProvider.getISOImagesList(new AsyncQuery<>(
                         images -> {
                             final RepoImage lastSelectedIso = getIsoImage().getSelectedItem();
-
-                            images.sort(
-                                    Comparator.nullsLast(
-                                            Comparator.comparing(RepoImage::getRepoImageName, new LexoNumericComparator())
-                                    ).thenComparing(RepoImage::getRepoImageId, new LexoNumericComparator())
-                            );
 
                             getIsoImage().setItems(images);
 
@@ -1065,6 +997,8 @@ public abstract class RunOnceModel extends Model {
                 attachFloppy_EntityChanged();
             } else if (sender == getAttachIso()) {
                 attachIso_EntityChanged();
+            } else if (sender == getAttachSysprep()) {
+                    attachSysprep_EntityChanged();
             } else if (sender == getIsVmFirstRun()) {
                 isVmFirstRun_EntityChanged();
             } else if (sender == getUseAlternateCredentials()) {
@@ -1105,6 +1039,10 @@ public abstract class RunOnceModel extends Model {
         updateInitialRunFields();
     }
 
+    private void attachSysprep_EntityChanged() {
+        updateInitialRunFields();
+    }
+
     private void useAlternateCredentials_EntityChanged() {
         boolean useAlternateCredentials = getUseAlternateCredentials().getEntity();
 
@@ -1122,6 +1060,10 @@ public abstract class RunOnceModel extends Model {
     }
 
     private void floppyImage_SelectedItemChanged() {
+        updateInitialRunFields();
+    }
+
+    private void sysprepImage_SelectedItemChanged() {
         updateInitialRunFields();
     }
 
@@ -1164,31 +1106,6 @@ public abstract class RunOnceModel extends Model {
 
         boolean customPropertyValidation = getCustomPropertySheet().validate();
 
-        if (getIsLinuxOS()) {
-            getKernelImage().validateSelectedItem(new IValidation[] { new NoTrimmingWhitespacesValidation() });
-            getInitrdImage().validateSelectedItem(new IValidation[] { new NoTrimmingWhitespacesValidation() });
-            getKernelParameters().validateEntity(new IValidation[] { new NoTrimmingWhitespacesValidation() });
-
-            // initrd path and kernel params require kernel path to be filled
-            if (StringHelper.isNullOrEmpty(getKernelImage().getSelectedItem())) {
-                final UIConstants constants = ConstantsManager.getInstance().getConstants();
-
-                if (!StringHelper.isNullOrEmpty(getInitrdImage().getSelectedItem())) {
-                    getInitrdImage().getInvalidityReasons().add(constants.initrdPathInvalid());
-                    getInitrdImage().setIsValid(false);
-                    getKernelImage().getInvalidityReasons().add(constants.initrdPathInvalid());
-                    getKernelImage().setIsValid(false);
-                }
-
-                if (!StringHelper.isNullOrEmpty(getKernelParameters().getEntity())) {
-                    getKernelParameters().getInvalidityReasons().add(constants.kernelParamsInvalid());
-                    getKernelParameters().setIsValid(false);
-                    getKernelImage().getInvalidityReasons().add(constants.kernelParamsInvalid());
-                    getKernelImage().setIsValid(false);
-                }
-            }
-        }
-
         if (getIsAutoAssign().getEntity() != null && !getIsAutoAssign().getEntity()) {
             getDefaultHost().validateSelectedItem(new IValidation[] { new NotEmptyValidation() });
         } else {
@@ -1213,9 +1130,6 @@ public abstract class RunOnceModel extends Model {
 
         return getIsoImage().getIsValid()
                 && getFloppyImage().getIsValid()
-                && getKernelImage().getIsValid()
-                && getInitrdImage().getIsValid()
-                && getKernelParameters().getIsValid()
                 && getDefaultHost().getIsValid()
                 && customPropertyValidation
                 && cloudInitIsValid

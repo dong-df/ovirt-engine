@@ -21,13 +21,14 @@ import org.ovirt.engine.core.common.businessentities.StoragePool;
 import org.ovirt.engine.core.common.businessentities.StoragePoolStatus;
 import org.ovirt.engine.core.common.businessentities.network.Network;
 import org.ovirt.engine.core.common.businessentities.network.VnicProfile;
+import org.ovirt.engine.core.common.config.Config;
+import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.compat.Version;
 import org.ovirt.engine.core.dao.QuotaDao;
 import org.ovirt.engine.core.dao.StoragePoolDao;
 import org.ovirt.engine.core.dao.network.NetworkDao;
-import org.ovirt.engine.core.dao.network.NetworkFilterDao;
 import org.ovirt.engine.core.dao.network.VnicProfileDao;
 import org.ovirt.engine.core.utils.NetworkUtils;
 
@@ -36,8 +37,6 @@ public class AddEmptyStoragePoolCommand<T extends StoragePoolManagementParameter
 
     @Inject
     private ManagementNetworkUtil managementNetworkUtil;
-    @Inject
-    private NetworkFilterDao networkFilterDao;
     @Inject
     private QuotaDao quotaDao;
     @Inject
@@ -77,6 +76,10 @@ public class AddEmptyStoragePoolCommand<T extends StoragePoolManagementParameter
         quota.setDescription("Default unlimited quota");
         quota.setStoragePoolId(getStoragePool().getId());
         quota.setDefault(true);
+        quota.setGraceStoragePercentage(Config.<Integer> getValue(ConfigValues.QuotaGraceStorage));
+        quota.setGraceClusterPercentage(Config.<Integer>getValue(ConfigValues.QuotaGraceCluster));
+        quota.setThresholdStoragePercentage(Config.<Integer> getValue(ConfigValues.QuotaThresholdStorage));
+        quota.setThresholdClusterPercentage(Config.<Integer>getValue(ConfigValues.QuotaThresholdCluster));
 
         QuotaCluster quotaCluster = new QuotaCluster();
         quotaCluster.setMemSizeMB(QuotaCluster.UNLIMITED_MEM);

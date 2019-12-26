@@ -251,11 +251,11 @@ public class HostNetworkInterfaceListViewItem extends PatternflyListViewItem<Hos
     }
 
     private boolean containsOutOfSync(List<HostVLan> logicalNetworks) {
-        return logicalNetworks.stream().anyMatch(v -> isOutOfSync(v.getInterface().getNetworkImplementationDetails()));
+        return logicalNetworks.stream().anyMatch(this::isOutOfSync);
     }
 
     private boolean containsManagement(List<HostVLan> logicalNetworks) {
-        return logicalNetworks.stream().anyMatch(v -> v.getInterface().getIsManagement());
+        return logicalNetworks.stream().anyMatch(this::isManagementNetwork);
     }
 
     private List<HostVLan> calculateLogicalNetworks(HostInterfaceLineModel entity) {
@@ -297,15 +297,14 @@ public class HostNetworkInterfaceListViewItem extends PatternflyListViewItem<Hos
         AbstractIconTypeColumn<HostVLan> management = new AbstractIconTypeColumn<HostVLan>() {
             @Override
             public IconType getValue(HostVLan logicalNetwork) {
-                if (logicalNetwork.getInterface() != null && logicalNetwork.getInterface().getIsManagement()) {
-                    return IconType.INSTITUTION;
-                }
-                return null;
+                return isManagementNetwork(logicalNetwork) ? IconType.INSTITUTION : null;
             }
 
             @Override
             public SafeHtml getTooltip(HostVLan logicalNetwork) {
-                return SafeHtmlUtils.fromSafeConstant(constants.managementNetworkLabel());
+                return isManagementNetwork(logicalNetwork) ?
+                        SafeHtmlUtils.fromSafeConstant(constants.managementNetworkLabel()) :
+                        null;
             }
         };
         IconTypeHeader managementHeader = new IconTypeHeader(IconType.INSTITUTION,
@@ -318,16 +317,12 @@ public class HostNetworkInterfaceListViewItem extends PatternflyListViewItem<Hos
         AbstractIconTypeColumn<HostVLan> sync = new AbstractIconTypeColumn<HostVLan>() {
             @Override
             public IconType getValue(HostVLan logicalNetwork) {
-                if (logicalNetwork != null && logicalNetwork.getInterface() != null &&
-                        isOutOfSync(logicalNetwork.getInterface().getNetworkImplementationDetails())) {
-                    return IconType.CHAIN_BROKEN;
-                }
-                return null;
+                return isOutOfSync(logicalNetwork) ? IconType.CHAIN_BROKEN : null;
             }
 
             @Override
             public SafeHtml getTooltip(HostVLan logicalNetwork) {
-                return SafeHtmlUtils.fromSafeConstant(constants.hostOutOfSync());
+                return isOutOfSync(logicalNetwork) ? SafeHtmlUtils.fromSafeConstant(constants.hostOutOfSync()) : null;
             }
         };
         IconTypeHeader syncHeader = new IconTypeHeader(IconType.CHAIN_BROKEN,
@@ -395,7 +390,16 @@ public class HostNetworkInterfaceListViewItem extends PatternflyListViewItem<Hos
         return hostInterface;
     }
 
-    private boolean isOutOfSync(NetworkImplementationDetails networkImplementationDetails) {
+    private boolean isManagementNetwork(HostVLan iface) {
+        return hasInternalInterface(iface) && iface.getInterface().getIsManagement();
+    }
+
+    private boolean isOutOfSync(HostVLan iface) {
+        if (!hasInternalInterface(iface)) {
+            return false;
+        }
+        NetworkImplementationDetails networkImplementationDetails =
+                iface.getInterface().getNetworkImplementationDetails();
         boolean managed = false;
         boolean sync = false;
         if (networkImplementationDetails != null) {
@@ -403,6 +407,10 @@ public class HostNetworkInterfaceListViewItem extends PatternflyListViewItem<Hos
             sync = networkImplementationDetails.isInSync();
         }
         return managed && !sync;
+    }
+
+    private boolean hasInternalInterface(HostVLan iface) {
+        return iface != null && iface.getInterface() != null;
     }
 
     protected IsWidget createManagementStatusPanel() {

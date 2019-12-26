@@ -161,8 +161,7 @@ public class ProcessDownVmCommand<T extends ProcessDownVmParameters> extends Com
     }
 
     private Guid cleanupVfs() {
-        Guid hostId = networkDeviceHelper.removeVmIdFromVfs(getVmId());
-        return hostId;
+        return networkDeviceHelper.removeVmIdFromVfs(getVmId());
     }
 
     private void refreshHostIfNeeded(Guid hostId) {
@@ -234,7 +233,7 @@ public class ProcessDownVmCommand<T extends ProcessDownVmParameters> extends Com
             log.debug("Attempt to apply NEXT_RUN snapshot for VM '{}'", getVmId());
 
             EngineLock updateVmLock = createUpdateVmLock();
-            if (lockManager.acquireLock(updateVmLock).getFirst()) {
+            if (lockManager.acquireLock(updateVmLock).isAcquired()) {
                 snapshotDao.remove(runSnap.getId());
                 Date originalCreationDate = getVm().getVmCreationDate();
                 snapshotsManager.updateVmFromConfiguration(getVm(), runSnap.getVmConfiguration());

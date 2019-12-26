@@ -271,7 +271,11 @@ CREATE OR REPLACE FUNCTION InsertVdsDynamic (
     v_vnc_encryption_enabled BOOLEAN,
     v_connector_info JSONB,
     v_backup_enabled BOOLEAN,
-    v_supported_domain_versions VARCHAR(256)
+    v_supported_domain_versions VARCHAR(256),
+    v_supported_block_size JSONB,
+    v_tsc_frequency VARCHAR(10),
+    v_tsc_scaling BOOLEAN,
+    v_fips_enabled BOOLEAN
     )
 RETURNS VOID AS $PROCEDURE$
 BEGIN
@@ -343,7 +347,11 @@ BEGIN
             vnc_encryption_enabled,
             connector_info,
             backup_enabled,
-            supported_domain_versions
+            supported_domain_versions,
+            supported_block_size,
+            tsc_frequency,
+            tsc_scaling,
+            fips_enabled
             )
         VALUES (
             v_cpu_cores,
@@ -412,7 +420,11 @@ BEGIN
             v_vnc_encryption_enabled,
             v_connector_info,
             v_backup_enabled,
-            v_supported_domain_versions
+            v_supported_domain_versions,
+            v_supported_block_size,
+            v_tsc_frequency,
+            v_tsc_scaling,
+            v_fips_enabled
             );
     END;
 
@@ -505,7 +517,11 @@ CREATE OR REPLACE FUNCTION UpdateVdsDynamic (
     v_vnc_encryption_enabled BOOLEAN,
     v_connector_info JSONB,
     v_backup_enabled BOOLEAN,
-    v_supported_domain_versions VARCHAR(256)
+    v_supported_domain_versions VARCHAR(256),
+    v_supported_block_size JSONB,
+    v_tsc_frequency VARCHAR(10),
+    v_tsc_scaling BOOLEAN,
+    v_fips_enabled BOOLEAN
     )
 RETURNS VOID
     --The [vds_dynamic] table doesn't have a timestamp column. Optimistic concurrency logic cannot be generated
@@ -581,7 +597,11 @@ BEGIN
             vnc_encryption_enabled = v_vnc_encryption_enabled,
             connector_info = v_connector_info,
             backup_enabled = v_backup_enabled,
-            supported_domain_versions = v_supported_domain_versions
+            supported_domain_versions = v_supported_domain_versions,
+            supported_block_size = v_supported_block_size,
+            tsc_frequency = v_tsc_frequency,
+            tsc_scaling = v_tsc_scaling,
+            fips_enabled = v_fips_enabled
         WHERE vds_id = v_vds_id;
     END;
 
@@ -736,6 +756,25 @@ BEGIN
     BEGIN
         UPDATE vds_static
         SET last_stored_kernel_cmdline = v_last_stored_kernel_cmdline
+        WHERE vds_id = v_vds_id;
+    END;
+
+    RETURN;
+END;$PROCEDURE$
+LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION UpdateVdsStaticKernelCmdlines (
+    v_vds_id UUID,
+    v_kernel_cmdline TEXT
+    )
+RETURNS VOID
+    --The [vds_static] table doesn't have a timestamp column. Optimistic concurrency logic cannot be generated
+    AS $PROCEDURE$
+BEGIN
+    BEGIN
+        UPDATE vds_static
+        SET kernel_cmdline = v_kernel_cmdline,
+            last_stored_kernel_cmdline = v_kernel_cmdline
         WHERE vds_id = v_vds_id;
     END;
 

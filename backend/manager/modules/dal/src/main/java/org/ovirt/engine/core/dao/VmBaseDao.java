@@ -85,6 +85,7 @@ public abstract class VmBaseDao<T extends VmBase> extends DefaultGenericDao<T, G
                 .addValue("numatune_mode", entity.getNumaTuneMode().getValue())
                 .addValue("is_auto_converge", entity.getAutoConverge())
                 .addValue("is_migrate_compressed", entity.getMigrateCompressed())
+                .addValue("is_migrate_encrypted", entity.getMigrateEncrypted())
                 .addValue("predefined_properties", entity.getPredefinedProperties())
                 .addValue("userdefined_properties", entity.getUserDefinedProperties())
                 .addValue("custom_emulated_machine", entity.getCustomEmulatedMachine())
@@ -98,7 +99,8 @@ public abstract class VmBaseDao<T extends VmBase> extends DefaultGenericDao<T, G
                 .addValue("custom_compatibility_version", entity.getCustomCompatibilityVersion())
                 .addValue("migration_policy_id", entity.getMigrationPolicyId())
                 .addValue("lease_sd_id", entity.getLeaseStorageDomainId())
-                .addValue("multi_queues_enabled", entity.isMultiQueuesEnabled());
+                .addValue("multi_queues_enabled", entity.isMultiQueuesEnabled())
+                .addValue("use_tsc_frequency", entity.getUseTscFrequency());
     }
 
     /**
@@ -158,6 +160,7 @@ public abstract class VmBaseDao<T extends VmBase> extends DefaultGenericDao<T, G
             entity.setNumaTuneMode(NumaTuneMode.forValue(rs.getString("numatune_mode")));
             entity.setAutoConverge((Boolean) rs.getObject("is_auto_converge"));
             entity.setMigrateCompressed((Boolean) rs.getObject("is_migrate_compressed"));
+            entity.setMigrateEncrypted((Boolean) rs.getObject("is_migrate_encrypted"));
             String predefinedProperties = rs.getString("predefined_properties");
             String userDefinedProperties = rs.getString("userdefined_properties");
             entity.setPredefinedProperties(predefinedProperties);
@@ -177,6 +180,7 @@ public abstract class VmBaseDao<T extends VmBase> extends DefaultGenericDao<T, G
             entity.setLeaseStorageDomainId(getGuid(rs, "lease_sd_id"));
             entity.setMigrationPolicyId(getGuid(rs, "migration_policy_id"));
             entity.setMultiQueuesEnabled(rs.getBoolean("multi_queues_enabled"));
+            entity.setUseTscFrequency(rs.getBoolean("use_tsc_frequency"));
         }
     }
 

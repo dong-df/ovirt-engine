@@ -39,7 +39,7 @@ public enum ActionType {
     AddDisk(31, ActionGroup.CONFIGURE_VM_STORAGE, QuotaDependency.STORAGE),
     RegisterDisk(32, ActionGroup.CONFIGURE_VM_STORAGE, QuotaDependency.STORAGE),
     ExtractOva(33, QuotaDependency.NONE),
-    UpdateVmDisk(34, ActionGroup.CONFIGURE_VM_STORAGE, false, QuotaDependency.STORAGE),
+    UpdateDisk(34, ActionGroup.CONFIGURE_VM_STORAGE, false, QuotaDependency.STORAGE),
     ExportVmTemplateToOva(35, ActionGroup.IMPORT_EXPORT_VM, QuotaDependency.NONE),
     AttachDiskToVm(180, ActionGroup.CONFIGURE_VM_STORAGE, false, QuotaDependency.NONE),
     DetachDiskFromVm(181, ActionGroup.CONFIGURE_VM_STORAGE, false, QuotaDependency.NONE),
@@ -59,6 +59,7 @@ public enum ActionType {
     ActivateDeactivateVmNic(42, QuotaDependency.NONE),
     AddVmFromSnapshot(52, ActionGroup.CREATE_VM, QuotaDependency.BOTH),
     CloneVm(53, ActionGroup.CREATE_VM, QuotaDependency.BOTH),
+    CloneVmNoCollapse(56, ActionGroup.CREATE_VM, QuotaDependency.BOTH),
     ImportVmFromConfiguration(43, ActionGroup.IMPORT_EXPORT_VM, QuotaDependency.STORAGE),
     UpdateVmVersion(44, QuotaDependency.NONE),
     ImportVmTemplateFromConfiguration(45, ActionGroup.IMPORT_EXPORT_VM, QuotaDependency.STORAGE),
@@ -73,6 +74,8 @@ public enum ActionType {
     UpdateVmNicFilterParameter(61, ActionGroup.CONFIGURE_VM_NETWORK, false, QuotaDependency.NONE),
     RemoveVmNicFilterParameter(62, ActionGroup.CONFIGURE_VM_NETWORK, false, QuotaDependency.NONE),
     UpdateConvertedVm(63, QuotaDependency.NONE),
+    RemoveUnregisteredVmTemplate(67, ActionGroup.DELETE_TEMPLATE, QuotaDependency.NONE),
+    RemoveUnregisteredVm(68, ActionGroup.DELETE_VM, QuotaDependency.NONE),
 
     // VdsCommands
     AddVds(101, ActionGroup.CREATE_HOST, QuotaDependency.NONE),
@@ -101,9 +104,7 @@ public enum ActionType {
     RefreshHostCapabilities(126, ActionGroup.MANIPULATE_HOST, false, QuotaDependency.NONE),
     SshSoftFencing(127, QuotaDependency.NONE),
     VdsPowerDown(128, ActionGroup.MANIPULATE_HOST, QuotaDependency.NONE),
-    UpgradeOvirtNodeInternal(129, QuotaDependency.NONE),
     InstallVds(130, ActionGroup.EDIT_HOST_CONFIGURATION, false, QuotaDependency.NONE),
-    UpgradeOvirtNode(131, ActionGroup.EDIT_HOST_CONFIGURATION, false, QuotaDependency.NONE),
     VdsKdumpDetection(132, QuotaDependency.NONE),
     AddFenceAgent(133, ActionGroup.EDIT_HOST_CONFIGURATION, QuotaDependency.NONE),
     RemoveFenceAgent(134, ActionGroup.EDIT_HOST_CONFIGURATION, QuotaDependency.NONE),
@@ -117,9 +118,9 @@ public enum ActionType {
     HostUpgradeCheckInternal(142, QuotaDependency.NONE),
 
     // Network
-    AddNetwork(154, ActionGroup.CREATE_STORAGE_POOL_NETWORK, false, QuotaDependency.NONE),
-    RemoveNetwork(155, ActionGroup.CONFIGURE_STORAGE_POOL_NETWORK, false, QuotaDependency.NONE),
-    UpdateNetwork(156, ActionGroup.CONFIGURE_STORAGE_POOL_NETWORK, false, QuotaDependency.NONE),
+    AddNetwork(154, ActionGroup.CREATE_STORAGE_POOL_NETWORK, QuotaDependency.NONE),
+    RemoveNetwork(155, ActionGroup.CONFIGURE_STORAGE_POOL_NETWORK, QuotaDependency.NONE),
+    UpdateNetwork(156, ActionGroup.CONFIGURE_STORAGE_POOL_NETWORK, QuotaDependency.NONE),
     CommitNetworkChanges(157, ActionGroup.CONFIGURE_HOST_NETWORK, QuotaDependency.NONE),
     ImportExternalNetwork(158, ActionGroup.CREATE_STORAGE_POOL_NETWORK, false, QuotaDependency.NONE),
     InternalImportExternalNetwork(159, QuotaDependency.NONE),
@@ -134,7 +135,7 @@ public enum ActionType {
     UnlabelNetwork(164, ActionGroup.CONFIGURE_STORAGE_POOL_NETWORK, false, QuotaDependency.NONE),
     LabelNic(165, ActionGroup.CONFIGURE_HOST_NETWORK, false, QuotaDependency.NONE),
     UnlabelNic(166, ActionGroup.CONFIGURE_HOST_NETWORK, false, QuotaDependency.NONE),
-    PropagateNetworksToClusterHosts(167, false, QuotaDependency.NONE),
+    PropagateNetworksToClusterHosts(167, QuotaDependency.NONE),
 
     // SR-IOV
     UpdateHostNicVfsConfig(175, ActionGroup.CONFIGURE_HOST_NETWORK, false, QuotaDependency.NONE),
@@ -176,7 +177,6 @@ public enum ActionType {
     RestoreAllSnapshots(224, ActionGroup.MANIPULATE_VM_SNAPSHOTS, QuotaDependency.STORAGE),
     CopyImageGroup(225, QuotaDependency.STORAGE),
     MoveOrCopyDisk(228, QuotaDependency.STORAGE),
-    RemoveSnapshotSingleDisk(227, QuotaDependency.STORAGE),
     CreateCloneOfTemplate(229, QuotaDependency.STORAGE),
     RemoveDisk(230, QuotaDependency.STORAGE),
     MoveImageGroup(231, QuotaDependency.STORAGE),
@@ -262,7 +262,7 @@ public enum ActionType {
     DetachNetworkFromClusterInternal(710, false, QuotaDependency.NONE),
     UpdateNetworkOnCluster(711, ActionGroup.CONFIGURE_CLUSTER_NETWORK, false, QuotaDependency.NONE),
 
-    ManageNetworkClusters(712, ActionGroup.ASSIGN_CLUSTER_NETWORK, false, QuotaDependency.NONE),
+    ManageNetworkClusters(712, ActionGroup.ASSIGN_CLUSTER_NETWORK, QuotaDependency.NONE),
     StartClusterUpgrade(713, ActionGroup.EDIT_CLUSTER_CONFIGURATION, false, QuotaDependency.NONE),
     FinishClusterUpgrade(714, ActionGroup.EDIT_CLUSTER_CONFIGURATION, false, QuotaDependency.NONE),
 
@@ -588,6 +588,7 @@ public enum ActionType {
     PersistentHostSetupNetworks(5204, QuotaDependency.NONE),
     SyncAllHostNetworks(5205, ActionGroup.CONFIGURE_HOST_NETWORK, QuotaDependency.NONE),
     SyncAllClusterNetworks(5206, ActionGroup.CONFIGURE_HOST_NETWORK, QuotaDependency.NONE),
+    CopyHostNetworks(5207, ActionGroup.CONFIGURE_HOST_NETWORK, QuotaDependency.NONE),
 
     // Hosted Engine
     ImportHostedEngineStorageDomain(6000, false, QuotaDependency.NONE),

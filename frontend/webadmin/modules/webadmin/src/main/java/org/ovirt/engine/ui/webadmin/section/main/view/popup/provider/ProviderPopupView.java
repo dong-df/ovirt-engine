@@ -28,7 +28,6 @@ import org.ovirt.engine.ui.webadmin.ApplicationConstants;
 import org.ovirt.engine.ui.webadmin.gin.AssetProvider;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.popup.provider.ProviderPopupPresenterWidget;
 import org.ovirt.engine.ui.webadmin.widget.provider.KVMPropertiesWidget;
-import org.ovirt.engine.ui.webadmin.widget.provider.NeutronAgentWidget;
 import org.ovirt.engine.ui.webadmin.widget.provider.VmwarePropertiesWidget;
 import org.ovirt.engine.ui.webadmin.widget.provider.XENPropertiesWidget;
 
@@ -39,6 +38,7 @@ import com.google.gwt.safehtml.shared.SafeHtmlUtils;
 import com.google.gwt.text.shared.AbstractRenderer;
 import com.google.gwt.uibinder.client.UiBinder;
 import com.google.gwt.uibinder.client.UiField;
+import com.google.gwt.user.client.ui.FlowPanel;
 import com.google.inject.Inject;
 
 public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel> implements ProviderPopupPresenterWidget.ViewDef {
@@ -161,21 +161,17 @@ public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel
 
     @UiField
     @WithElementId
-    DialogTab generalTab;
+    FlowPanel networkingPanel;
 
     @UiField
-    @Ignore
-    DialogTab agentConfigurationTab;
+    @WithElementId
+    DialogTab generalTab;
 
     @UiField
     Row typeEditorRow;
 
     @UiField
     Row datacenterEditorRow;
-
-    @UiField
-    @Ignore
-    NeutronAgentWidget neutronAgentWidget;
 
     @UiField
     @Ignore
@@ -227,9 +223,7 @@ public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel
     @Override
     public void edit(ProviderModel model) {
         providerModel = model;
-        setAgentTabVisibility(model.getNeutronAgentModel().isPluginConfigurationAvailable().getEntity());
         driver.edit(model);
-        neutronAgentWidget.edit(model.getNeutronAgentModel());
         vmwarePropertiesWidget.edit(model.getVmwarePropertiesModel());
         kvmPropertiesWidget.edit(model.getKvmPropertiesModel());
         xenPropertiesWidget.edit(model.getXenPropertiesModel());
@@ -241,7 +235,6 @@ public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel
 
     @Override
     public ProviderModel flush() {
-        neutronAgentWidget.flush();
         vmwarePropertiesWidget.flush();
         kvmPropertiesWidget.flush();
         xenPropertiesWidget.flush();
@@ -283,11 +276,6 @@ public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel
     }
 
     @Override
-    public void setAgentTabVisibility(boolean visible) {
-        agentConfigurationTab.setVisible(visible);
-    }
-
-    @Override
     public void setCurrentActiveProviderWidget() {
         if (providerModel != null) {
             if (providerModel.getDataCenter().getIsAvailable()) {
@@ -297,6 +285,7 @@ public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel
                 typeEditorRow.addStyleName(style.headerSeparator());
                 datacenterEditorRow.removeStyleName(style.headerSeparator());
             }
+            networkingPanel.setVisible(providerModel.getNeutronAgentModel().getIsAvailable());
             kvmPropertiesWidget.setVisible(providerModel.getKvmPropertiesModel().getIsAvailable());
             vmwarePropertiesWidget.setVisible(providerModel.getVmwarePropertiesModel().getIsAvailable());
             xenPropertiesWidget.setVisible(providerModel.getXenPropertiesModel().getIsAvailable());

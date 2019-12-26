@@ -13,8 +13,11 @@ public enum QueryType implements Serializable {
     GetAllVmsFilteredAndSorted(QueryAuthType.User),
     GetAllVmPoolsFilteredAndSorted(QueryAuthType.User),
     GetAllPoolVms,
+    GetUnregisteredVm,
     GetUnregisteredVms,
+    GetUnregisteredVmTemplate,
     GetUnregisteredVmTemplates,
+    GetUnregisteredDiskFromDB,
     GetUnregisteredDisksFromDB,
     GetVmsRunningOnOrMigratingToVds,
     GetVmsByStorageDomain,
@@ -140,6 +143,7 @@ public enum QueryType implements Serializable {
     GetTlvsByHostNicId,
     GetMultipleTlvsByHostId,
     GetExternalNetworkById,
+    GetDnsResolverConfigurationById,
 
     // External network providers
     GetAllExternalNetworksOnProvider,
@@ -176,6 +180,9 @@ public enum QueryType implements Serializable {
     GetAllSupportedNetworkFiltersByVersion,
     GetNetworkFilterById,
     GetClusterNetworkSyncStatus,
+    GetOutOfSyncHostsForCluster,
+    GetOutOfSyncHostNamesForCluster,
+    GetHostsWithMissingFlagsForCluster,
 
     // Certificate
     GetCACertificate(QueryAuthType.User),
@@ -309,6 +316,7 @@ public enum QueryType implements Serializable {
     // License queries
     GetAllServerCpuList(QueryAuthType.User),
     GetSupportedCpuList(QueryAuthType.User),
+    GetCpuByFlags,
 
     // Multi Level Administration queries
     GetAllRoles(QueryAuthType.User),
@@ -382,9 +390,7 @@ public enum QueryType implements Serializable {
 
     // Event Notification
     GetEventSubscribersBySubscriberIdGrouped,
-
-    // oVirt
-    GetoVirtISOs,
+    GetEventSubscription,
 
     // Async Tasks
     GetTasksStatusesByTasksIDs(QueryAuthType.User),

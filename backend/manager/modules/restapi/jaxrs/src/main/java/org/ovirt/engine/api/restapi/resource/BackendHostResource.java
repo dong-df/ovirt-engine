@@ -43,12 +43,14 @@ import org.ovirt.engine.core.common.VdcObjectType;
 import org.ovirt.engine.core.common.action.ActionParametersBase;
 import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.ChangeVDSClusterParameters;
+import org.ovirt.engine.core.common.action.CopyHostNetworksParameters;
 import org.ovirt.engine.core.common.action.CreateOrUpdateBond;
 import org.ovirt.engine.core.common.action.FenceVdsActionParameters;
 import org.ovirt.engine.core.common.action.FenceVdsManualyParameters;
 import org.ovirt.engine.core.common.action.ForceSelectSPMParameters;
 import org.ovirt.engine.core.common.action.HostSetupNetworksParameters;
 import org.ovirt.engine.core.common.action.MaintenanceNumberOfVdssParameters;
+import org.ovirt.engine.core.common.action.PersistentHostSetupNetworksParameters;
 import org.ovirt.engine.core.common.action.RemoveVdsParameters;
 import org.ovirt.engine.core.common.action.StorageServerConnectionParametersBase;
 import org.ovirt.engine.core.common.action.VdsActionParameters;
@@ -144,13 +146,6 @@ public class BackendHostResource extends AbstractBackendActionableResource<Host,
         params.setHostedEngineDeployConfiguration(HostResourceParametersUtil.getHostedEngineDeployConfiguration(this));
         params = (UpdateVdsActionParameters) getMapper
                 (Action.class, VdsOperationActionParameters.class).map(action, params);
-        if (vds.isOvirtVintageNode()) {
-            params.setReinstallOrUpgrade(true);
-            if (action.isSetImage()) {
-                params.setoVirtIsoFile(action.getImage());
-                return doAction(ActionType.UpgradeOvirtNode, params, action);
-            }
-        }
         // Installation is only done in maintenance mode, and should by default leave the host in maintenance mode.
         // this is why the default value for 'activate' here is false (vs in adding or approving a host, where it is 'true')
         boolean activate = action.isSetActivate() ? action.isActivate() :
@@ -169,6 +164,9 @@ public class BackendHostResource extends AbstractBackendActionableResource<Host,
         }
         if (action.isSetReboot()) {
             params.setReboot(action.isReboot());
+        }
+        if (action.isSetTimeout()) {
+            params.setTimeout(action.getTimeout());
         }
 
         return doAction(ActionType.UpgradeHost, params, action);
@@ -225,8 +223,17 @@ public class BackendHostResource extends AbstractBackendActionableResource<Host,
     @Override
     public Response syncAllNetworks(Action action) {
         return doAction(ActionType.SyncAllHostNetworks,
-                new VdsActionParameters(guid),
+                new PersistentHostSetupNetworksParameters(guid),
                 action);
+    }
+
+    @Override
+    public Response copyHostNetworks(Action action) {
+        var parameters = new CopyHostNetworksParameters();
+        Host sourceHost = action.getSourceHost();
+        parameters.setSourceHostId(Guid.createGuidFromString(sourceHost.getId()));
+        parameters.setVdsId(guid);
+        return doAction(ActionType.CopyHostNetworks, parameters, action);
     }
 
     @Override
@@ -602,7 +609,7 @@ public class BackendHostResource extends AbstractBackendActionableResource<Host,
         case MANUAL:
             return fenceManually(action);
         case RESTART:
-            return fence(action, ActionType.RestartVds);
+            return fenceRestart(action);
         case START:
             return fence(action, ActionType.StartVds);
         case STOP:
@@ -648,6 +655,14 @@ public class BackendHostResource extends AbstractBackendActionableResource<Host,
         action.setFault(new Fault());
         action.getFault().setReason(message);
         return Response.ok().entity(action).build();
+    }
+
+    private Response fenceRestart(Action action) {
+        FenceVdsActionParameters params = new FenceVdsActionParameters(guid);
+        if (action.isSetMaintenanceAfterRestart()) {
+            params.setChangeHostToMaintenanceOnStart(action.isMaintenanceAfterRestart());
+        }
+        return doAction(ActionType.RestartVds, params, action);
     }
 
     private Response fence(Action action, ActionType vdcAction) {

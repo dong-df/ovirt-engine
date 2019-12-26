@@ -33,9 +33,10 @@ import org.mockito.quality.Strictness;
 import org.ovirt.engine.core.bll.network.cluster.DefaultManagementNetworkFinder;
 import org.ovirt.engine.core.bll.scheduling.SchedulingManager;
 import org.ovirt.engine.core.bll.validator.InClusterUpgradeValidator;
-import org.ovirt.engine.core.common.action.ManagementNetworkOnClusterOperationParameters;
+import org.ovirt.engine.core.common.action.ClusterOperationParameters;
 import org.ovirt.engine.core.common.businessentities.AdditionalFeature;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
+import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.StoragePool;
 import org.ovirt.engine.core.common.businessentities.SupportedAdditionalClusterFeature;
@@ -93,7 +94,12 @@ public class UpdateClusterCommandTest {
         migrationMap.put("ppc", "true");
 
         return Stream.concat(
-                Stream.of(MockConfigDescriptor.of(ConfigValues.SupportedClusterLevels, versions)),
+                Stream.of(
+                        MockConfigDescriptor.of(ConfigValues.SupportedClusterLevels, versions),
+                        MockConfigDescriptor.of(ConfigValues.BiosTypeSupported, VERSION_1_0, true),
+                        MockConfigDescriptor.of(ConfigValues.BiosTypeSupported, VERSION_1_1, true),
+                        MockConfigDescriptor.of(ConfigValues.BiosTypeSupported, VERSION_1_2, true)
+                ),
                 // Permute the migration map to all supported versions
                 versions.stream().map(v -> MockConfigDescriptor.of(ConfigValues.IsMigrationSupported, v, migrationMap))
         );
@@ -124,6 +130,8 @@ public class UpdateClusterCommandTest {
     @Mock
     private CpuFlagsManagerHandler cpuFlagsManagerHandler;
     @Mock
+    private ClusterCpuFlagsManager clusterCpuFlagsManager;
+    @Mock
     private MoveMacs moveMacs;
     @Mock
     private SchedulingManager schedulingManager;
@@ -138,8 +146,8 @@ public class UpdateClusterCommandTest {
 
     @Spy
     @InjectMocks
-    private UpdateClusterCommand<ManagementNetworkOnClusterOperationParameters> cmd =
-            new UpdateClusterCommand<>(new ManagementNetworkOnClusterOperationParameters(), null);
+    private UpdateClusterCommand<ClusterOperationParameters> cmd =
+            new UpdateClusterCommand<>(new ClusterOperationParameters(), null);
 
     @Test
     public void nameInUse() {
@@ -698,6 +706,7 @@ public class UpdateClusterCommandTest {
         group.setArchitecture(ArchitectureType.x86_64);
         group.setClusterPolicyId(Guid.newGuid());
         group.setMaxVdsMemoryOverCommit(100);
+        group.setBiosType(BiosType.I440FX_SEA_BIOS);
         return group;
     }
 
@@ -855,7 +864,7 @@ public class UpdateClusterCommandTest {
     }
 
     private void cpuFlagsNotMissing() {
-        doReturn(null).when(cmd).missingServerCpuFlags(any());
+        doReturn(Collections.emptyList()).when(cmd).missingServerCpuFlags(any());
     }
 
     private void cpuManufacturersDontMatch() {

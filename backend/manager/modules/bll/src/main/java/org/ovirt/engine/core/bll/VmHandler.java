@@ -13,27 +13,32 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import javax.annotation.PostConstruct;
+import javax.enterprise.concurrent.ManagedScheduledExecutorService;
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang.exception.ExceptionUtils;
 import org.ovirt.engine.core.bll.context.CompensationContext;
 import org.ovirt.engine.core.bll.interfaces.BackendInternal;
 import org.ovirt.engine.core.bll.network.macpool.MacPool;
+import org.ovirt.engine.core.bll.snapshots.SnapshotVmConfigurationHelper;
 import org.ovirt.engine.core.bll.snapshots.SnapshotsManager;
 import org.ovirt.engine.core.bll.storage.disk.image.DisksFilter;
+import org.ovirt.engine.core.bll.storage.domain.IsoDomainListSynchronizer;
 import org.ovirt.engine.core.bll.utils.CompensationUtils;
 import org.ovirt.engine.core.bll.utils.PermissionSubject;
 import org.ovirt.engine.core.bll.utils.VmDeviceUtils;
 import org.ovirt.engine.core.bll.validator.VmValidationUtils;
 import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.BackendService;
-import org.ovirt.engine.core.common.FeatureSupported;
 import org.ovirt.engine.core.common.VdcObjectType;
 import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.VmManagementParametersBase;
@@ -49,6 +54,8 @@ import org.ovirt.engine.core.common.businessentities.GraphicsDevice;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
 import org.ovirt.engine.core.common.businessentities.GuestAgentStatus;
 import org.ovirt.engine.core.common.businessentities.Snapshot;
+import org.ovirt.engine.core.common.businessentities.StoragePool;
+import org.ovirt.engine.core.common.businessentities.StoragePoolStatus;
 import org.ovirt.engine.core.common.businessentities.TransientField;
 import org.ovirt.engine.core.common.businessentities.UsbPolicy;
 import org.ovirt.engine.core.common.businessentities.VDS;
@@ -65,6 +72,7 @@ import org.ovirt.engine.core.common.businessentities.VmResumeBehavior;
 import org.ovirt.engine.core.common.businessentities.VmStatic;
 import org.ovirt.engine.core.common.businessentities.VmType;
 import org.ovirt.engine.core.common.businessentities.VmWatchdog;
+import org.ovirt.engine.core.common.businessentities.aaa.DbUser;
 import org.ovirt.engine.core.common.businessentities.network.VmNetworkInterface;
 import org.ovirt.engine.core.common.businessentities.network.VmNic;
 import org.ovirt.engine.core.common.businessentities.storage.CinderDisk;
@@ -72,6 +80,7 @@ import org.ovirt.engine.core.common.businessentities.storage.Disk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskInterface;
 import org.ovirt.engine.core.common.businessentities.storage.DiskVmElement;
+import org.ovirt.engine.core.common.businessentities.storage.RepoImage;
 import org.ovirt.engine.core.common.config.Config;
 import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.errors.EngineError;
@@ -88,6 +97,7 @@ import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.common.utils.VmCommonUtils;
 import org.ovirt.engine.core.common.utils.VmDeviceType;
 import org.ovirt.engine.core.common.utils.VmDeviceUpdate;
+import org.ovirt.engine.core.common.utils.customprop.VmPropertiesUtils;
 import org.ovirt.engine.core.common.validation.VmActionByVmOriginTypeValidator;
 import org.ovirt.engine.core.common.vdscommands.SetVmStatusVDSCommandParameters;
 import org.ovirt.engine.core.common.vdscommands.UpdateVmDynamicDataVDSCommandParameters;
@@ -100,8 +110,10 @@ import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogable;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogableImpl;
 import org.ovirt.engine.core.dao.DiskDao;
+import org.ovirt.engine.core.dao.DiskImageDao;
 import org.ovirt.engine.core.dao.DiskVmElementDao;
 import org.ovirt.engine.core.dao.SnapshotDao;
+import org.ovirt.engine.core.dao.StoragePoolDao;
 import org.ovirt.engine.core.dao.VdsDao;
 import org.ovirt.engine.core.dao.VmDao;
 import org.ovirt.engine.core.dao.VmDynamicDao;
@@ -111,6 +123,7 @@ import org.ovirt.engine.core.dao.network.VmNetworkInterfaceDao;
 import org.ovirt.engine.core.utils.ObjectIdentityChecker;
 import org.ovirt.engine.core.utils.ReplacementUtils;
 import org.ovirt.engine.core.utils.lock.LockManager;
+import org.ovirt.engine.core.utils.threadpool.ThreadPools;
 import org.ovirt.engine.core.utils.transaction.TransactionSupport;
 import org.ovirt.engine.core.vdsbroker.ResourceManager;
 import org.ovirt.engine.core.vdsbroker.VmManager;
@@ -141,6 +154,9 @@ public class VmHandler implements BackendService {
     private VDSBrokerFrontend vdsBrokerFrontend;
 
     @Inject
+    private IsoDomainListSynchronizer isoDomainListSynchronizer;
+
+    @Inject
     private VdsDao vdsDao;
 
     @Inject
@@ -162,10 +178,19 @@ public class VmHandler implements BackendService {
     private DiskDao diskDao;
 
     @Inject
+    private DiskImageDao diskImageDao;
+
+    @Inject
     private DiskVmElementDao diskVmElementDao;
 
     @Inject
     private SnapshotDao snapshotDao;
+
+    @Inject
+    private StoragePoolDao storagePoolDao;
+
+    @Inject
+    protected SnapshotVmConfigurationHelper snapshotVmConfigurationHelper;
 
     @Inject
     private SnapshotsManager snapshotsManager;
@@ -178,6 +203,10 @@ public class VmHandler implements BackendService {
 
     @Inject
     private OsRepository osRepository;
+
+    @Inject
+    @ThreadPools(ThreadPools.ThreadPoolType.EngineScheduledThreadPool)
+    private ManagedScheduledExecutorService executor;
 
     private ObjectIdentityChecker updateVmsStatic;
 
@@ -228,16 +257,44 @@ public class VmHandler implements BackendService {
                 updateVmsStatic.addHostedEngineFields(fieldName);
             }
         }
+        enableVmsToolVersionCheck();
     }
 
+    void enableVmsToolVersionCheck() {
+        executor.scheduleWithFixedDelay(this::performToolsVersionCheck,
+                Config.<Integer>getValue(ConfigValues.WindowsGuestAgentUpdateCheckInternal),
+                Config.<Integer>getValue(ConfigValues.WindowsGuestAgentUpdateCheckInternal),
+                TimeUnit.SECONDS);
+    }
+
+    private void performToolsVersionCheck() {
+        try {
+            List<StoragePool> storagePools = storagePoolDao.getAllByStatus(StoragePoolStatus.Up);
+            for (StoragePool sp : storagePools) {
+                Guid storagePoolId = sp.getId();
+                // If ISO Domains is active on the SP, the IsoDomainListSynchronizer will have interval check
+                // therefore we skip the check here.
+                if (isoDomainListSynchronizer.findActiveISODomain(storagePoolId) == null) {
+                    refreshVmsToolsVersion(storagePoolId, Set.of());
+                }
+            }
+        } catch (Throwable t){
+            log.error("Exception while checking guest tools version: {}", ExceptionUtils.getRootCauseMessage(t));
+            log.debug("Exception", t);
+        }
+    }
     public boolean isUpdateValid(VmStatic source, VmStatic destination, VMStatus status) {
         return source.isManagedHostedEngine() ?
                 updateVmsStatic.isHostedEngineUpdateValid(source, destination)
                 : updateVmsStatic.isUpdateValid(source, destination, status);
     }
 
-    public List<String> getChangedFieldsForStatus(VmStatic source, VmStatic destination, VMStatus status) {
-        return updateVmsStatic.getChangedFieldsForStatus(source, destination, status);
+    public Set<String> getChangedFieldsForStatus(VmStatic source, VmStatic destination, VmManagementParametersBase params, VMStatus status) {
+        List<String> fields = updateVmsStatic.getChangedFieldsForStatus(source, destination, status);
+        List<VmDeviceUpdate> devices = getVmDevicesFieldsToUpdateOnNextRun(source.getId(), status, params);
+
+        fields.addAll(devices.stream().map(VmDeviceUpdate::getName).collect(Collectors.toList()));
+        return new HashSet<>(fields);
     }
 
     public boolean isUpdateValid(VmStatic source, VmStatic destination, VMStatus status, boolean hotsetEnabled) {
@@ -585,6 +642,61 @@ public class VmHandler implements BackendService {
         }
     }
 
+    public void updateNextRunChangedFields(final VM currentVM, DbUser user, boolean isFiltered) {
+        if (currentVM.isNextRunConfigurationExists()) {
+            VM nextVM = getNextRunVmConfiguration(currentVM.getId(), user.getId(), isFiltered, true);
+            if (nextVM == null) {
+                return;
+            }
+            currentVM.setNextRunChangedFields(
+                getChangedFieldsForStatus(
+                    currentVM.getStaticData(),
+                    nextVM.getStaticData(),
+                    createVmManagementParametersBase(nextVM),
+                    VMStatus.Up));
+        }
+    }
+
+    public void updateConfiguredCpuVerb(final VM vm) {
+        String configuredCpuVerb = cpuFlagsManagerHandler.getCpuId(
+                        vm.getClusterCpuName(),
+                        vm.getCompatibilityVersion());
+        vm.setConfiguredCpuVerb(configuredCpuVerb);
+    }
+
+    public VmManagementParametersBase createVmManagementParametersBase(VM vm) {
+        VmManagementParametersBase params = new VmManagementParametersBase(vm);
+        List<VmDevice> devices = new ArrayList<>(vm.getManagedVmDeviceMap().values());
+
+        vmDeviceUtils.updateVmDevicesInParameters(params, devices);
+
+        return params;
+    }
+
+    public VM getNextRunVmConfiguration(Guid vmID, Guid userID, boolean isFiltered, boolean loadAdditionalInformation) {
+        Snapshot snapshot = snapshotDao.get(
+                vmID, Snapshot.SnapshotType.NEXT_RUN, userID, isFiltered);
+        if (snapshot == null) {
+            return null;
+        }
+        VM nextVM = snapshotVmConfigurationHelper.getVmFromConfiguration(snapshot);
+        if (nextVM == null) {
+            return null;
+        }
+
+        VmPropertiesUtils.getInstance().separateCustomPropertiesToUserAndPredefined(
+            nextVM.getCompatibilityVersion(), nextVM.getStaticData());
+
+        if (loadAdditionalInformation) {
+            // update information that is not saved in the config
+            updateDisksFromDb(nextVM);
+            updateVmGuestAgentVersion(nextVM);
+            updateNetworkInterfacesFromDb(nextVM);
+            updateVmStatistics(nextVM);
+        }
+        return nextVM;
+    }
+
     /**
      * Checks the validity of the given memory size according to OS type.
      *
@@ -851,8 +963,9 @@ public class VmHandler implements BackendService {
                 updates.add(new VmDeviceUpdate(generalType, type, readOnly, name, (VmDevice) value));
             }
         } else if (value instanceof VmWatchdog) {
-            if (vmDeviceUtils.vmDeviceChanged(vmId, generalType, typeName, ((VmWatchdog) value).getVmDevice())) {
-                updates.add(new VmDeviceUpdate(generalType, type, readOnly, name,  ((VmWatchdog) value).getVmDevice()));
+            VmDevice watchdogDevice = ((VmWatchdog) value).createVmDevice();
+            if (vmDeviceUtils.vmDeviceChanged(vmId, generalType, typeName, watchdogDevice)) {
+                updates.add(new VmDeviceUpdate(generalType, type, readOnly, name,  watchdogDevice));
             }
         } else {
             log.warn("addDeviceUpdateOnNextRun: Unsupported value type: " +
@@ -950,12 +1063,9 @@ public class VmHandler implements BackendService {
         return ValidationResult.VALID;
     }
 
-    private static final Pattern TOOLS_PATTERN = Pattern.compile(".*rhev-tools\\s+([\\d\\.]+).*");
+    private static final Pattern TOOLS_PATTERN_1 = Pattern.compile("rhev-tools\\s+([\\d\\.]+)");
+    private static final Pattern TOOLS_PATTERN_2 = Pattern.compile("ovirt guest tools\\s+([\\d\\.-]+)");
     private static final Pattern QEMU_GA_PATTERN = Pattern.compile("(?i:qemu-guest-agent-|QEMU guest agent)");
-    // FIXME: currently oVirt-ToolsSetup is not present in app_list when it does
-    // ISO_VERSION_PATTERN should address this pattern as well as the TOOLS_PATTERN
-    // if the name will be different.
-    private static final Pattern ISO_VERSION_PATTERN = Pattern.compile(".*rhe?v-toolssetup_(\\d\\.\\d\\_\\d).*");
 
     private void updateOvirtGuestAgentStatus(VM vm, GuestAgentStatus ovirtGuestAgentStatus) {
         if (vm.getOvirtGuestAgentStatus() != ovirtGuestAgentStatus) {
@@ -981,7 +1091,10 @@ public class VmHandler implements BackendService {
      *            list of iso file names
      */
     public void refreshVmsToolsVersion(Guid poolId, Set<String> isoList) {
-        String latestVersion = getLatestGuestToolsVersion(isoList);
+        Set<String> isoNamesAsSet = diskImageDao.getIsoDisksForStoragePoolAsRepoImages(poolId).stream()
+                .map(RepoImage::getRepoImageName).collect(Collectors.toSet());
+        isoNamesAsSet.addAll(isoList);
+        String latestVersion = getLatestGuestToolsVersion(isoNamesAsSet);
         if (latestVersion == null) {
             return;
         }
@@ -994,19 +1107,37 @@ public class VmHandler implements BackendService {
     }
 
     private void maybeUpdateOvirtGuestAgentStatus(String latestVersion, VM vm) {
-        if (vm.getAppList() != null && vm.getAppList().toLowerCase().contains("rhev-tools")) {
-            Matcher m = TOOLS_PATTERN.matcher(vm.getAppList().toLowerCase());
-            if (m.matches() && m.groupCount() > 0) {
-                String toolsVersion = m.group(1);
-                if (toolsVersion.compareTo(latestVersion) < 0) {
-                    updateOvirtGuestAgentStatus(vm, GuestAgentStatus.UpdateNeeded);
-                } else {
-                    updateOvirtGuestAgentStatus(vm, GuestAgentStatus.Exists);
-                }
+        String toolsVersion = currentOvirtGuestAgentVersion(vm);
+        if (toolsVersion != null) {
+            if (toolsVersion.compareTo(latestVersion) < 0) {
+                updateOvirtGuestAgentStatus(vm, GuestAgentStatus.UpdateNeeded);
+            } else {
+                updateOvirtGuestAgentStatus(vm, GuestAgentStatus.Exists);
             }
         } else {
             updateOvirtGuestAgentStatus(vm, GuestAgentStatus.DoesntExist);
         }
+    }
+
+    public String currentOvirtGuestAgentVersion(VM vm) {
+        if (vm.getAppList() != null){
+            if (vm.getAppList().toLowerCase().contains("rhev-tools")) {
+                Matcher m = TOOLS_PATTERN_1.matcher(vm.getAppList().toLowerCase());
+                if (m.find() && m.groupCount() > 0) {
+                    return m.group(1);
+                }
+            } else if (vm.getAppList().toLowerCase().contains("ovirt guest tools")) {
+                Matcher m = TOOLS_PATTERN_2.matcher(vm.getAppList().toLowerCase());
+                if (m.find() && m.groupCount() > 0) {
+                    return String.join(".",
+                            Arrays.asList(m.group(1)
+                                    .replace("-", ".")
+                                    .split("\\."))
+                                    .subList(0, 3));
+                }
+            }
+        }
+        return null;
     }
 
 
@@ -1026,12 +1157,15 @@ public class VmHandler implements BackendService {
      *            list of iso file names
      * @return latest iso version or null if no iso tools was found
      */
-    protected static String getLatestGuestToolsVersion(Set<String> isoList) {
-        String latestVersion = null;
+    protected String getLatestGuestToolsVersion(Set<String> isoList) {
+        Version latestVersion = null;
+        Pattern toolsPattern = Pattern.compile(isoDomainListSynchronizer.getRegexToolPattern());
         for (String iso: isoList) {
-            Matcher m = ISO_VERSION_PATTERN.matcher(iso.toLowerCase());
-            if (m.matches() && m.groupCount() > 0) {
-                String isoVersion = m.group(1).replace('_', '.');
+            Matcher m = toolsPattern.matcher(iso.toLowerCase());
+            if (m.find()) {
+                Version isoVersion = new Version(String.join(".",
+                        m.group(IsoDomainListSynchronizer.TOOL_CLUSTER_LEVEL),
+                        m.group(IsoDomainListSynchronizer.TOOL_VERSION)));
                 if (latestVersion == null) {
                     latestVersion = isoVersion;
                 } else if (latestVersion.compareTo(isoVersion) < 0) {
@@ -1039,7 +1173,7 @@ public class VmHandler implements BackendService {
                 }
             }
         }
-        return latestVersion;
+        return latestVersion != null ? latestVersion.toString() : null;
     }
 
     /**
@@ -1096,14 +1230,9 @@ public class VmHandler implements BackendService {
     }
 
     public void autoSelectResumeBehavior(VmBase vmBase, Version clusterVersion) {
-        Version version = CompatibilityVersionUtils.getEffective(vmBase.getCustomCompatibilityVersion(),
-                () -> clusterVersion);
-
-        if (FeatureSupported.isResumeBehaviorSupported(version)) {
-            if (vmBase.isAutoStartup() && vmBase.getLeaseStorageDomainId() != null) {
-                // since 4.2 the only supported resume behavior for HA vms with lease is kill
-                vmBase.setResumeBehavior(VmResumeBehavior.KILL);
-            }
+        if (vmBase.isAutoStartup() && vmBase.getLeaseStorageDomainId() != null) {
+            // since 4.2 the only supported resume behavior for HA vms with lease is kill
+            vmBase.setResumeBehavior(VmResumeBehavior.KILL);
         }
     }
 
@@ -1291,7 +1420,7 @@ public class VmHandler implements BackendService {
      * @see ColdRebootAutoStartVmsRunner
      */
     public void setVmDestroyOnReboot(VM vm) {
-        if (FeatureSupported.isDestroyOnRebootSupported(vm.getCompatibilityVersion()) && vm.isRunning()) {
+        if (vm.isRunning()) {
             vdsBrokerFrontend.runVdsCommand(VDSCommandType.SetDestroyOnReboot,
                     new VdsAndVmIDVDSParametersBase(vm.getRunOnVds(), vm.getId()));
         }

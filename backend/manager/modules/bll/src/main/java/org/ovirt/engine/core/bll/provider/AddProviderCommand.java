@@ -25,12 +25,21 @@ public class AddProviderCommand<P extends ProviderParameters> extends CommandBas
     @Inject
     private ProviderProxyFactory providerProxyFactory;
 
+    private ProviderProxy<?> providerProxy;
+
     public AddProviderCommand(Guid commandId) {
         super(commandId);
     }
 
     public AddProviderCommand(P parameters, CommandContext cmdContext) {
         super(parameters, cmdContext);
+    }
+
+    @Override
+    protected void init() {
+        if (getProvider() != null) {
+            getProvider().setId(Guid.newGuid());
+        }
     }
 
     private Provider<?> getProvider() {
@@ -41,9 +50,7 @@ public class AddProviderCommand<P extends ProviderParameters> extends CommandBas
         return getProvider().getName();
     }
 
-    private ProviderProxy providerProxy;
-
-    public ProviderProxy getProviderProxy() {
+    public ProviderProxy<?> getProviderProxy() {
         if (providerProxy == null) {
             providerProxy = providerProxyFactory.create(getProvider());
         }
@@ -55,28 +62,22 @@ public class AddProviderCommand<P extends ProviderParameters> extends CommandBas
         if (getProvider() == null) {
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_PROVIDER_DOESNT_EXIST);
         }
-        ProviderProxy providerProxy = getProviderProxy();
-        if (providerProxy == null) {
+        if (getProviderProxy() == null) {
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_PROVIDER_NOT_SUPPORTED,
                     String.format("$providerType %1$s", getProvider().getType()));
         }
-        ProviderValidator validator = getProviderProxy().getProviderValidator();
+        ProviderValidator<?> validator = getProviderProxy().getProviderValidator();
         return validate(validator.nameAvailable())
                 && validate(validator.validateAuthUrl())
-                && validate(validator.validateAddProvider());
+                && validate(validator.validateAddProvider())
+                && validate(validator.validateOpenStackImageConstraints());
     }
 
     @Override
     protected void executeCommand() {
-        getProvider().setId(Guid.newGuid());
         providerDao.save(getProvider());
-
-        ProviderProxy providerProxy = getProviderProxy();
-        if (providerProxy != null) {
-            providerProxy.onAddition();
-        }
-
-        getReturnValue().setActionReturnValue(getProvider().getId());
+        getProviderProxy().onAddition();
+        setActionReturnValue(getProvider().getId());
         setSucceeded(true);
     }
 

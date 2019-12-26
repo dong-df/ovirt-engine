@@ -6,7 +6,8 @@
 
 Install the following system components:
 
-- jdk-8 / openjdk-8-jdk / icedtea-8
+- java-11-openjdk-devel
+- java-1.8.0-openjdk-headless
 - mime-types or mailcap
 - unzip
 - openssl
@@ -23,20 +24,81 @@ Install the following system components:
 - otopi >= 1.1.0
 - ovirt-host-deploy >= 1.1.0
 - ovirt-setup-lib
-- maven-3
+- maven-3 >= 3.5
 - ansible >= 2.7.2
+- ansible-runner-service-dev >= 1.0.1
 - ovirt-ansible-roles >= 1.1.6
 - ovirt-engine-metrics
 - python-ovirt-engine-sdk4
+- ansible-lint / python3-ansible-lint
 - python-flake8 / pyflakes (optional)
 - python-pep8 / pep8 (optional)
 - python-docker-py (optional)
 - python2-isort (optional)
 
-Maven-3 is required, download and extract if not installed using
+=== Note on Java versions
+
+The project is built and run using java 11. 4.3 branches and earlier are excluded.
+The only exception is GWT code, which still needs to be compiled using jdk-8,
+and that it because the gwt version doesn't support the language syntax, and solid
+support for it is not imminent. That's why jdk-8 is needed only for build-time
+, and only for GWT, specifically the javac command.
+
+=== Prepare your dev envrionment for java 11
+
+- Use `alternatives` command to configure `java` and `javac` to version 11:
+```console
+$ sudo alternatives --config java
+
+There are 4 programs which provide 'java'.
+
+  Selection    Command
+-----------------------------------------------
+   1           java-latest-openjdk.x86_64 (/usr/lib/jvm/java-12-openjdk-12.0.1.12-1.rolling.fc30.x86_64/bin/java)
+   2           java (/opt/jdk-9/bin/java)
+   3           java-11-openjdk.x86_64 (/usr/lib/jvm/java-11-openjdk-11.0.3.7-5.fc30.x86_64/bin/java)
+*+ 4           java-1.8.0-openjdk.x86_64 (/usr/lib/jvm/java-1.8.0-openjdk-1.8.0.212.b04-0.fc30.x86_64/jre/bin/java)
+
+Enter to keep the current selection[+], or type selection number: 3
+
+$ sudo alternatives --config javac
+
+There are 2 programs which provide 'javac'.
+
+  Selection    Command
+-----------------------------------------------
+*+ 1           java-1.8.0-openjdk.x86_64 (/usr/lib/jvm/java-1.8.0-openjdk-1.8.0.212.b04-0.fc30.x86_64/bin/javac)
+   2           java-11-openjdk.x86_64 (/usr/lib/jvm/java-11-openjdk-11.0.3.7-5.fc30.x86_64/bin/javac)
+
+Enter to keep the current selection[+], or type selection number: 2
+
+```
+- Maven >= 3.5 is required, download and extract if not installed using
 distribution package management, and add to PATH.
 
-WildFly 11 is required along with ovirt-engine-wildfly-overlay. Preferred way
+Fedora 30
+```console
+$ sudo dnf module install maven
+```
+Centos 7 - follow this https://www.softwarecollections.org/en/scls/rhscl/rh-maven35/
+
+- verify your `mvn` version:
+```console
+$ mvn -v | head -1
+Apache Maven 3.5.4 (Red Hat 3.5.4-5)
+
+```
+
+- export `JAVA_HOME` if `mvn` is not executing using java-11:
+```console
+#put this in your ~/.bashrc
+$ export JAVA_HOME=/lib/jvm/java-11
+
+$ mvn -v | grep "Java version: "
+Java version: 11.0.4, vendor: Oracle Corporation, runtime: /usr/lib/jvm/java-11-openjdk-11.0.4.11-0.fc30.x86_64
+```
+
+WildFly 15 is required along with ovirt-engine-wildfly-overlay. Preferred way
 is to install following packages:
 
 - ovirt-engine-wildfly
@@ -69,6 +131,7 @@ Install additional packages for Fedora:
 
   $ sudo yum install -y \
         ansible \
+        ansible-runner-service-dev \
         bind-utils \
         libxml2-python \
         m2crypto \
@@ -117,6 +180,13 @@ accessible from the outside. For example, on fedora:
     firewall-cmd --add-port=8080/tcp --permanent
     firewall-cmd --add-port=8443/tcp --permanent
     firewall-cmd --add-port=8787/tcp --permanent
+
+If you also want to connect to the database from the outside:
+
+   firewall-cmd --add-port=5432/tcp --permanent
+
+Finally, apply changes using:
+
     firewall-cmd --reload
 
 If compiling in a virtual machine, javac might experience difficulties on guests with dynamically growing RAM so it's
@@ -140,6 +210,8 @@ Locate `pg_hba.conf` within your distribution, common locations are:
 Within `pg_hba.conf` set method to `password` for `127.0.0.1/32` and
 `::1/128` for IPv4 and IPv6 local connections correspondingly.
 
+If you want to make postgres accessible from the outside, change `127.0.0.1/32` to `0.0.0.0/0` and `::1/128` to `::/0`.
+
 Tune PostgreSQL configuration:
 Locate `postgresql.conf` within your distribution, common locations are:
 
@@ -147,13 +219,18 @@ Locate `postgresql.conf` within your distribution, common locations are:
 - `/etc/postgresql*`
 - `/var/opt/rh/rh-postgresql10/lib/pgsql/data/postgresql.conf` (el7 with rh-postgresql10)
 
-Within `postgresql.conf` set:
+Within `postgresql.conf` make sure following values are set:
 
+  max_connections = 150
+  work_mem = 8MB
+  autovacuum_max_workers = 6
   autovacuum_vacuum_scale_factor = 0.01
   autovacuum_analyze_scale_factor = 0.075
-  autovacuum_max_workers = 6
-  max_connections = 150
-  work_mem = 8192
+  maintenance_work_mem = 64MB
+
+If you want to connect from the outside, set also:
+
+  listen_addresses = '*'
 
 Enable and start (`systemctl enable rh-postgresql10-postgresql --now`) or restart the PostgreSQL service
 (`systemctl restart rh-postgresql10-postgresql` for the SCL one).
@@ -169,10 +246,33 @@ work to create a user named `engine` that owns database named `engine`:
   template1=# drop database engine;
   template1=# create database engine owner engine template template0
   encoding 'UTF8' lc_collate 'en_US.UTF-8' lc_ctype 'en_US.UTF-8';
+  template1=# \q
 
 Enable uuid-ossp extension for the database:
 
- su - postgres -c "psql -d engine -c \"CREATE EXTENSION \\\"uuid-ossp\\\";\""
+  # su - postgres -c "psql -d engine" # if on fedora or
+  # su - postgres -c "scl enable rh-postgresql10 -- psql -d engine" # if on el7 with rh-postgresql10
+  engine=# CREATE EXTENSION "uuid-ossp";
+  engine=# \q
+
+=== Ansible Runner Service configration
+
+Since oVirt 4.4 the engine is integrated with Ansible Runner Service. To properly integrate the development
+environment with the Ansible Runner Service, you need to edit `/etc/ansible-runner-service/config.yaml` file
+as follows:
+
+  ---
+  playbooks_root_dir: '$PREFIX/share/ovirt-engine/ansible-runner-service-project'
+  ssh_private_key: '$PREFIX/etc/pki/ovirt-engine/keys/engine_id_rsa'
+  port: 50001
+  target_user: root
+
+Where `$PREFIX` is the prefix of your development environment, which you've specified during the compilation of the engine.
+
+After edditing the file, make sure you've restarted the Ansible Runner Service service:
+
+  # systemctl restart ansible-runner-service
+  # systemctl enable ansible-runner-service
 
 == Development
 
@@ -213,6 +313,10 @@ all-dev:: Build project for development.
 install-dev:: Install a development environment at PREFIX.
 dist:: Create source tarball out of git repository.
 maven:: Force execution of maven.
+generated-files:: Create file from templates (.in files).
++
+  When creating new templates, generated files will be automatically appears in .gitignore, updated .gitignore should be part of commiting new templates.
++
 
 ==== Build customization
 
@@ -301,9 +405,27 @@ For example, to build only the English and Japanese locale:
 +
 To build for all supported locales, use `BUILD_LOCALES=1`.
 
++
+For example to build engine without obfuscated Javascript code:
++
+    DEV_EXTRA_BUILD_FLAGS_GWT_DEFAULTS="-Dgwt.style=pretty"
++
+
++
+To build engine without obfuscated CSS styles:
++
+    DEV_EXTRA_BUILD_FLAGS_GWT_DEFAULTS="-Dgwt.cssResourceStyle=pretty"
++
 
 DEV_REBUILD:: Disable if only packaging components were modified.
 Default is `1`.
+
+PY_VERSION:: Python defaults to python3 if available, use PY_VERSION=2
+in order to override. +
+This options affects various services and several features written in python.
+
+NOTE: `engine-setup` which runs otopi, uses different customized variable `OTOPI_PYTHON`
+
 
 WILDFLY_OVERLAY_MODULES:: Change location of WildFly overlay modules.
 If you want to disable WildFly overlay configuration completely, please
@@ -315,6 +437,11 @@ set to empty string. Default is
 To setup the product use the following command:
 
   $ "${PREFIX}/bin/engine-setup"
+
+NOTE: [1] If on el7, make sure you run `scl enable rh-postgresql10 bash` first. +
+[2] otopi, and therefore engine-setup, now defaults to python3 except el7, use: +
+`$  OTOPI_PYTHON=/usr/bin/python2 "${PREFIX}/bin/engine-setup"` +
+to override.
 
 During engine setup, a certificate has to be issued and you will be asked for a hostname. If you want to use
 imageio-proxy along with the engine, it has to be the name by which your machine is accessible from the outside.

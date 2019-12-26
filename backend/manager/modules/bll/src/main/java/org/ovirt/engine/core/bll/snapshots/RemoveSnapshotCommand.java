@@ -1,8 +1,5 @@
 package org.ovirt.engine.core.bll.snapshots;
 
-import static org.ovirt.engine.core.bll.storage.disk.image.DisksFilter.ONLY_ACTIVE;
-import static org.ovirt.engine.core.bll.storage.disk.image.DisksFilter.ONLY_NOT_SHAREABLE;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -34,7 +31,6 @@ import org.ovirt.engine.core.bll.validator.storage.DiskImagesValidator;
 import org.ovirt.engine.core.bll.validator.storage.MultipleStorageDomainsValidator;
 import org.ovirt.engine.core.bll.validator.storage.StoragePoolValidator;
 import org.ovirt.engine.core.common.AuditLogType;
-import org.ovirt.engine.core.common.FeatureSupported;
 import org.ovirt.engine.core.common.VdcObjectType;
 import org.ovirt.engine.core.common.action.ActionParametersBase;
 import org.ovirt.engine.core.common.action.ActionParametersBase.EndProcedure;
@@ -153,7 +149,7 @@ public class RemoveSnapshotCommand<T extends RemoveSnapshotParameters> extends V
         final Snapshot snapshot = snapshotDao.get(getParameters().getSnapshotId());
 
         boolean snapshotHasImages = hasImages();
-        boolean removeSnapshotMemory = isMemoryVolumeRemoveable(snapshot);
+        boolean removeSnapshotMemory = isMemoryVolumeRemovable(snapshot);
 
         // If the VM hasn't got any images and memory - simply remove the snapshot.
         // No need for locking, VDSM tasks, and all that jazz.
@@ -191,9 +187,9 @@ public class RemoveSnapshotCommand<T extends RemoveSnapshotParameters> extends V
 
     /**
      * There is a one to many relation between memory volumes and snapshots, so memory
-     * volumes should be removed only if the only snapshot that points to them is removed
+     * volumes should be removed only if the only snapshot that points to them is removed.
      */
-    protected boolean isMemoryVolumeRemoveable(Snapshot snapshot) {
+    private boolean isMemoryVolumeRemovable(Snapshot snapshot) {
         return snapshot.containsMemory() && snapshotDao.getNumOfSnapshotsByDisks(snapshot) == 1;
     }
 
@@ -255,7 +251,7 @@ public class RemoveSnapshotCommand<T extends RemoveSnapshotParameters> extends V
             handleCinderSnapshotDisks(cinderDisks);
         }
 
-        managedBlockDisks.forEach(disk -> removeManagedBlockSnapshot(disk));
+        managedBlockDisks.forEach(this::removeManagedBlockSnapshot);
     }
 
     private void removeManagedBlockSnapshot(ManagedBlockStorageDisk disk) {
@@ -421,7 +417,7 @@ public class RemoveSnapshotCommand<T extends RemoveSnapshotParameters> extends V
      *
      * @return True if there is enough space in all relevant storage domains. False otherwise.
      */
-    protected boolean validateStorageDomains() {
+    private boolean validateStorageDomains() {
         MultipleStorageDomainsValidator storageDomainsValidator = getStorageDomainsValidator(getStoragePoolId(), getStorageDomainsIds());
         if (DisksFilter.filterImageDisks(getSourceImages()).isEmpty()) {
             return true;
@@ -434,13 +430,12 @@ public class RemoveSnapshotCommand<T extends RemoveSnapshotParameters> extends V
     }
 
     /**
-     * The base snapshot is the parent of the top snapshot. This is reversed the if old cold merge
-     * is performed (pre-4.1).
+     * The base snapshot is the parent of the top snapshot.
      *
      * @param snapshots list of the parent snapshot disks
      * @return list of subchains which contain the base and top snapshots.
      */
-    protected List<SubchainInfo> getAllDisksSnapshot(List<DiskImage> snapshots) {
+    private List<SubchainInfo> getAllDisksSnapshot(List<DiskImage> snapshots) {
         Set<DiskImage> topSnapshots = diskImageDao.getAllSnapshotsForParents(
                 snapshots
                     .stream()
@@ -454,13 +449,7 @@ public class RemoveSnapshotCommand<T extends RemoveSnapshotParameters> extends V
 
         return topSnapshots
             .stream()
-            .map(topSnapshot -> {
-                if (!isQemuimgCommitSupported() && getSnapshotActionType() == ActionType.RemoveSnapshotSingleDisk) {
-                    return new SubchainInfo(topSnapshot, baseSnapshotMap.get(topSnapshot.getParentId()));
-                } else {
-                    return new SubchainInfo(baseSnapshotMap.get(topSnapshot.getParentId()), topSnapshot);
-                }
-            })
+            .map(topSnapshot -> new SubchainInfo(baseSnapshotMap.get(topSnapshot.getParentId()), topSnapshot))
             .collect(Collectors.toList());
     }
 
@@ -478,15 +467,15 @@ public class RemoveSnapshotCommand<T extends RemoveSnapshotParameters> extends V
         addValidationMessage(EngineMessage.VAR__ACTION__REMOVE);
     }
 
-    protected boolean validateVmSnapshotDisksNotDuringMerge() {
+    private boolean validateVmSnapshotDisksNotDuringMerge() {
         return validate(snapshotsValidator.vmSnapshotDisksNotDuringMerge(getVmId(), getParameters().getSnapshotId()));
     }
 
-    protected boolean validateVmNotInPreview() {
+    private boolean validateVmNotInPreview() {
         return validate(snapshotsValidator.vmNotInPreview(getVmId()));
     }
 
-    protected boolean validateSnapshotExists() {
+    private boolean validateSnapshotExists() {
         return validate(snapshotsValidator.snapshotExists(getVmId(), getParameters().getSnapshotId()));
     }
 
@@ -496,12 +485,10 @@ public class RemoveSnapshotCommand<T extends RemoveSnapshotParameters> extends V
     }
 
     protected boolean validateImages() {
-        List<DiskImage> imagesToValidate = getDiskImagesToValidate();
-        DiskImagesValidator diskImagesValidator = new DiskImagesValidator(imagesToValidate);
         List<DiskImage> allDiskImagesInSrcAndDstToValidate = getAllDiskImagesInSrcAndDstToValidate();
         DiskImagesValidator allDiskImagesInChainValidator = new DiskImagesValidator(allDiskImagesInSrcAndDstToValidate);
 
-        return validateImagesNotLocked(diskImagesValidator) &&
+        return validateImagesNotLocked(allDiskImagesInChainValidator) &&
                 (getVm().isQualifiedForLiveSnapshotMerge() || validate(allDiskImagesInChainValidator.diskImagesNotIllegal())) &&
                 (!getVm().isQualifiedForLiveSnapshotMerge() || validateSnapshotDisksArePlugged());
     }
@@ -515,15 +502,6 @@ public class RemoveSnapshotCommand<T extends RemoveSnapshotParameters> extends V
         List<DiskImage> allDiskImages = new ArrayList<>(diskImageDao.getAllSnapshotsForParents(parentsIds));
         allDiskImages.addAll(getSourceImages());
         return allDiskImages;
-    }
-
-    private List<DiskImage> getDiskImagesToValidate() {
-        List<Disk> disks = diskDao.getAllForVm(getVmId());
-        List<DiskImage> allDisks = DisksFilter.filterImageDisks(disks, ONLY_NOT_SHAREABLE, ONLY_ACTIVE);
-        List<CinderDisk> cinderDisks = DisksFilter.filterCinderDisks(disks);
-        allDisks.addAll(DisksFilter.filterManagedBlockStorageDisks(disks));
-        allDisks.addAll(cinderDisks);
-        return allDisks;
     }
 
     private boolean validateSnapshotDisksArePlugged() {
@@ -585,10 +563,7 @@ public class RemoveSnapshotCommand<T extends RemoveSnapshotParameters> extends V
         if (getVm().isQualifiedForLiveSnapshotMerge()) {
             return ActionType.RemoveSnapshotSingleDiskLive;
         }
-        if (isQemuimgCommitSupported()) {
-            return ActionType.ColdMergeSnapshotSingleDisk;
-        }
-        return ActionType.RemoveSnapshotSingleDisk;
+        return ActionType.ColdMergeSnapshotSingleDisk;
     }
 
     @Override
@@ -614,14 +589,10 @@ public class RemoveSnapshotCommand<T extends RemoveSnapshotParameters> extends V
             return null;
         }
 
-        if (vm.isQualifiedForLiveSnapshotMerge() || getParameters().isUseCinderCommandCallback() ||
-                isQemuimgCommitSupported()) {
+        if (vm.isQualifiedForLiveSnapshotMerge() || getParameters().isUseCinderCommandCallback()
+                || getSnapshotActionType() == ActionType.ColdMergeSnapshotSingleDisk) {
             return callbackProvider.get();
         }
         return null;
-    }
-
-    private boolean isQemuimgCommitSupported() {
-        return FeatureSupported.isQemuimgCommitSupported(getStoragePool().getCompatibilityVersion());
     }
 }

@@ -317,6 +317,8 @@ public interface UIConstants extends Constants {
 
     String removeTemplatesTitle();
 
+    String removeUnregisteredTemplatesTitle();
+
     String guestAgentNotResponsiveTitle();
 
     String dataCenterTitle();
@@ -421,11 +423,7 @@ public interface UIConstants extends Constants {
 
     String networksTitle();
 
-    String externalProvidersTitle();
-
     String providersTitle();
-
-    String validateSelectExternalProvider();
 
     String vnicProfilesTitle();
 
@@ -456,6 +454,8 @@ public interface UIConstants extends Constants {
     String noneTitle();
 
     String removeVirtualMachineTitle();
+
+    String removeUnregisteredVirtualMachineTitle();
 
     String removeTagsTitle();
 
@@ -498,6 +498,8 @@ public interface UIConstants extends Constants {
     String editVirtualDiskTitle();
 
     String removeDisksTitle();
+
+    String removeUnregisteredDisksTitle();
 
     String sparsifyDisksTitle();
 
@@ -1143,10 +1145,6 @@ public interface UIConstants extends Constants {
 
     String couldNotRetrieveLUNsLunsFailure();
 
-    String kernelParamsInvalid();
-
-    String initrdPathInvalid();
-
     String allocCanBeModifiedOnlyWhenImportSingleVm();
 
     String vmCreateVirtualDiskAction();
@@ -1435,6 +1433,8 @@ public interface UIConstants extends Constants {
 
     String nfsVersion4();
 
+    String nfsVersion40();
+
     String nfsVersion41();
 
     String nfsVersion42();
@@ -1641,16 +1641,6 @@ public interface UIConstants extends Constants {
 
     String importDuplicateName();
 
-    String interfaceMappings();
-
-    String bridgeMappings();
-
-    String interfaceMappingsExplanation();
-
-    String bridgeMappingsExplanation();
-
-    String interfaceMappingsInvalid();
-
     String removeNetworkFromProvider();
 
     String noResolveActionSelectedGlusterHook();
@@ -1801,7 +1791,11 @@ public interface UIConstants extends Constants {
 
     String noAvailableVms();
 
+    String noAffinityGroupsSelected();
+
     String noAffinityLabelsSelected();
+
+    String selectedAffinityGroups();
 
     String selectedAffinityLabels();
 
@@ -2164,4 +2158,20 @@ public interface UIConstants extends Constants {
     String diskMaxSizeReached();
 
     String largeNumberOfDevicesWarning();
+
+    String pendingVMChanges();
+
+    String cpuPassthrough();
+
+    String selectUserOrGroup();
+
+    String selectRoleToAssign();
+
+    String customSerialNumberDisabledReason();
+
+    String systemDefaultCustomSerialNumberDisabledReason();
+
+    String clusterDefaultCustomSerialNumberDisabledReason();
+
+    String updatingStorageDomainTitle();
 }

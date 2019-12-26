@@ -92,7 +92,7 @@ public class VmTemplate extends VmBase implements BusinessEntityWithStatus<Guid,
                       SerialNumberPolicy serialNumberPolicy, String customSerialNumber,
                       boolean bootMenuEnabled, boolean spiceFIleTransferEnabled, boolean spiceCopyPasteEnabled,
                       Guid cpuProfileId, NumaTuneMode numaTuneMode,
-                      Boolean autoConverge, Boolean migrateCompressed,
+                      Boolean autoConverge, Boolean migrateCompressed, Boolean migrateEncrypted,
                       String userDefinedProperties,
                       String predefinedProperties,
                       String customProperties,
@@ -104,7 +104,8 @@ public class VmTemplate extends VmBase implements BusinessEntityWithStatus<Guid,
                       Version customCompatibilityVersion, Guid migrationPolicyId,
                       Guid leaseStorageDomainId,
                       VmResumeBehavior resumeBehavior,
-                      boolean multiQueuesEnabled) {
+                      boolean multiQueuesEnabled,
+                      boolean useTscFrequency) {
         super(name,
                 vmtGuid,
                 clusterId,
@@ -157,6 +158,7 @@ public class VmTemplate extends VmBase implements BusinessEntityWithStatus<Guid,
                 numaTuneMode,
                 autoConverge,
                 migrateCompressed,
+                migrateEncrypted,
                 userDefinedProperties,
                 predefinedProperties,
                 customProperties,
@@ -172,7 +174,8 @@ public class VmTemplate extends VmBase implements BusinessEntityWithStatus<Guid,
                 migrationPolicyId,
                 leaseStorageDomainId,
                 resumeBehavior,
-                multiQueuesEnabled);
+                multiQueuesEnabled,
+                useTscFrequency);
 
         diskTemplateMap = new HashMap<>();
         diskImageMap = new HashMap<>();

@@ -12,9 +12,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.ovirt.engine.core.common.businessentities.AdditionalFeature;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
+import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.LogMaxMemoryUsedThresholdType;
 import org.ovirt.engine.core.common.businessentities.MacPool;
@@ -60,7 +62,6 @@ import org.ovirt.engine.ui.uicommonweb.models.SortedListModel;
 import org.ovirt.engine.ui.uicommonweb.models.TabName;
 import org.ovirt.engine.ui.uicommonweb.models.ValidationCompleteEvent;
 import org.ovirt.engine.ui.uicommonweb.models.macpool.MacPoolModel;
-import org.ovirt.engine.ui.uicommonweb.models.vms.SerialNumberPolicyModel;
 import org.ovirt.engine.ui.uicommonweb.models.vms.key_value.KeyValueModel;
 import org.ovirt.engine.ui.uicommonweb.validation.HostWithProtocolAndPortAddressValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.I18NNameValidation;
@@ -73,8 +74,11 @@ import org.ovirt.engine.ui.uicompat.Event;
 import org.ovirt.engine.ui.uicompat.EventArgs;
 import org.ovirt.engine.ui.uicompat.PropertyChangedEventArgs;
 import org.ovirt.engine.ui.uicompat.UIConstants;
+import org.ovirt.engine.ui.uicompat.UIMessages;
 
 public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTabs {
+    private static final UIMessages messages = ConstantsManager.getInstance().getMessages();
+    private static final UIConstants constants = ConstantsManager.getInstance().getConstants();
     private Map<Guid, PolicyUnit> policyUnitMap;
     private ListModel<ClusterPolicy> clusterPolicy;
     private Map<Guid, Network> defaultManagementNetworkCache = new HashMap<>();
@@ -624,14 +628,24 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
         this.allowOverbooking = allowOverbooking;
     }
 
-    private SerialNumberPolicyModel serialNumberPolicy;
+    private ListModel<SerialNumberPolicy> serialNumberPolicy;
 
-    public SerialNumberPolicyModel getSerialNumberPolicy() {
+    public ListModel<SerialNumberPolicy> getSerialNumberPolicy() {
         return serialNumberPolicy;
     }
 
-    public void setSerialNumberPolicy(SerialNumberPolicyModel serialNumberPolicy) {
+    public void setSerialNumberPolicy(ListModel<SerialNumberPolicy> serialNumberPolicy) {
         this.serialNumberPolicy = serialNumberPolicy;
+    }
+
+    private EntityModel<String> customSerialNumber;
+
+    public EntityModel<String> getCustomSerialNumber() {
+        return customSerialNumber;
+    }
+
+    public void setCustomSerialNumber(EntityModel<String> customSerialNumberPolicy) {
+        this.customSerialNumber = customSerialNumberPolicy;
     }
 
     private EntityModel<String> spiceProxy;
@@ -885,6 +899,16 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
         this.migrateCompressed = migrateCompressed;
     }
 
+    private ListModel<Boolean> migrateEncrypted;
+
+    public ListModel<Boolean> getMigrateEncrypted() {
+        return migrateEncrypted;
+    }
+
+    public void setMigrateEncrypted(ListModel<Boolean> migrateCompressed) {
+        this.migrateEncrypted = migrateCompressed;
+    }
+
     private EntityModel<Integer> customMigrationNetworkBandwidth;
 
     public EntityModel<Integer> getCustomMigrationNetworkBandwidth() {
@@ -933,6 +957,16 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
 
     public void setAddMacPoolCommand(UICommand addMacPoolCommand) {
         this.addMacPoolCommand = addMacPoolCommand;
+    }
+
+    private ListModel<BiosType> biosType;
+
+    public ListModel<BiosType> getBiosType() {
+        return biosType;
+    }
+
+    public void setBiosType(ListModel<BiosType> biosType) {
+        this.biosType = biosType;
     }
 
     @Override
@@ -1044,13 +1078,21 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
         setEnableOvirtService(new EntityModel<>());
         setEnableGlusterService(new EntityModel<>());
 
-        setSerialNumberPolicy(new SerialNumberPolicyModel());
+        setSerialNumberPolicy(new ListModel<>());
+        getSerialNumberPolicy().setItems(getSerialNumberPoliciesWithNull());
+
+        setCustomSerialNumber(new EntityModel<>());
+        updateCustomSerialNumber();
+        getSerialNumberPolicy().getSelectedItemChangedEvent().addListener((ev, sender, args) -> {
+            updateCustomSerialNumber();
+        });
 
         setAutoConverge(new ListModel<>());
         getAutoConverge().setItems(Arrays.asList(null, true, false));
         setMigrateCompressed(new ListModel<>());
         getMigrateCompressed().setItems(Arrays.asList(null, true, false));
-
+        setMigrateEncrypted(new ListModel<>());
+        getMigrateEncrypted().setItems(Arrays.asList(null, true, false));
         getEnableOvirtService().getEntityChangedEvent().addListener((ev, sender, args) -> {
             refreshAdditionalClusterFeaturesList();
             if (!getAllowClusterWithVirtGlusterEnabled() && getEnableOvirtService().getEntity()) {
@@ -1297,6 +1339,9 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
         getCPU().setIsAvailable(ApplicationModeHelper.getUiMode() != ApplicationMode.GlusterOnly);
         getCPU().getSelectedItemChangedEvent().addListener(this);
 
+        setBiosType(new ListModel<>());
+        initBiosType();
+
         setVersion(new ListModel<>());
         getVersion().getSelectedItemChangedEvent().addListener(this);
         setMigrateOnErrorOption(MigrateOnErrorOptions.YES);
@@ -1353,6 +1398,25 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
                 }));
         setCustomMigrationNetworkBandwidth(new EntityModel<>());
         setMigrationBandwidthLimitType(new ListModel<>());
+    }
+
+    private List<SerialNumberPolicy> getSerialNumberPoliciesWithNull() {
+        List<SerialNumberPolicy> policies = new ArrayList<>(Arrays.asList(SerialNumberPolicy.values()));
+        policies.add(0, null);
+        return policies;
+    }
+
+    private void updateCustomSerialNumber() {
+        if (getSerialNumberPolicy().getSelectedItem() == null
+                && SerialNumberPolicy.CUSTOM.equals(AsyncDataProvider.getInstance().getSerialNumberPolicy())) {
+            getCustomSerialNumber().setIsChangeable(false, constants.systemDefaultCustomSerialNumberDisabledReason());
+            getCustomSerialNumber().setEntity(AsyncDataProvider.getInstance().getCustomSerialNumber());
+        } else if (SerialNumberPolicy.CUSTOM.equals(getSerialNumberPolicy().getSelectedItem())) {
+            getCustomSerialNumber().setIsChangeable(true);
+        } else {
+            getCustomSerialNumber().setIsChangeable(false, constants.customSerialNumberDisabledReason());
+            getCustomSerialNumber().setEntity(null);
+        }
     }
 
     private void updateGlusterFencingPolicyAvailability() {
@@ -1438,6 +1502,18 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
         return null;
     }
 
+    private void initBiosType() {
+        ListModel<BiosType> biosType = getBiosType();
+
+        List<BiosType> biosTypeList = AsyncDataProvider.getInstance()
+                .getBiosTypeList()
+                .stream()
+                .filter(bt -> bt != BiosType.CLUSTER_DEFAULT)
+                .collect(Collectors.toList());
+        biosType.setItems(biosTypeList);
+        updateBiosType();
+    }
+
     private void initFirewallType() {
         ListModel<FirewallType> firewallType = getFirewallType();
 
@@ -1461,6 +1537,23 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
             firewallType.setSelectedItem(FirewallType.IPTABLES);
         } else {
             firewallType.setIsChangeable(true);
+        }
+    }
+
+    private void updateBiosType() {
+        ArchitectureType architecture = getArchitecture().getSelectedItem();
+
+        if (architecture == null || architecture.getFamily() != ArchitectureType.x86) {
+            getBiosType().setIsChangeable(false, ConstantsManager.getInstance().getMessages().biosTypeSupportedForX86Only());
+        } else {
+            getBiosType().updateChangeability(ConfigValues.BiosTypeSupported, getEffectiveVersion());
+        }
+        if (!getBiosType().getIsChangable()) {
+            getBiosType().setSelectedItem(BiosType.I440FX_SEA_BIOS);
+        } else {
+            if (getEffectiveVersion().greaterOrEquals(Version.v4_4)) {
+                getBiosType().setSelectedItem(BiosType.Q35_SEA_BIOS);
+            }
         }
     }
 
@@ -1739,13 +1832,22 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
         boolean hasMigrationPolicy = getMigrationPolicies().getSelectedItem() != null
                 && !NoMigrationPolicy.ID.equals(getMigrationPolicies().getSelectedItem().getId());
 
-        UIConstants constants = ConstantsManager.getInstance().getConstants();
-        getAutoConverge().setIsChangeable(!hasMigrationPolicy, constants.availableOnlyWithLegacyPolicy());
-        getMigrateCompressed().setIsChangeable(!hasMigrationPolicy, constants.availableOnlyWithLegacyPolicy());
+        if (getEffectiveVersion() != null && getEffectiveVersion().greaterOrEquals(Version.v4_4)) {
+            getAutoConverge().setIsAvailable(false);
+            getMigrateCompressed().setIsAvailable(false);
+        } else {
+            getAutoConverge().setIsAvailable(true);
+            getMigrateCompressed().setIsAvailable(true);
+
+            UIConstants constants = ConstantsManager.getInstance().getConstants();
+            getAutoConverge().setIsChangeable(!hasMigrationPolicy, constants.availableOnlyWithLegacyPolicy());
+            getMigrateCompressed().setIsChangeable(!hasMigrationPolicy, constants.availableOnlyWithLegacyPolicy());
+        }
     }
 
     private void architectureSelectedItemChanged() {
         filterCpuTypeByArchitecture();
+        updateBiosType();
     }
 
     private void filterCpuTypeByArchitecture() {
@@ -1803,12 +1905,15 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
 
         refreshMigrationPolicies();
 
+        updateMigrateEncrypted(version);
+
         refreshAdditionalClusterFeaturesList();
 
         if (getEnableGlusterService().getEntity()) {
             initTunedProfiles();
         }
 
+        updateBiosType();
     }
 
     private void refreshAdditionalClusterFeaturesList() {
@@ -1891,6 +1996,15 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
         }
     }
 
+    private void updateMigrateEncrypted(Version version) {
+        if (version.greaterOrEquals(Version.v4_4)) {
+            getMigrateEncrypted().setIsChangeable(true);
+        } else {
+            getMigrateEncrypted().setIsChangeable(false, messages.availableInVersionOrHigher(Version.v4_4.toString()));
+            getMigrateEncrypted().setSelectedItem(null);
+        }
+    }
+
     private void setRngSourcesCheckboxes(Version ver) {
         getRngHwrngSourceRequired().setIsChangeable(true);
 
@@ -1961,8 +2075,25 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
             getArchitecture().setSelectedItem(ArchitectureType.undefined);
         }
 
+        boolean shouldFindEquivalentCpu = getCPU().getSelectedItem() == null;
         // enable CPU Architecture-Type filtering
         initCpuArchTypeFiltering();
+
+        if (shouldFindEquivalentCpu) {
+            String flags;
+            if (oldSelectedCpu != null) {
+                flags = String.join(",", oldSelectedCpu.getFlags());//$NON-NLS-1$
+            } else if (getEntity() != null && getEntity().getCpuFlags() != null){
+                flags = getEntity().getCpuFlags();
+            } else {
+                return;
+            }
+
+            AsyncDataProvider.getInstance().getCpuByFlags(new AsyncQuery<>(cpu -> {
+                getCPU().setSelectedItem(cpu != null ?
+                        Linq.firstOrNull(getCPU().getItems(), new Linq.ServerCpuPredicate(cpu.getCpuName())) : null);
+            }), flags, getEffectiveVersion());
+        }
     }
 
     private void initCpuArchTypeFiltering() {
@@ -2138,10 +2269,10 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
         }
         setValidTab(TabName.CONSOLE_TAB, getSpiceProxy().getIsValid());
 
-        if (getSerialNumberPolicy().getSelectedSerialNumberPolicy() == SerialNumberPolicy.CUSTOM) {
-            getSerialNumberPolicy().getCustomSerialNumber().validateEntity(new IValidation[] { new NotEmptyValidation() });
+        if (SerialNumberPolicy.CUSTOM.equals(getSerialNumberPolicy().getSelectedItem())) {
+            getCustomSerialNumber().validateEntity(new IValidation[] { new NotEmptyValidation() });
         } else {
-            getSerialNumberPolicy().getCustomSerialNumber().setIsValid(true);
+            getCustomSerialNumber().setIsValid(true);
         }
 
         getMacPoolModel().validate();
@@ -2153,7 +2284,7 @@ public class ClusterModel extends EntityModel<Cluster> implements HasValidatedTa
                 && getGlusterHostPassword().getIsValid()
                 && (!getIsImportGlusterConfiguration().getEntity() || (getGlusterHostAddress().getIsValid()
                 && getGlusterHostPassword().getIsValid()
-                && getSerialNumberPolicy().getCustomSerialNumber().getIsValid()
+                && getCustomSerialNumber().getIsValid()
                 && isFingerprintVerified()));
         setValidTab(TabName.GENERAL_TAB, generalTabValid);
 

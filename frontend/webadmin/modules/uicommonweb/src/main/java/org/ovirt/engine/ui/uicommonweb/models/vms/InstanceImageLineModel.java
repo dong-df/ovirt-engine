@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.ovirt.engine.core.common.action.ActionType;
+import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.Quota;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.storage.Disk;
@@ -80,7 +81,8 @@ public class InstanceImageLineModel extends EntityModel {
         String diskName = disk.getDiskAlias();
         String size = Long.toString(disk.getSize());
 
-        if (disk.getDiskStorageType() == DiskStorageType.IMAGE || disk.getDiskStorageType() == DiskStorageType.CINDER) {
+        if (disk.getDiskStorageType() == DiskStorageType.IMAGE || disk.getDiskStorageType() == DiskStorageType.CINDER
+                || disk.getDiskStorageType() == DiskStorageType.MANAGED_BLOCK_STORAGE) {
             size = Long.toString(((DiskImage) disk).getSizeInGigabytes());
         }
 
@@ -97,7 +99,7 @@ public class InstanceImageLineModel extends EntityModel {
     }
 
     private void toggleActive() {
-        if (vm != null && !VmActionByVmOriginTypeValidator.isCommandAllowed(vm, ActionType.UpdateVmDisk)) {
+        if (vm != null && !VmActionByVmOriginTypeValidator.isCommandAllowed(vm, ActionType.UpdateDisk)) {
             active = false;
         }
     }
@@ -114,7 +116,7 @@ public class InstanceImageLineModel extends EntityModel {
             return;
         }
 
-        final AbstractDiskModel model = new EditDiskModel() {
+        final AbstractDiskModel model = new EditVmDiskModel() {
             @Override
             public void onSave() {
                 if (validate()) {
@@ -217,12 +219,14 @@ public class InstanceImageLineModel extends EntityModel {
 
         VM realOrFakeVm = vm;
         Version compatibilityVersion = parentModel.getUnitVmModel().getSelectedCluster().getCompatibilityVersion();
+        BiosType biosType = parentModel.getUnitVmModel().getSelectedCluster().getBiosType();
         if (realOrFakeVm == null) {
             realOrFakeVm = new VM();
             realOrFakeVm.setId(null);
             realOrFakeVm.setClusterId(parentModel.getUnitVmModel().getSelectedCluster().getId());
             realOrFakeVm.setStoragePoolId(parentModel.getUnitVmModel().getSelectedDataCenter().getId());
             realOrFakeVm.setClusterCompatibilityVersion(compatibilityVersion);
+            realOrFakeVm.setClusterBiosType(biosType);
         }
 
         model.setVm(realOrFakeVm);
@@ -282,7 +286,9 @@ public class InstanceImageLineModel extends EntityModel {
                     fillData();
 
                     Disk disk = super.getDisk();
-                    if (disk.getDiskStorageType() == DiskStorageType.IMAGE || disk.getDiskStorageType() == DiskStorageType.CINDER) {
+                    if (disk.getDiskStorageType() == DiskStorageType.IMAGE
+                            || disk.getDiskStorageType() == DiskStorageType.CINDER
+                            || disk.getDiskStorageType() == DiskStorageType.MANAGED_BLOCK_STORAGE) {
                         ((DiskImage) disk).setActive(true);
                     }
                 }
@@ -303,6 +309,7 @@ public class InstanceImageLineModel extends EntityModel {
         vm.setClusterId(parentModel.getUnitVmModel().getSelectedCluster().getId());
         vm.setStoragePoolId(parentModel.getUnitVmModel().getSelectedDataCenter().getId());
         vm.setClusterCompatibilityVersion(parentModel.getUnitVmModel().getSelectedCluster().getCompatibilityVersion());
+        vm.setClusterBiosType(parentModel.getUnitVmModel().getSelectedCluster().getBiosType());
         vm.setVmOs(parentModel.getUnitVmModel().getOSType().getSelectedItem());
 
         Quota selectedQuota = parentModel.getUnitVmModel().getQuota().getSelectedItem();

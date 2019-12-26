@@ -63,10 +63,13 @@ public class BaseVmListModelTest extends BaseVmTest {
         when(model.getNumOfSockets().getSelectedItem()).thenReturn(NUM_OF_SOCKETS);
         when(model.getCoresPerSocket().getSelectedItem()).thenReturn(CORES_PER_SOCKET);
         when(model.getThreadsPerCore().getSelectedItem()).thenReturn(THREADS_PER_CORE);
-        SerialNumberPolicyModel serialNumberPolicyModel = mockSerialNumberPolicyModel();
-        when(model.getSerialNumberPolicy()).thenReturn(serialNumberPolicyModel);
+
+        final EntityModel<String> customSerialNumber = mockEntityModel(CUSTOM_SERIAL_NUMBER);
+        when(model.getSerialNumberPolicy().getSelectedItem()).thenReturn(SERIAL_NUMBER_POLICY);
+        when(model.getCustomSerialNumber()).thenReturn(customSerialNumber);
+
         when(model.getAllowConsoleReconnect().getEntity()).thenReturn(true);
-        when(model.getIsSingleQxlEnabled().getEntity()).thenReturn(true);
+        when(model.isSingleQxlEnabled()).thenReturn(true);
         when(model.getTotalCPUCores().getEntity()).thenReturn(Integer.toString(TOTAL_CPU));
         when(model.getUsbPolicy().getSelectedItem()).thenReturn(USB_POLICY);
         when(model.getIsStateless().getEntity()).thenReturn(true);
@@ -77,9 +80,6 @@ public class BaseVmListModelTest extends BaseVmTest {
         ListModel<RepoImage> cdListModel = mockCdListModel();
         when(model.getCdImage()).thenReturn(cdListModel);
         when(model.getIsHighlyAvailable().getEntity()).thenReturn(true);
-        when(model.getInitrd_path().getEntity()).thenReturn(INITRD_PATH);
-        when(model.getKernel_path().getEntity()).thenReturn(KERNEL_PATH);
-        when(model.getKernel_parameters().getEntity()).thenReturn(KERNEL_PARAMS);
         when(model.getCustomPropertySheet().serialize()).thenReturn(CUSTOM_PROPERTIES);
         ListModel<Quota> quotaListModel = mockQuotaListModel();
         when(model.getQuota()).thenReturn(quotaListModel);
@@ -104,21 +104,18 @@ public class BaseVmListModelTest extends BaseVmTest {
         when(model.getNumaTuneMode().getSelectedItem()).thenReturn(NumaTuneMode.INTERLEAVE);
         when(model.getAutoConverge().getSelectedItem()).thenReturn(true);
         when(model.getMigrateCompressed().getSelectedItem()).thenReturn(true);
+        when(model.getMigrateEncrypted().getSelectedItem()).thenReturn(true);
         when(model.getIcon().getEntity()).thenReturn(new IconWithOsDefault(
                 LARGE_ICON_DATA, LARGE_OS_DEFAULT_ICON_DATA, SMALL_ICON_ID, ValidationResult.ok()));
         when(model.getNumOfIoThreads().getEntity()).thenReturn(Integer.toString(NUM_OF_IO_THREADS));
         when(model.getIoThreadsEnabled().getEntity()).thenReturn(true);
         when(model.getConsoleDisconnectAction().getSelectedItem()).thenReturn(ConsoleDisconnectAction.REBOOT);
         when(model.getCustomCompatibilityVersion().getSelectedItem()).thenReturn(Version.getLast());
-        when(model.getOverrideMigrationPolicy().getEntity()).thenReturn(false);
         when(model.getLease().getSelectedItem()).thenReturn(null);
     }
 
     protected void setUpOrigVm(VM origVm) {
         origVm.setId(VM_ID);
-        origVm.setInitrdUrl(INITRD_PATH_2);
-        origVm.setKernelUrl(KERNEL_PATH_2);
-        origVm.setKernelParams(KERNEL_PARAMS_2);
     }
 
     /**
@@ -176,20 +173,10 @@ public class BaseVmListModelTest extends BaseVmTest {
     }
 
     /**
-     * Verifies {@link org.ovirt.engine.ui.uicommonweb.builders.vm.KernelParamsUnitToVmBaseBuilder}
-     */
-    protected void verifyBuiltKernelOptions(VmBase vm) {
-        assertEquals(INITRD_PATH, vm.getInitrdUrl());
-        assertEquals(KERNEL_PATH, vm.getKernelUrl());
-        assertEquals(KERNEL_PARAMS, vm.getKernelParams());
-    }
-
-    /**
      * Verifies {@link org.ovirt.engine.ui.uicommonweb.builders.vm.FullUnitToVmBaseBuilder}
      */
     protected void verifyBuiltVmBase(VmBase vm) {
         verifyBuiltCommonVm(vm);
-        verifyBuiltKernelOptions(vm);
         verifyBuiltMigrationOptions(vm);
 
         assertEquals(HOST_ID, vm.getDedicatedVmForVdsList().get(0));
@@ -221,19 +208,8 @@ public class BaseVmListModelTest extends BaseVmTest {
     }
 
     protected void verifyBuiltOrigVm(VM origVm, VM vm) {
-        verifyOrigKernelParams(origVm, vm);
-
         assertEquals(VM_ID, vm.getId());
         assertEquals(origVm.getUsbPolicy(), vm.getUsbPolicy());
-    }
-
-    /**
-     * Verifies {@link org.ovirt.engine.ui.uicommonweb.builders.vm.KernelParamsVmBaseToVmBaseBuilder}
-     */
-    protected void verifyOrigKernelParams(VM origVm, VM vm) {
-        assertEquals(origVm.getInitrdUrl(), vm.getInitrdUrl());
-        assertEquals(origVm.getKernelUrl(), vm.getKernelUrl());
-        assertEquals(origVm.getKernelParams(), vm.getKernelParams());
     }
 
     @SuppressWarnings("unchecked")
@@ -274,15 +250,6 @@ public class BaseVmListModelTest extends BaseVmTest {
         quota.setId(QUOTA_ID);
         final ListModel<Quota> model = mockListModel(quota);
         when(model.getIsAvailable()).thenReturn(true);
-
-        return model;
-    }
-
-    protected SerialNumberPolicyModel mockSerialNumberPolicyModel() {
-        final SerialNumberPolicyModel model = mock(SerialNumberPolicyModel.class);
-        final EntityModel<String> customSerialNumber = mockEntityModel(CUSTOM_SERIAL_NUMBER);
-        when(model.getSelectedSerialNumberPolicy()).thenReturn(SERIAL_NUMBER_POLICY);
-        when(model.getCustomSerialNumber()).thenReturn(customSerialNumber);
 
         return model;
     }

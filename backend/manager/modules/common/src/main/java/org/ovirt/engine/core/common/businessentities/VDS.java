@@ -32,6 +32,8 @@ public class VDS implements Queryable, BusinessEntityWithStatus<Guid, VDSStatus>
     private VdsSpmStatus spmStatus;
     private Version clusterCompatibilityVersion;
     private String clusterName;
+    private String clusterFlags;
+    private String clusterVerb;
     private String clusterDescription;
     private String clusterCpuName;
     private Boolean clusterVirtService;
@@ -44,7 +46,14 @@ public class VDS implements Queryable, BusinessEntityWithStatus<Guid, VDSStatus>
     private Double imagesLastDelay;
     private ServerCpu cpuName;
     private Integer vdsSpmId;
-
+    /**
+     * Flags that are required by the CPU configuration but are missing on the host
+     */
+    private Set<String> cpuFlagsMissing;
+    /**
+     * Cpu names that are supported by this host. The list is ordered - see CpuFlagsManager for details.
+     */
+    private List<String> supportedCpus;
     /**
      * Maximal memory available for scheduling a new VM in MiB. This is a dynamic field
      * that is recomputed every time one of the inputs changes.
@@ -74,6 +83,8 @@ public class VDS implements Queryable, BusinessEntityWithStatus<Guid, VDSStatus>
         interfaces = new ArrayList<>();
         networkNames = new HashSet<>();
         fenceAgents = new LinkedList<>();
+        cpuFlagsMissing = new HashSet<>();
+        supportedCpus = new ArrayList<>();
     }
 
     @Override
@@ -95,6 +106,8 @@ public class VDS implements Queryable, BusinessEntityWithStatus<Guid, VDSStatus>
                 clusterCpuName,
                 clusterDescription,
                 clusterName,
+                clusterFlags,
+                clusterVerb,
                 clusterVirtService,
                 clusterGlusterService,
                 balloonEnabled,
@@ -131,6 +144,8 @@ public class VDS implements Queryable, BusinessEntityWithStatus<Guid, VDSStatus>
                 && Objects.equals(clusterCpuName, other.clusterCpuName)
                 && Objects.equals(clusterDescription, other.clusterDescription)
                 && Objects.equals(clusterName, other.clusterName)
+                && Objects.equals(clusterFlags, other.clusterFlags)
+                && Objects.equals(clusterVerb, other.clusterVerb)
                 && Objects.equals(clusterVirtService, other.clusterVirtService)
                 && Objects.equals(clusterGlusterService, other.clusterGlusterService)
                 && glusterPeerStatus == other.glusterPeerStatus
@@ -244,6 +259,10 @@ public class VDS implements Queryable, BusinessEntityWithStatus<Guid, VDSStatus>
         vds.setNetworkOperationInProgress(isNetworkOperationInProgress());
         vds.setIsDefaultRouteRoleNetworkAttached(isDefaultRouteRoleNetworkAttached());
         vds.setClusterSmtDisabled(isClusterSmtDisabled());
+        vds.setTscFrequency(getTscFrequency());
+        vds.setTscScalingEnabled(isTscScalingEnabled());
+        vds.setCpuFlagsMissing(getCpuFlagsMissing());
+        vds.setSupportedCpus(getSupportedCpus());
         return vds;
     }
 
@@ -285,6 +304,22 @@ public class VDS implements Queryable, BusinessEntityWithStatus<Guid, VDSStatus>
 
     public void setClusterName(String value) {
         clusterName = value;
+    }
+
+    public String getClusterFlags() {
+        return clusterFlags;
+    }
+
+    public void setClusterFlags(String clusterFlags) {
+        this.clusterFlags = clusterFlags;
+    }
+
+    public String getClusterVerb() {
+        return clusterVerb;
+    }
+
+    public void setClusterVerb(String clusterVerb) {
+        this.clusterVerb = clusterVerb;
     }
 
     public String getClusterDescription() {
@@ -1450,10 +1485,6 @@ public class VDS implements Queryable, BusinessEntityWithStatus<Guid, VDSStatus>
         vdsDynamic.setPrettyName(prettyName);
     }
 
-    public boolean isOvirtVintageNode() {
-        return getVdsType() == VDSType.oVirtVintageNode;
-    }
-
     public boolean isOvirNode() {
         return getVdsType() == VDSType.oVirtNode;
     }
@@ -1720,6 +1751,14 @@ public class VDS implements Queryable, BusinessEntityWithStatus<Guid, VDSStatus>
         vdsDynamic.setSupportedDomainVersionsAsString(supportedDomainVersions);
     }
 
+    public Map<String, Object> getSupportedBlockSize() {
+        return vdsDynamic.getSupportedBlockSize();
+    }
+
+    public void setSupportedBlockSize(Map<String, Object> supportedBlockSize) {
+        vdsDynamic.setSupportedBlockSize(supportedBlockSize);
+    }
+
     public boolean isClusterSmtDisabled() {
         return isClusterSmtDisabled;
     }
@@ -1747,5 +1786,62 @@ public class VDS implements Queryable, BusinessEntityWithStatus<Guid, VDSStatus>
         int threads = getCpuThreads() == null ? 1 : getCpuThreads();
         int cores = getCpuCores() == null ? 1 : getCpuCores();
         return threads / cores;
+    }
+
+    public String getTscFrequency() {
+        return vdsDynamic.getTscFrequency();
+    }
+
+    public String getTscFrequencyIntegral() {
+        String tscFrequency = getTscFrequency();
+        if (tscFrequency == null) {
+            return null;
+        }
+
+        return tscFrequency.split("\\.")[0];
+    }
+
+    public void setTscFrequency(String tscFrequency) {
+        vdsDynamic.setTscFrequency(tscFrequency);
+    }
+
+    public Set<String> getCpuFlagsMissing() {
+        return cpuFlagsMissing;
+    }
+
+    public void setCpuFlagsMissing(Set<String> cpuFlagsMissing) {
+        if (cpuFlagsMissing == null) {
+            this.cpuFlagsMissing = new HashSet<>();
+        } else {
+            this.cpuFlagsMissing = cpuFlagsMissing;
+        }
+    }
+
+    public List<String> getSupportedCpus() {
+        return supportedCpus;
+    }
+
+    public void setSupportedCpus(List<String> supportedCpus) {
+        if (supportedCpus == null) {
+            this.supportedCpus = new ArrayList<>();
+        } else {
+            this.supportedCpus = supportedCpus;
+        }
+    }
+
+    public boolean isTscScalingEnabled() {
+        return vdsDynamic.isTscScalingEnabled();
+    }
+
+    public void setTscScalingEnabled(boolean tscScalingEnabled) {
+        vdsDynamic.setTscScalingEnabled(tscScalingEnabled);
+    }
+
+    public boolean isFipsEnabled() {
+        return vdsDynamic.isFipsEnabled();
+    }
+
+    public void setFipsEnabled(boolean fipsEnabled) {
+        vdsDynamic.setFipsEnabled(fipsEnabled);
     }
 }

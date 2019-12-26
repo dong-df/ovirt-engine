@@ -9,30 +9,32 @@ import com.google.gwt.safehtml.shared.SafeHtml;
 /**
  * Describes a button rendered within an {@link ActionPanel}.
  *
+ * @param <E>
+ *            Main tab table item type or {@code Void} otherwise.
  * @param <T>
  *            Action panel item type.
  */
-public interface ActionButtonDefinition<T> extends HasInitializeHandlers {
+public interface ActionButtonDefinition<E, T> extends HasInitializeHandlers {
 
     /**
      * Action button click event callback.
      */
-    void onClick(List<T> selectedItems);
+    void onClick(E mainEntity, List<T> selectedItems);
 
     /**
      * Checks whether or not this action button should be enabled for the given selection.
      */
-    boolean isEnabled(List<T> selectedItems);
+    boolean isEnabled(E mainEntity, List<T> selectedItems);
 
     /**
      * Checks whether or not the current user has the right to access this action button.
      */
-    boolean isAccessible(List<T> selectedItems);
+    boolean isAccessible(E mainEntity, List<T> selectedItems);
 
     /**
      * Indicates whether this action button is visible.
      */
-    boolean isVisible(List<T> selectedItems);
+    boolean isVisible(E mainEntity, List<T> selectedItems);
 
     /**
      * Get the Css name of the icon.

@@ -270,7 +270,7 @@ LANGUAGE plpgsql;
 --
 CREATE OR REPLACE FUNCTION InsertVmDynamic (
     v_app_list TEXT,
-    v_guest_cur_user_name VARCHAR(255),
+    v_guest_cur_user_name TEXT,
     v_console_cur_user_name VARCHAR(255),
     v_runtime_name VARCHAR(255),
     v_console_user_id UUID,
@@ -437,7 +437,7 @@ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION UpdateVmDynamic (
     v_app_list TEXT,
-    v_guest_cur_user_name VARCHAR(255),
+    v_guest_cur_user_name TEXT,
     v_console_cur_user_name VARCHAR(255),
     v_runtime_name VARCHAR(255),
     v_console_user_id UUID,
@@ -554,7 +554,7 @@ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION UpdateConsoleUserWithOptimisticLocking (
     v_vm_guid UUID,
     v_console_user_id UUID,
-    v_guest_cur_user_name VARCHAR(255),
+    v_guest_cur_user_name TEXT,
     v_console_cur_user_name VARCHAR(255),
     OUT v_updated BOOLEAN
     ) AS $PROCEDURE$
@@ -714,6 +714,7 @@ CREATE OR REPLACE FUNCTION InsertVmStatic (
     v_cpu_profile_id UUID,
     v_is_auto_converge BOOLEAN,
     v_is_migrate_compressed BOOLEAN,
+    v_is_migrate_encrypted BOOLEAN,
     v_custom_emulated_machine VARCHAR(40),
     v_bios_type INTEGER,
     v_custom_cpu_name VARCHAR(40),
@@ -724,7 +725,8 @@ CREATE OR REPLACE FUNCTION InsertVmStatic (
     v_custom_compatibility_version VARCHAR(40),
     v_migration_policy_id UUID,
     v_lease_sd_id UUID,
-    v_multi_queues_enabled BOOLEAN)
+    v_multi_queues_enabled BOOLEAN,
+    v_use_tsc_frequency BOOLEAN)
   RETURNS VOID
    AS $procedure$
 DECLARE
@@ -797,6 +799,7 @@ INSERT INTO vm_static(description,
                       cpu_profile_id,
                       is_auto_converge,
                       is_migrate_compressed,
+                      is_migrate_encrypted,
                       custom_emulated_machine,
                       bios_type,
                       custom_cpu_name,
@@ -807,7 +810,8 @@ INSERT INTO vm_static(description,
                       custom_compatibility_version,
                       migration_policy_id,
                       lease_sd_id,
-                      multi_queues_enabled)
+                      multi_queues_enabled,
+                      use_tsc_frequency)
     VALUES(v_description,
            v_free_text_comment,
            v_mem_size_mb,
@@ -872,6 +876,7 @@ INSERT INTO vm_static(description,
            v_cpu_profile_id,
            v_is_auto_converge,
            v_is_migrate_compressed,
+           v_is_migrate_encrypted,
            v_custom_emulated_machine,
            v_bios_type,
            v_custom_cpu_name,
@@ -882,7 +887,8 @@ INSERT INTO vm_static(description,
            v_custom_compatibility_version,
            v_migration_policy_id,
            v_lease_sd_id,
-           v_multi_queues_enabled);
+           v_multi_queues_enabled,
+           v_use_tsc_frequency);
 
     -- perform deletion from vm_ovf_generations to ensure that no record exists when performing insert to avoid PK violation.
     DELETE
@@ -1072,6 +1078,7 @@ v_is_spice_copy_paste_enabled BOOLEAN,
 v_cpu_profile_id UUID,
 v_is_auto_converge BOOLEAN,
 v_is_migrate_compressed BOOLEAN,
+v_is_migrate_encrypted BOOLEAN,
 v_custom_emulated_machine VARCHAR(40),
 v_bios_type INTEGER,
 v_custom_cpu_name VARCHAR(40),
@@ -1083,7 +1090,8 @@ v_resume_behavior VARCHAR(64),
 v_custom_compatibility_version VARCHAR(40),
 v_migration_policy_id UUID,
 v_lease_sd_id UUID,
-v_multi_queues_enabled BOOLEAN)
+v_multi_queues_enabled BOOLEAN,
+v_use_tsc_frequency BOOLEAN)
 
 RETURNS VOID
 
@@ -1154,6 +1162,7 @@ BEGIN
      cpu_profile_id = v_cpu_profile_id,
      is_auto_converge = v_is_auto_converge,
      is_migrate_compressed = v_is_migrate_compressed,
+     is_migrate_encrypted = v_is_migrate_encrypted,
      custom_emulated_machine = v_custom_emulated_machine,
      bios_type = v_bios_type,
      custom_cpu_name = v_custom_cpu_name,
@@ -1165,7 +1174,8 @@ BEGIN
      custom_compatibility_version=v_custom_compatibility_version,
      migration_policy_id = v_migration_policy_id,
      lease_sd_id = v_lease_sd_id,
-     multi_queues_enabled = v_multi_queues_enabled
+     multi_queues_enabled = v_multi_queues_enabled,
+     use_tsc_frequency = v_use_tsc_frequency
      WHERE vm_guid = v_vm_guid
          AND entity_type = 'VM';
 

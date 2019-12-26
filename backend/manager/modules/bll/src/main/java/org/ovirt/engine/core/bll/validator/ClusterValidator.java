@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.apache.commons.collections.CollectionUtils;
@@ -14,6 +15,7 @@ import org.ovirt.engine.core.bll.ValidationResult;
 import org.ovirt.engine.core.bll.utils.VersionSupport;
 import org.ovirt.engine.core.common.FeatureSupported;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
+import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.MigrateOnErrorOptions;
 import org.ovirt.engine.core.common.businessentities.StoragePool;
@@ -34,6 +36,7 @@ import org.ovirt.engine.core.dao.SupportedHostFeatureDao;
 import org.ovirt.engine.core.dao.VdsDao;
 import org.ovirt.engine.core.dao.VmDao;
 import org.ovirt.engine.core.dao.gluster.GlusterVolumeDao;
+import org.ovirt.engine.core.utils.MemoizingSupplier;
 
 public class ClusterValidator {
 
@@ -45,21 +48,19 @@ public class ClusterValidator {
     private final StoragePoolDao dataCenterDao;
     private StoragePool dataCenter;
     private StoragePool dataCenterOfNewCluster;
-    private VdsDao vdsDao;
-    private VmDao vmDao;
     private GlusterVolumeDao glusterVolumeDao;
     private ClusterFeatureDao clusterFeatureDao;
     private SupportedHostFeatureDao hostFeatureDao;
 
     private CpuFlagsManagerHandler cpuFlagsManagerHandler;
     private Cluster newCluster;
-    private List<VDS> allForCluster;
 
-    private List<VM> vmList;
     private boolean hasVmOrHost;
     private boolean sameCpuNames;
     private int compareCompatibilityVersions;
 
+    private final Supplier<List<VDS>> allHostsForCluster;
+    private final Supplier<List<VM>> allVmsForCluster;
 
     public ClusterValidator(
             ClusterDao clusterDao,
@@ -70,6 +71,9 @@ public class ClusterValidator {
         this.clusterDao = clusterDao;
         this.dataCenterDao = dataCenterDao;
         this.cpuFlagsManagerHandler = cpuFlagsManagerHandler;
+
+        allHostsForCluster = () -> null;
+        allVmsForCluster = () -> null;
     }
 
     public ClusterValidator(ClusterDao clusterDao,
@@ -87,11 +91,12 @@ public class ClusterValidator {
         this.dataCenterDao = dataCenterDao;
         this.cpuFlagsManagerHandler = cpuFlagsManagerHandler;
         this.newCluster = newCluster;
-        this.vdsDao = vdsDao;
-        this.vmDao = vmDao;
         this.glusterVolumeDao = glusterVolumeDao;
         this.clusterFeatureDao = clusterFeatureDao;
         this.hostFeatureDao = hostFeatureDao;
+
+        allHostsForCluster = new MemoizingSupplier<>(() -> vdsDao.getAllForCluster(cluster.getId()));
+        allVmsForCluster = new MemoizingSupplier<>(() -> vmDao.getAllForCluster(cluster.getId()));
     }
 
     public ValidationResult nameNotUsed() {
@@ -219,12 +224,11 @@ public class ClusterValidator {
      * decreasing of compatibility version is only allowed when no hosts exist
      */
     public ValidationResult decreaseClusterWithHosts() {
-        allForCluster = vdsDao.getAllForCluster(cluster.getId());
         compareCompatibilityVersions = newCluster.getCompatibilityVersion().compareTo(cluster.getCompatibilityVersion());
         return ValidationResult
                 .failWith(EngineMessage.ACTION_TYPE_FAILED_CANNOT_DECREASE_CLUSTER_WITH_HOSTS_COMPATIBILITY_VERSION)
                 .when(compareCompatibilityVersions < 0
-                        && !allForCluster.isEmpty());
+                        && !allHostsForCluster.get().isEmpty());
     }
 
     /**
@@ -258,8 +262,7 @@ public class ClusterValidator {
      * if cpu changed from intel to amd (or backwards) and there are vds in this cluster, cannot update
      */
     public ValidationResult updateCpuIllegal(boolean cpusExist, boolean cpusSameManufacture) {
-        allForCluster = vdsDao.getAllForCluster(cluster.getId());
-        boolean allVdssInMaintenance = areAllVdssInMaintenance(allForCluster);
+        boolean allVdssInMaintenance = areAllVdssInMaintenance(allHostsForCluster.get());
         return ValidationResult.failWith(EngineMessage.CLUSTER_CANNOT_UPDATE_CPU_ILLEGAL)
                 .when(newCluster.supportsVirtService()
                         && (!"".equals(cluster.getCpuName()) || !"".equals(newCluster.getCpuName()))
@@ -272,17 +275,13 @@ public class ClusterValidator {
      * cannot change the processor architecture while there are attached hosts or VMs to the cluster
      */
     public ValidationResult architectureIsLegal(boolean isArchitectureUpdatable) {
-        vmList = vmDao.getAllForCluster(cluster.getId());
-        allForCluster = vdsDao.getAllForCluster(cluster.getId());
-        hasVmOrHost = !vmList.isEmpty() || !allForCluster.isEmpty();
+        hasVmOrHost = !allVmsForCluster.get().isEmpty() || !allHostsForCluster.get().isEmpty();
         return ValidationResult.failWith(EngineMessage.CLUSTER_CANNOT_UPDATE_CPU_ARCHITECTURE_ILLEGAL)
                 .when(newCluster.supportsVirtService() && !isArchitectureUpdatable && hasVmOrHost);
     }
 
     public ValidationResult cpuUpdatable() {
-        vmList = vmDao.getAllForCluster(cluster.getId());
-        allForCluster = vdsDao.getAllForCluster(cluster.getId());
-        hasVmOrHost = !vmList.isEmpty() || !allForCluster.isEmpty();
+        hasVmOrHost = !allVmsForCluster.get().isEmpty() || !allHostsForCluster.get().isEmpty();
         sameCpuNames = Objects.equals(cluster.getCpuName(), newCluster.getCpuName());
         boolean isCpuUpdatable = cpuFlagsManagerHandler.isCpuUpdatable(cluster.getCpuName(), cluster.getCompatibilityVersion());
         boolean isOldCPUEmpty = StringUtils.isEmpty(cluster.getCpuName());
@@ -294,8 +293,7 @@ public class ClusterValidator {
      * can't change cluster version when a VM is in preview
      */
     public ValidationResult vmInPrev() {
-        vmList = vmDao.getAllForCluster(cluster.getId());
-        List<String> vmInPreviewNames = vmList.stream()
+        List<String> vmInPreviewNames = allVmsForCluster.get().stream()
                 .filter(VM::isPreviewSnapshot)
                 .map(VM::getName)
                 .collect(Collectors.toList());
@@ -305,8 +303,7 @@ public class ClusterValidator {
     }
 
     protected List<VDS> upVdss() {
-        allForCluster = vdsDao.getAllForCluster(cluster.getId());
-        return allForCluster.stream()
+        return allHostsForCluster.get().stream()
                 .filter(v -> v.getStatus() == VDSStatus.Up)
                 .collect(Collectors.toList());
     }
@@ -377,13 +374,11 @@ public class ClusterValidator {
     }
 
     protected boolean isAllowClusterWithVirtGluster() {
-        Boolean allowVirGluster = Config.<Boolean> getValue(ConfigValues.AllowClusterWithVirtGlusterEnabled);
-        return allowVirGluster;
+        return Config.<Boolean> getValue(ConfigValues.AllowClusterWithVirtGlusterEnabled);
     }
 
     public ValidationResult disableVirt() {
-        vmList = vmDao.getAllForCluster(cluster.getId());
-        boolean hasVms = !vmList.isEmpty();
+        boolean hasVms = !allVmsForCluster.get().isEmpty();
         return ValidationResult.failWith(EngineMessage.CLUSTER_CANNOT_DISABLE_VIRT_WHEN_CLUSTER_CONTAINS_VMS)
                 .when(hasVms && !newCluster.supportsVirtService());
     }
@@ -401,14 +396,15 @@ public class ClusterValidator {
     }
 
     protected ArchitectureType getArchitecture() {
-        if (StringUtils.isNotEmpty(newCluster.getCpuName())) {
-            return cpuFlagsManagerHandler.getArchitectureByCpuName(newCluster.getCpuName(),
-                    newCluster.getCompatibilityVersion());
-        } else if (newCluster.getArchitecture() == null) {
+        Cluster eCluster = newCluster != null ? newCluster : cluster;
+        if (StringUtils.isNotEmpty(eCluster.getCpuName())) {
+            return cpuFlagsManagerHandler.getArchitectureByCpuName(eCluster.getCpuName(),
+                    eCluster.getCompatibilityVersion());
+        } else if (eCluster.getArchitecture() == null) {
             return ArchitectureType.undefined;
         }
 
-        return cluster.getArchitecture();
+        return eCluster.getArchitecture();
     }
 
     public ValidationResult migrationOnError(ArchitectureType architectureType) {
@@ -419,6 +415,24 @@ public class ClusterValidator {
 
     protected boolean migrationSupportedForArch(ArchitectureType arch) {
         return FeatureSupported.isMigrationSupported(arch, cluster.getCompatibilityVersion());
+    }
+
+    public ValidationResult invalidBiosType() {
+        return ValidationResult.failWith(EngineMessage.BIOS_TYPE_INVALID_FOR_CLUSTER)
+                .when(newCluster != null && newCluster.getBiosType() == BiosType.CLUSTER_DEFAULT
+                        || cluster.getBiosType() == BiosType.CLUSTER_DEFAULT);
+    }
+
+    public ValidationResult nonDefaultBiosType() {
+        Cluster eCluster = newCluster != null ? newCluster : cluster;
+        ArchitectureType architecture = getArchitecture();
+        return ValidationResult.failWith(EngineMessage.NON_DEFAULT_BIOS_TYPE_FOR_X86_ONLY)
+                .when(FeatureSupported.isBiosTypeSupported(eCluster.getCompatibilityVersion())
+                    && eCluster.getBiosType() != null
+                    && eCluster.getBiosType() != BiosType.CLUSTER_DEFAULT
+                    && eCluster.getBiosType() != BiosType.I440FX_SEA_BIOS
+                    && architecture != ArchitectureType.undefined
+                    && architecture.getFamily() != ArchitectureType.x86);
     }
 
     private boolean attestationServerEnabled() {

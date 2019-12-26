@@ -3,8 +3,15 @@ package org.ovirt.engine.ui.uicommonweb.models.configure.scheduling.affinity_gro
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.ovirt.engine.core.common.action.ActionType;
+import org.ovirt.engine.core.common.businessentities.BusinessEntity;
+import org.ovirt.engine.core.common.businessentities.Label;
+import org.ovirt.engine.core.common.businessentities.Nameable;
+import org.ovirt.engine.core.common.businessentities.VDS;
+import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.scheduling.AffinityGroup;
 import org.ovirt.engine.core.common.scheduling.EntityAffinityRule;
 import org.ovirt.engine.core.common.scheduling.parameters.AffinityGroupCRUDParameters;
@@ -15,29 +22,67 @@ import org.ovirt.engine.ui.uicommonweb.dataprovider.AsyncDataProvider;
 import org.ovirt.engine.ui.uicommonweb.models.EntityModel;
 import org.ovirt.engine.ui.uicommonweb.models.ListModel;
 import org.ovirt.engine.ui.uicommonweb.models.Model;
-import org.ovirt.engine.ui.uicommonweb.models.configure.scheduling.affinity_groups.HostsSelectionModel;
-import org.ovirt.engine.ui.uicommonweb.models.configure.scheduling.affinity_groups.VmsSelectionModel;
+import org.ovirt.engine.ui.uicommonweb.models.configure.scheduling.affinity_groups.EntitySelectionModel;
 import org.ovirt.engine.ui.uicommonweb.validation.AsciiOrNoneValidation;
+import org.ovirt.engine.ui.uicommonweb.validation.DoubleValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.I18NNameValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.IValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.LengthValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.NotEmptyValidation;
+import org.ovirt.engine.ui.uicompat.ConstantsManager;
+import org.ovirt.engine.ui.uicompat.UIConstants;
+import org.ovirt.engine.ui.uicompat.UIMessages;
 
 public abstract class AffinityGroupModel extends Model {
+    private static final UIConstants constants = ConstantsManager.getInstance().getConstants();
+    private static final UIMessages messages = ConstantsManager.getInstance().getMessages();
+
+    private static class IdAndName implements BusinessEntity<Guid>, Nameable {
+        private Guid id;
+        private final String name;
+
+        public IdAndName(Guid id, String name) {
+            this.id = id;
+            this.name = name;
+        }
+
+        @Override
+        public Guid getId() {
+            return id;
+        }
+
+        @Override
+        public void setId(Guid id) {
+            this.id = id;
+        }
+
+        @Override
+        public String getName() {
+            return name;
+        }
+    }
+
     private final AffinityGroup affinityGroup;
     private final ListModel<?> sourceListModel;
     private final ActionType saveActionType;
 
     private EntityModel<String> name;
     private EntityModel<String> description;
+    private EntityModel<String> priority;
     private ListModel<EntityAffinityRule> vmAffinityRule;
     private EntityModel<Boolean> vmAffinityEnforcing;
     private ListModel<EntityAffinityRule> hostAffinityRule;
     private EntityModel<Boolean> hostAffinityEnforcing;
-    private VmsSelectionModel vmsSelectionModel;
-    private HostsSelectionModel hostsSelectionModel;
+    private EntitySelectionModel vmsOrLabelsSelectionModel;
+    private EntitySelectionModel hostsOrLabelsSelectionModel;
     private final Guid clusterId;
     private final String clusterName;
+
+    private List<VM> vms;
+    private List<VDS> hosts;
+    private List<Label> labels;
+
+    private Set<Guid> labelIds;
 
     public AffinityGroupModel(AffinityGroup affinityGroup, ListModel<?> sourceListModel,
             ActionType saveActionType,
@@ -51,20 +96,21 @@ public abstract class AffinityGroupModel extends Model {
 
         setName(new EntityModel<>(getAffinityGroup().getName()));
         setDescription(new EntityModel<>(getAffinityGroup().getDescription()));
+        setPriority(new EntityModel<>(Double.toString(getAffinityGroup().getPriorityAsDouble())));
 
         // Set VM details
         setVmAffinityRule(new ListModel<EntityAffinityRule>());
         vmAffinityRule.setItems(Arrays.asList(EntityAffinityRule.values()), affinityGroup.getVmAffinityRule());
         setVmAffinityEnforcing(new EntityModel<>(affinityGroup.isVmEnforcing()));
         vmAffinityRule.getSelectedItemChangedEvent().addListener((ev, sender, args) -> updateChangeableEnforcing());
-        setVmsSelectionModel(new VmsSelectionModel());
+        setVmsOrLabelsSelectionModel(new EntitySelectionModel(constants.selectVm(), constants.noAvailableVms()));
 
         // Set host details
         setHostAffinityRule(new ListModel<EntityAffinityRule>());
         hostAffinityRule.setItems(Arrays.asList(EntityAffinityRule.values()), affinityGroup.getVdsAffinityRule());
         setHostAffinityEnforcing(new EntityModel<>(affinityGroup.isVdsEnforcing()));
         hostAffinityRule.getSelectedItemChangedEvent().addListener((ev, sender, args) -> updateChangeableEnforcing());
-        setHostsSelectionModel(new HostsSelectionModel());
+        setHostsOrLabelsSelectionModel(new EntitySelectionModel(constants.selectHost(), constants.noAvailableHosts()));
 
         updateChangeableEnforcing();
 
@@ -76,22 +122,61 @@ public abstract class AffinityGroupModel extends Model {
 
         //TODO: should be by cluster id and remove clusterName method from resolver.
         AsyncDataProvider.getInstance().getVmListByClusterName(new AsyncQuery<>(vmList -> {
-            List<Guid> vmIds = getAffinityGroup().getVmIds();
-            getVmsSelectionModel().init(vmList, vmIds != null ? vmIds : new ArrayList<>());
-            stopProgressOnVmsAndHostsInit();
+            vms = vmList;
+            onFetchedData();
         }), clusterName);
 
         AsyncDataProvider.getInstance().getHostListByClusterId(new AsyncQuery<>(hostList -> {
-            List<Guid> hostIds = getAffinityGroup().getVdsIds();
-            getHostsSelectionModel().init(hostList, hostIds != null ? hostIds : new ArrayList<>());
-            stopProgressOnVmsAndHostsInit();
+            hosts = hostList;
+            onFetchedData();
         }), clusterId);
+
+        AsyncDataProvider.getInstance().getLabelList(new AsyncQuery<>(labelList -> {
+            labels = labelList;
+            onFetchedData();
+        }));
     }
 
-    private void stopProgressOnVmsAndHostsInit() {
-        if (getVmsSelectionModel().isInitialized() && getHostsSelectionModel().isInitialized()) {
-            stopProgress();
+    private void onFetchedData() {
+        if (vms == null || hosts == null || labels == null) {
+            return;
         }
+
+        Set<Guid> vmIds = vms.stream().map(VM::getId).collect(Collectors.toSet());
+        Set<Guid> hostIds = hosts.stream().map(VDS::getId).collect(Collectors.toSet());
+
+        // Filter out labels that contain VM or host that is not from the current cluster
+        // TODO - this will not be needed once labels are cluster entities
+        labels = labels.stream()
+                .filter(label -> vmIds.containsAll(label.getVms()))
+                .filter(label -> hostIds.containsAll(label.getHosts()))
+                .collect(Collectors.toList());
+
+        labelIds = labels.stream().map(Label::getId).collect(Collectors.toSet());
+
+        List<IdAndName> vmsAndLabels = vms.stream()
+                .map(vm -> new IdAndName(vm.getId(), messages.vmName(vm.getName())))
+                .collect(Collectors.toList());
+
+        List<IdAndName> hostsAndLabels = hosts.stream()
+                .map(host -> new IdAndName(host.getId(), messages.hostName(host.getName())))
+                .collect(Collectors.toList());
+
+        for (Label label : labels) {
+            IdAndName obj = new IdAndName(label.getId(), messages.labelName(label.getName()));
+            vmsAndLabels.add(obj);
+            hostsAndLabels.add(obj);
+        }
+
+        List<Guid> selectedVmIds = new ArrayList<>(getAffinityGroup().getVmIds());
+        selectedVmIds.addAll(getAffinityGroup().getVmLabels());
+        getVmsOrLabelsSelectionModel().init(vmsAndLabels, selectedVmIds);
+
+        List<Guid> selectedHostIds = new ArrayList<>(getAffinityGroup().getVdsIds());
+        selectedHostIds.addAll(getAffinityGroup().getHostLabels());
+        getHostsOrLabelsSelectionModel().init(hostsAndLabels, selectedHostIds);
+
+        stopProgress();
     }
 
     private void updateChangeableEnforcing() {
@@ -123,6 +208,14 @@ public abstract class AffinityGroupModel extends Model {
 
     private void setDescription(EntityModel<String> description) {
         this.description = description;
+    }
+
+    public EntityModel<String> getPriority() {
+        return priority;
+    }
+
+    public void setPriority(EntityModel<String> priority) {
+        this.priority = priority;
     }
 
     public ListModel<EntityAffinityRule> getVmAffinityRule() {
@@ -157,20 +250,20 @@ public abstract class AffinityGroupModel extends Model {
         this.hostAffinityEnforcing = hostAffinityEnforcing;
     }
 
-    public VmsSelectionModel getVmsSelectionModel() {
-        return vmsSelectionModel;
+    public EntitySelectionModel getVmsOrLabelsSelectionModel() {
+        return vmsOrLabelsSelectionModel;
     }
 
-    private void setVmsSelectionModel(VmsSelectionModel vmsSelectionModel) {
-        this.vmsSelectionModel = vmsSelectionModel;
+    private void setVmsOrLabelsSelectionModel(EntitySelectionModel vmsOrLabelsSelectionModel) {
+        this.vmsOrLabelsSelectionModel = vmsOrLabelsSelectionModel;
     }
 
-    public HostsSelectionModel getHostsSelectionModel() {
-        return hostsSelectionModel;
+    public EntitySelectionModel getHostsOrLabelsSelectionModel() {
+        return hostsOrLabelsSelectionModel;
     }
 
-    private void setHostsSelectionModel(HostsSelectionModel hostsSelectionModel) {
-        this.hostsSelectionModel = hostsSelectionModel;
+    private void setHostsOrLabelsSelectionModel(EntitySelectionModel hostsOrLabelsSelectionModel) {
+        this.hostsOrLabelsSelectionModel = hostsOrLabelsSelectionModel;
     }
 
     protected void cancel() {
@@ -190,16 +283,29 @@ public abstract class AffinityGroupModel extends Model {
         group.setName(getName().getEntity());
         group.setDescription(getDescription().getEntity());
         group.setClusterId(clusterId);
+        group.setPriorityFromDouble(Double.parseDouble(getPriority().getEntity()));
 
         // Save VM details
         group.setVmEnforcing(getVmAffinityEnforcing().getEntity());
         group.setVmAffinityRule(getVmAffinityRule().getSelectedItem());
-        group.setVmIds(getVmsSelectionModel().getSelectedVmIds());
+
+        group.setVmIds(new ArrayList<>());
+        group.setVmLabels(new ArrayList<>());
+        for (Guid selectedId : getVmsOrLabelsSelectionModel().getSelectedEntityIds()) {
+            List<Guid> idList = labelIds.contains(selectedId) ? group.getVmLabels() : group.getVmIds();
+            idList.add(selectedId);
+        }
 
         // Save host details
         group.setVdsEnforcing(getHostAffinityEnforcing().getEntity());
         group.setVdsAffinityRule(getHostAffinityRule().getSelectedItem());
-        group.setVdsIds(getHostsSelectionModel().getSelectedHostIds());
+
+        group.setVdsIds(new ArrayList<>());
+        group.setHostLabels(new ArrayList<>());
+        for (Guid selectedId : getHostsOrLabelsSelectionModel().getSelectedEntityIds()) {
+            List<Guid> idList = labelIds.contains(selectedId) ? group.getHostLabels() : group.getVdsIds();
+            idList.add(selectedId);
+        }
 
         startProgress();
 
@@ -220,8 +326,9 @@ public abstract class AffinityGroupModel extends Model {
                 new LengthValidation(255),
                 new I18NNameValidation() });
         getDescription().validateEntity(new IValidation[] { new AsciiOrNoneValidation() });
+        getPriority().validateEntity(new IValidation[] { new DoubleValidation() });
 
-        return getName().getIsValid() && getDescription().getIsValid();
+        return getName().getIsValid() && getDescription().getIsValid() && getPriority().getIsValid();
     }
 
     @Override

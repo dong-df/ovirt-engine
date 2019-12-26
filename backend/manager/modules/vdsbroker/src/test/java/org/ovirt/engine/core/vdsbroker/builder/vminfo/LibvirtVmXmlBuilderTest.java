@@ -2,6 +2,7 @@ package org.ovirt.engine.core.vdsbroker.builder.vminfo;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
@@ -11,24 +12,58 @@ import static org.mockito.Mockito.when;
 import static org.ovirt.engine.core.vdsbroker.builder.vminfo.LibvirtVmXmlBuilder.adjustSpiceSecureChannels;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.mockito.MockitoSession;
 import org.mockito.internal.util.reflection.FieldSetter;
+import org.mockito.quality.Strictness;
+import org.ovirt.engine.core.common.businessentities.ArchitectureType;
+import org.ovirt.engine.core.common.businessentities.BiosType;
+import org.ovirt.engine.core.common.businessentities.BootSequence;
+import org.ovirt.engine.core.common.businessentities.HostDevice;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VmDevice;
+import org.ovirt.engine.core.common.businessentities.VmDeviceGeneralType;
+import org.ovirt.engine.core.common.businessentities.VmDeviceId;
 import org.ovirt.engine.core.common.config.ConfigValues;
+import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.compat.Version;
+import org.ovirt.engine.core.utils.MemoizingSupplier;
 import org.ovirt.engine.core.utils.MockConfigDescriptor;
 import org.ovirt.engine.core.utils.MockedConfig;
 import org.ovirt.engine.core.utils.ovf.xml.XmlTextWriter;
 
 public class LibvirtVmXmlBuilderTest {
+    MockitoSession mockito;
+
+    @BeforeEach
+    void setUp() {
+        //initialize session to start mocking
+        mockito = Mockito.mockitoSession()
+                .initMocks(this)
+                .strictness(Strictness.LENIENT)
+                .startMocking();
+    }
+
+    @AfterEach
+    void tearDown() {
+        //It is necessary to finish the session so that Mockito
+        // can detect incorrect stubbing and validate Mockito usage
+        //'finishMocking()' is intended to be used in your test framework's 'tear down' method.
+        mockito.finishMocking();
+    }
+
 
     @Test
     public void testSpiceSecureChannelsAdjustment() {
@@ -42,6 +77,10 @@ public class LibvirtVmXmlBuilderTest {
         return Stream.concat(
             Stream.of(MockConfigDescriptor.of(ConfigValues.VgpuPlacementSupported, Version.v4_3, Boolean.FALSE)),
             Stream.of(MockConfigDescriptor.of(ConfigValues.VgpuPlacementSupported, Version.v4_2, Boolean.FALSE)));
+    }
+
+    public static Stream<MockConfigDescriptor<?>> tscConfig() {
+        return Stream.of(MockConfigDescriptor.of(ConfigValues.SendSMPOnRunVm, false));
     }
 
     @Test
@@ -149,6 +188,178 @@ public class LibvirtVmXmlBuilderTest {
         verify(writer, times(0)).writeAttributeString("display", "on");
     }
 
+    @Test
+    void testNoneVideo() throws NoSuchFieldException  {
+        LibvirtVmXmlBuilder underTest = mock(LibvirtVmXmlBuilder.class);
+        XmlTextWriter writer = mock(XmlTextWriter.class);
+
+        setupNoneVideoTest(underTest);
+        setWriter(underTest, writer);
+
+        underTest.writeDevices();
+        verify(writer, times(1)).writeStartElement("video");
+        verify(writer, times(1)).writeStartElement("model");
+        verify(writer, times(1)).writeAttributeString("type", "none");
+    }
+
+    private void setupNoneVideoTest(LibvirtVmXmlBuilder underTest) throws NoSuchFieldException {
+        doCallRealMethod().when(underTest).writeDevices();
+
+        VmInfoBuildUtils utils = mock(VmInfoBuildUtils.class);
+        when(utils.getVmDevices(any())).thenReturn(new ArrayList<>());
+        setVmInfoBuildUtils(underTest, utils);
+
+        VM vm = mock(VM.class);
+        when(vm.getId()).thenReturn(Guid.newGuid());
+        when(vm.getClusterArch()).thenReturn(ArchitectureType.x86_64);
+        when(vm.getBiosType()).thenReturn(BiosType.I440FX_SEA_BIOS);
+        when(vm.getEffectiveBiosType()).thenReturn(BiosType.I440FX_SEA_BIOS);
+        when(vm.getBootSequence()).thenReturn(BootSequence.C);
+        setVm(underTest, vm);
+
+        setVolumeLeases(underTest, new ArrayList<>());
+    }
+
+    private void setVolumeLeases(LibvirtVmXmlBuilder underTest, ArrayList<Object> volumeLeases) throws NoSuchFieldException {
+        Field volumeLeasesField = LibvirtVmXmlBuilder.class.getDeclaredField("volumeLeases");
+        FieldSetter.setField(underTest, volumeLeasesField, volumeLeases);
+    }
+
+    @Test
+    @MockedConfig("tscConfig")
+    void testTscFrequencyCpu() throws NoSuchFieldException {
+        LibvirtVmXmlBuilder underTest = mock(LibvirtVmXmlBuilder.class);
+        XmlTextWriter writer = mock(XmlTextWriter.class);
+        Map<String, String> properties = new HashMap<>();
+        VM vm = mock(VM.class);
+        when(vm.getUseTscFrequency()).thenReturn(true);
+
+        setUpTscTest(underTest, vm, writer, properties);
+        setCpuFlagsSupplier(underTest, "tsc,constant_tsc,nonstop_tsc");
+
+        underTest.writeCpu(false);
+        verify(writer, times(1)).writeStartElement("feature");
+        verify(writer, times(1)).writeAttributeString("name", "invtsc");
+        verify(writer, times(1)).writeAttributeString("policy", "require");
+    }
+
+    @Test
+    @MockedConfig("tscConfig")
+    void testTscFrequencyTimer() throws NoSuchFieldException {
+        LibvirtVmXmlBuilder underTest = mock(LibvirtVmXmlBuilder.class);
+        XmlTextWriter writer = mock(XmlTextWriter.class);
+        Map<String, String> properties = new HashMap<>();
+        VM vm = mock(VM.class);
+        when(vm.getUseTscFrequency()).thenReturn(true);
+
+        setUpTscTest(underTest, vm, writer, properties);
+        setTscFreqSupplier(underTest);
+        setVmInfoBuildUtils(underTest);
+        setCpuFlagsSupplier(underTest, "tsc,constant_tsc,nonstop_tsc");
+
+        underTest.writeClock();
+        verify(writer, times(4)).writeStartElement("timer");
+        verify(writer, times(1)).writeAttributeString("name", "tsc");
+        verify(writer, times(1)).writeAttributeString("frequency", "1234000000");
+    }
+
+    @Test
+    void testHostdevScsiDisk() throws NoSuchFieldException {
+        LibvirtVmXmlBuilder underTest = mock(LibvirtVmXmlBuilder.class);
+        XmlTextWriter writer = mock(XmlTextWriter.class);
+        Map<String, String> properties = new HashMap<>();
+        VmDevice device = mock(VmDevice.class);
+
+        setUpHostdevScsiTest(underTest, writer, properties, device);
+
+        properties.put("scsi_hostdev", "scsi_generic");
+        underTest.writeDevices();
+        verify(writer, times(0)).writeStartElement("disk");
+        verify(writer, times(1)).writeStartElement("hostdev");
+
+        properties.put("scsi_hostdev", "scsi_hd");
+        reset(writer);
+        underTest.writeDevices();
+        verify(writer, times(1)).writeStartElement("disk");
+        verify(writer, times(1)).writeAttributeString("type", "block");
+        verify(writer, times(1)).writeAttributeString("device", "disk");
+        verify(writer, times(1)).writeStartElement("blockio");
+        verify(writer, times(3)).writeStartElement("target"); // 2 for guest agents
+        verify(writer, times(1)).writeAttributeString("bus", "scsi");
+        verify(writer, times(1)).writeStartElement("address");
+        verify(writer, times(1)).writeAttributeString("type", "drive");
+        verify(writer, times(1)).writeAttributeString("bus", "1");
+        verify(writer, times(1)).writeAttributeString("controller", "2");
+        verify(writer, times(1)).writeAttributeString("unit", "3");
+
+        properties.put("scsi_hostdev", "scsi_block");
+        reset(writer);
+        underTest.writeDevices();
+        verify(writer, times(1)).writeStartElement("disk");
+        verify(writer, times(1)).writeAttributeString("type", "block");
+        verify(writer, times(1)).writeAttributeString("device", "lun");
+        verify(writer, times(1)).writeAttributeString("rawio", "yes");
+        verify(writer, times(3)).writeStartElement("target"); // 2 for guest agents
+        verify(writer, times(1)).writeAttributeString("bus", "scsi");
+        verify(writer, times(1)).writeStartElement("address");
+        verify(writer, times(1)).writeAttributeString("type", "drive");
+        verify(writer, times(1)).writeAttributeString("bus", "1");
+        verify(writer, times(1)).writeAttributeString("controller", "2");
+        verify(writer, times(1)).writeAttributeString("unit", "3");
+
+        properties.put("scsi_hostdev", "virtio_blk_pci");
+        reset(writer);
+        underTest.writeDevices();
+        verify(writer, times(1)).writeStartElement("disk");
+        verify(writer, times(1)).writeAttributeString("type", "block");
+        verify(writer, times(1)).writeAttributeString("device", "disk");
+        verify(writer, times(3)).writeStartElement("target"); // 2 for guest agents
+        verify(writer, times(1)).writeAttributeString("bus", "virtio");
+        verify(writer, times(0)).writeStartElement("address");
+
+        when(device.getAddress()).thenReturn("{type=pci, bus=1, domain=2, slot=3, function=4}");
+        reset(writer);
+        underTest.writeDevices();
+        verify(writer, times(1)).writeStartElement("disk");
+        verify(writer, times(1)).writeAttributeString("type", "block");
+        verify(writer, times(1)).writeAttributeString("device", "disk");
+        verify(writer, times(3)).writeStartElement("target"); // 2 for guest agents
+        verify(writer, times(1)).writeAttributeString("bus", "virtio");
+        verify(writer, times(1)).writeStartElement("address");
+        verify(writer, times(1)).writeAttributeString("type", "pci");
+        verify(writer, times(1)).writeAttributeString("bus", "1");
+        verify(writer, times(1)).writeAttributeString("domain", "2");
+        verify(writer, times(1)).writeAttributeString("slot", "3");
+        verify(writer, times(1)).writeAttributeString("function", "4");
+    }
+
+    private VmInfoBuildUtils setVmInfoBuildUtils(LibvirtVmXmlBuilder underTest) throws NoSuchFieldException {
+        Field vmInfoBuildUtils = LibvirtVmXmlBuilder.class.getDeclaredField("vmInfoBuildUtils");
+        VmInfoBuildUtils buildUtils = mock(VmInfoBuildUtils.class);
+        when(buildUtils.getVmTimeZone(any())).thenReturn(0);
+        FieldSetter.setField(underTest, vmInfoBuildUtils, buildUtils);
+
+        return buildUtils;
+    }
+
+    private MemoizingSupplier setHostDeviceSupplier(LibvirtVmXmlBuilder underTest) throws NoSuchFieldException {
+        Field hostDevicesSupplierUtils = LibvirtVmXmlBuilder.class.getDeclaredField("hostDevicesSupplier");
+        MemoizingSupplier supplier = mock(MemoizingSupplier.class);
+        FieldSetter.setField(underTest, hostDevicesSupplierUtils, supplier);
+
+        return supplier;
+    }
+
+    private void setTscFreqSupplier(LibvirtVmXmlBuilder underTest) throws NoSuchFieldException {
+        Field tscFrequencySupplier = LibvirtVmXmlBuilder.class.getDeclaredField("tscFrequencySupplier");
+        FieldSetter.setField(underTest, tscFrequencySupplier, new MemoizingSupplier<>(() -> "1234.567"));
+    }
+
+    private void setCpuFlagsSupplier(LibvirtVmXmlBuilder underTest, String flags) throws NoSuchFieldException {
+        Field cpuFlagsSupplier = LibvirtVmXmlBuilder.class.getDeclaredField("cpuFlagsSupplier");
+        FieldSetter.setField(underTest, cpuFlagsSupplier, new MemoizingSupplier<>(() -> flags));
+    }
+
     private VM getVm(LibvirtVmXmlBuilder underTest) throws NoSuchFieldException, IllegalAccessException {
         Field vmField = LibvirtVmXmlBuilder.class.getDeclaredField("vm");
         vmField.setAccessible(true);
@@ -173,6 +384,55 @@ public class LibvirtVmXmlBuilderTest {
         setMetadata(underTest, metadata);
     }
 
+    private void setUpTscTest(LibvirtVmXmlBuilder underTest, VM vm, XmlTextWriter writer, Map<String, String> properties) throws NoSuchFieldException {
+        doCallRealMethod().when(underTest).writeCpu(false);
+        doCallRealMethod().when(underTest).writeClock();
+        Map<String, Map<String, String>> metadata = new HashMap<>();
+        when(vm.getClusterArch()).thenReturn(ArchitectureType.x86_64);
+
+        setVm(underTest, vm);
+        setProperties(underTest, properties);
+        setWriter(underTest, writer);
+        setMetadata(underTest, metadata);
+    }
+
+    private void setUpHostdevScsiTest(LibvirtVmXmlBuilder underTest, XmlTextWriter writer, Map<String, String> properties, VmDevice device) throws NoSuchFieldException {
+        doCallRealMethod().when(underTest).writeDevices();
+        Map<String, Map<String, String>> metadata = new HashMap<>();
+        VM vm = mock(VM.class);
+        when(vm.getClusterArch()).thenReturn(ArchitectureType.x86_64);
+        when(vm.getBiosType()).thenReturn(BiosType.I440FX_SEA_BIOS);
+        when(vm.getEffectiveBiosType()).thenReturn(BiosType.I440FX_SEA_BIOS);
+        when(vm.getBootSequence()).thenReturn(BootSequence.C);
+
+        VmInfoBuildUtils buildUtils = setVmInfoBuildUtils(underTest);
+        MemoizingSupplier hostDeviceSupplier = setHostDeviceSupplier(underTest);
+        when(device.getType()).thenReturn(VmDeviceGeneralType.HOSTDEV);
+        when(device.isPlugged()).thenReturn(true);
+        when(device.getDevice()).thenReturn("testScsi");
+        when(device.getId()).thenReturn(new VmDeviceId(Guid.newGuid(), Guid.newGuid()));
+        when(buildUtils.getVmDevices(any())).thenReturn(Collections.singletonList(device));
+        when(buildUtils.makeDiskName(any(), anyInt())).thenCallRealMethod();
+        when(buildUtils.diskInterfaceToDevName(any())).thenCallRealMethod();
+
+        Map<String, String> hostAddress = new HashMap<>();
+        hostAddress.put("bus", "1");
+        hostAddress.put("host", "2");
+        hostAddress.put("lun", "3");
+        HostDevice hostDev = mock(HostDevice.class);
+        when(hostDev.getCapability()).thenReturn("scsi");
+        when(hostDev.getAddress()).thenReturn(hostAddress);
+        Map<String, HostDevice> devMap = new HashMap<>();
+        devMap.put("testScsi", hostDev);
+        when(hostDeviceSupplier.get()).thenReturn(devMap);
+
+        setVm(underTest, vm);
+        setProperties(underTest, properties);
+        setWriter(underTest, writer);
+        setMetadata(underTest, metadata);
+        setVolumeLeases(underTest, new ArrayList<>());
+    }
+
     private void setVm(LibvirtVmXmlBuilder underTest, VM vm) throws NoSuchFieldException {
         Field vmField = LibvirtVmXmlBuilder.class.getDeclaredField("vm");
         FieldSetter.setField(underTest, vmField, vm);
@@ -191,5 +451,10 @@ public class LibvirtVmXmlBuilderTest {
     private void setProperties(LibvirtVmXmlBuilder underTest, Map<String, String> properties) throws NoSuchFieldException {
         Field propField = LibvirtVmXmlBuilder.class.getDeclaredField("vmCustomProperties");
         FieldSetter.setField(underTest, propField, properties);
+    }
+
+    private void setVmInfoBuildUtils(LibvirtVmXmlBuilder underTest, VmInfoBuildUtils utils) throws NoSuchFieldException {
+        Field vmInfoBuildUtilsField = LibvirtVmXmlBuilder.class.getDeclaredField("vmInfoBuildUtils");
+        FieldSetter.setField(underTest, vmInfoBuildUtilsField, utils);
     }
 }

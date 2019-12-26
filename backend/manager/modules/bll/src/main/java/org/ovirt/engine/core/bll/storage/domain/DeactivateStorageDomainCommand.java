@@ -206,6 +206,7 @@ public class DeactivateStorageDomainCommand<T extends StorageDomainPoolParameter
                 case RESUMING:
                 case FINALIZING_SUCCESS:
                 case FINALIZING_FAILURE:
+                case FINALIZING_CLEANUP:
                     return failValidation(EngineMessage.ERROR_CANNOT_DEACTIVATE_STORAGE_DOMAIN_DURING_UPLOAD_OR_DOWNLOAD);
             }
         }
@@ -303,12 +304,12 @@ public class DeactivateStorageDomainCommand<T extends StorageDomainPoolParameter
                 deactivateManagedBlockStorageDomain();
                 break;
             default:
-                dectivateStorageDomain();
+                deactivateStorageDomain();
                 break;
         }
     }
 
-    private void dectivateStorageDomain() {
+    private void deactivateStorageDomain() {
         StorageDomainStatus lastStatus = getStorageDomain().getStatus();
         final StoragePoolIsoMap map =
                 storagePoolIsoMapDao.get
@@ -406,7 +407,7 @@ public class DeactivateStorageDomainCommand<T extends StorageDomainPoolParameter
                         return null;
                     });
 
-            if (spm != null) {
+            if (!isLastMaster && spm != null) {
                 getStorageHelper(getStorageDomain()).disconnectStorageFromDomainByVdsId(getStorageDomain(), spm.getId());
             }
         }

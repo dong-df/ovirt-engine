@@ -140,30 +140,44 @@ public class CopyImageGroupCommand<T extends MoveOrCopyImageGroupParameters> ext
     }
 
     private boolean isUsingSPDMFlow() {
-        return isDataOperationsByHSM() && !getParameters().getUseCopyCollapse()
-                && getParameters().getParentCommand() == ActionType.MoveOrCopyDisk
-                && getParameters().getOperation() == ImageOperation.Move;
+        return isDataOperationsByHSM() &&
+                (getParameters().getParentCommand() == ActionType.MoveOrCopyDisk ||
+                        getParameters().getParentCommand() == ActionType.CloneVm ||
+                        getParameters().getParentCommand() == ActionType.CloneVmNoCollapse);
+    }
+
+    private CopyImageGroupWithDataCommandParameters createCopyParams(Guid sourceDomainId, Guid destImageGroupId, Guid destImageId) {
+        CopyImageGroupWithDataCommandParameters p = new CopyImageGroupWithDataCommandParameters(
+                getStorageDomain().getStoragePoolId(),
+                sourceDomainId,
+                getParameters().getStorageDomainId(),
+                getParameters().getImageGroupID(),
+                getParameters().getImageId(),
+                destImageGroupId,
+                destImageId,
+                getVolumeFormatForDomain(),
+                getParameters().getVolumeType(),
+                getParameters().getUseCopyCollapse());
+        p.setParentParameters(getParameters());
+        p.setParentCommand(getActionType());
+        p.setEndProcedure(EndProcedure.COMMAND_MANAGED);
+        p.setDestImages(getParameters().getDestImages());
+        p.setJobWeight(getParameters().getJobWeight());
+        p.setDestDomain(getParameters().getStorageDomainId());
+
+        return p;
     }
 
     private boolean performStorageOperation() {
         Guid sourceDomainId = getParameters().getSourceDomainId() != null ? getParameters().getSourceDomainId()
                 : getDiskImage().getStorageIds().get(0);
         if (isUsingSPDMFlow()) {
-            CopyImageGroupWithDataCommandParameters p = new CopyImageGroupWithDataCommandParameters(
-                    getStorageDomain().getStoragePoolId(),
-                    sourceDomainId,
-                    getParameters().getStorageDomainId(),
-                    getParameters().getImageGroupID(),
-                    getParameters().getImageId(),
-                    getParameters().getImageGroupID(),
-                    getParameters().getImageId(),
-                    getVolumeFormatForDomain(),
-                    getParameters().getVolumeType(),
-                    getParameters().getUseCopyCollapse());
-            p.setParentParameters(getParameters());
-            p.setParentCommand(getActionType());
-            p.setEndProcedure(EndProcedure.COMMAND_MANAGED);
-            p.setJobWeight(getParameters().getJobWeight());
+            // if this is executed as part of the Clone VM flow we need to use different disk and image ID's
+            // since we are copying to the same storage domain
+            CopyImageGroupWithDataCommandParameters p = createCopyParams(sourceDomainId,
+                                    getParameters().getDestImageGroupId(),
+                                    getParameters().getDestinationImageId());
+
             runInternalAction(ActionType.CopyImageGroupWithData, p);
             return true;
         } else {

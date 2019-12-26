@@ -66,6 +66,7 @@ Create or replace FUNCTION InsertVmTemplate(v_child_count INTEGER,
  v_numatune_mode VARCHAR(20),
  v_is_auto_converge BOOLEAN,
  v_is_migrate_compressed BOOLEAN,
+ v_is_migrate_encrypted BOOLEAN,
  v_predefined_properties VARCHAR(4000),
  v_userdefined_properties VARCHAR(4000),
  v_custom_emulated_machine VARCHAR(40),
@@ -78,7 +79,8 @@ Create or replace FUNCTION InsertVmTemplate(v_child_count INTEGER,
  v_custom_compatibility_version VARCHAR(40),
  v_migration_policy_id UUID,
  v_lease_sd_id UUID,
- v_multi_queues_enabled BOOLEAN)
+ v_multi_queues_enabled BOOLEAN,
+ v_use_tsc_frequency BOOLEAN)
 
 RETURNS VOID
    AS $procedure$
@@ -158,6 +160,7 @@ BEGIN
         numatune_mode,
         is_auto_converge,
         is_migrate_compressed,
+        is_migrate_encrypted,
         predefined_properties,
         userdefined_properties,
         custom_emulated_machine,
@@ -170,7 +173,8 @@ BEGIN
         custom_compatibility_version,
         migration_policy_id,
         lease_sd_id,
-        multi_queues_enabled)
+        multi_queues_enabled,
+        use_tsc_frequency)
     VALUES(
         v_child_count,
         v_creation_date,
@@ -232,6 +236,7 @@ BEGIN
         v_numatune_mode,
         v_is_auto_converge,
         v_is_migrate_compressed,
+        v_is_migrate_encrypted,
         v_predefined_properties,
         v_userdefined_properties,
         v_custom_emulated_machine,
@@ -244,7 +249,8 @@ BEGIN
         v_custom_compatibility_version,
         v_migration_policy_id,
         v_lease_sd_id,
-        v_multi_queues_enabled);
+        v_multi_queues_enabled,
+        v_use_tsc_frequency);
     -- perform deletion from vm_ovf_generations to ensure that no record exists when performing insert to avoid PK violation.
     DELETE FROM vm_ovf_generations gen WHERE gen.vm_guid = v_vmt_guid;
     INSERT INTO vm_ovf_generations(
@@ -326,6 +332,7 @@ Create or replace FUNCTION UpdateVmTemplate(v_child_count INTEGER,
  v_numatune_mode VARCHAR(20),
  v_is_auto_converge BOOLEAN,
  v_is_migrate_compressed BOOLEAN,
+ v_is_migrate_encrypted BOOLEAN,
  v_predefined_properties VARCHAR(4000),
  v_userdefined_properties VARCHAR(4000),
  v_custom_emulated_machine VARCHAR(40),
@@ -338,7 +345,8 @@ Create or replace FUNCTION UpdateVmTemplate(v_child_count INTEGER,
  v_custom_compatibility_version VARCHAR(40),
  v_migration_policy_id UUID,
  v_lease_sd_id UUID,
- v_multi_queues_enabled BOOLEAN)
+ v_multi_queues_enabled BOOLEAN,
+ v_use_tsc_frequency BOOLEAN)
 RETURNS VOID
 
 	--The [vm_templates] table doesn't have a timestamp column. Optimistic concurrency logic cannot be generated
@@ -402,6 +410,7 @@ BEGIN
       numatune_mode = v_numatune_mode,
       is_auto_converge = v_is_auto_converge,
       is_migrate_compressed = v_is_migrate_compressed,
+      is_migrate_encrypted = v_is_migrate_encrypted,
       predefined_properties = v_predefined_properties,
       userdefined_properties = v_userdefined_properties,
       custom_emulated_machine = v_custom_emulated_machine,
@@ -414,7 +423,8 @@ BEGIN
       custom_compatibility_version = v_custom_compatibility_version,
       migration_policy_id = v_migration_policy_id,
       lease_sd_id = v_lease_sd_id,
-      multi_queues_enabled = v_multi_queues_enabled
+      multi_queues_enabled = v_multi_queues_enabled,
+      use_tsc_frequency = v_use_tsc_frequency
       WHERE vm_guid = v_vmt_guid
           AND entity_type = v_template_type;
 
@@ -695,7 +705,8 @@ BEGIN
       INNER JOIN vnic_profiles
       ON vnic_profiles.id = vm_interface.vnic_profile_id
       WHERE vnic_profiles.network_id = v_network_id
-          AND vm_interface.vmt_guid = vm_templates_based_view.vmt_guid);
+          AND vm_interface.vm_guid = vm_templates_based_view.vmt_guid
+          AND vm_templates_based_view.entity_type = 'TEMPLATE');
 END; $procedure$
 LANGUAGE plpgsql;
 
@@ -709,7 +720,8 @@ BEGIN
       SELECT 1
       FROM vm_interface
       WHERE vm_interface.vnic_profile_id = v_vnic_profile_id
-      AND vm_interface.vmt_guid = vm_templates_based_view.vmt_guid);
+      AND vm_interface.vm_guid = vm_templates_based_view.vmt_guid
+      AND vm_templates_based_view.entity_type = 'TEMPLATE');
 END; $procedure$
 LANGUAGE plpgsql;
 

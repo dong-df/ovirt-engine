@@ -5,10 +5,12 @@ import java.util.List;
 import org.gwtbootstrap3.client.ui.Row;
 import org.ovirt.engine.core.common.businessentities.AdditionalFeature;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
+import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.LogMaxMemoryUsedThresholdType;
 import org.ovirt.engine.core.common.businessentities.MacPool;
 import org.ovirt.engine.core.common.businessentities.MigrationBandwidthLimitType;
 import org.ovirt.engine.core.common.businessentities.Provider;
+import org.ovirt.engine.core.common.businessentities.SerialNumberPolicy;
 import org.ovirt.engine.core.common.businessentities.ServerCpu;
 import org.ovirt.engine.core.common.businessentities.StoragePool;
 import org.ovirt.engine.core.common.businessentities.network.Network;
@@ -25,7 +27,6 @@ import org.ovirt.engine.ui.common.view.popup.AbstractTabbedModelBoundPopupView;
 import org.ovirt.engine.ui.common.widget.Align;
 import org.ovirt.engine.ui.common.widget.HasEnabledWithHints;
 import org.ovirt.engine.ui.common.widget.UiCommandButton;
-import org.ovirt.engine.ui.common.widget.VisibilityRenderer;
 import org.ovirt.engine.ui.common.widget.dialog.AdvancedParametersExpander;
 import org.ovirt.engine.ui.common.widget.dialog.InfoIcon;
 import org.ovirt.engine.ui.common.widget.dialog.SimpleDialogPanel;
@@ -41,11 +42,12 @@ import org.ovirt.engine.ui.common.widget.editor.generic.StringEntityModelPasswor
 import org.ovirt.engine.ui.common.widget.editor.generic.StringEntityModelTextAreaLabelEditor;
 import org.ovirt.engine.ui.common.widget.editor.generic.StringEntityModelTextBoxEditor;
 import org.ovirt.engine.ui.common.widget.form.key_value.KeyValueWidget;
-import org.ovirt.engine.ui.common.widget.renderer.BooleanRendererWithNullText;
+import org.ovirt.engine.ui.common.widget.renderer.BooleanRenderer;
 import org.ovirt.engine.ui.common.widget.renderer.EnumRenderer;
 import org.ovirt.engine.ui.common.widget.renderer.NameRenderer;
 import org.ovirt.engine.ui.common.widget.renderer.NullSafeRenderer;
-import org.ovirt.engine.ui.common.widget.uicommon.popup.vm.SerialNumberPolicyWidget;
+import org.ovirt.engine.ui.common.widget.renderer.SystemDefaultRenderer;
+import org.ovirt.engine.ui.uicommonweb.dataprovider.AsyncDataProvider;
 import org.ovirt.engine.ui.uicommonweb.models.ApplicationModeHelper;
 import org.ovirt.engine.ui.uicommonweb.models.TabName;
 import org.ovirt.engine.ui.uicommonweb.models.clusters.ClusterModel;
@@ -127,6 +129,11 @@ public class ClusterPopupView extends AbstractTabbedModelBoundPopupView<ClusterM
     @Path(value = "CPU.selectedItem")
     @WithElementId
     ListModelListBoxEditor<ServerCpu> cpuEditor;
+
+    @UiField(provided = true)
+    @Path(value = "biosType.selectedItem")
+    @WithElementId
+    ListModelListBoxEditor<BiosType> biosTypeEditor;
 
     @UiField(provided = true)
     @Path(value = "version.selectedItem")
@@ -404,10 +411,19 @@ public class ClusterPopupView extends AbstractTabbedModelBoundPopupView<ClusterM
     @WithElementId
     EntityModelRadioButtonEditor allowOverbookingEditor;
 
+    @UiField(provided = true)
+    @Path(value = "serialNumberPolicy.selectedItem")
+    @WithElementId
+    ListModelListBoxEditor<SerialNumberPolicy> serialNumberPolicyEditor;
+
     @UiField
-    @Ignore
-    @WithElementId("serialNumberPolicy")
-    SerialNumberPolicyWidget serialNumberPolicyEditor;
+    @Path("customSerialNumber.entity")
+    public StringEntityModelTextBoxEditor customSerialNumberEditor;
+
+    @UiField(provided = true)
+    @Path(value = "migrateEncrypted.selectedItem")
+    @WithElementId
+    ListModelListBoxEditor<Boolean> migrateEncryptedEditor;
 
     @UiField(provided = true)
     @Path("autoConverge.selectedItem")
@@ -448,7 +464,7 @@ public class ClusterPopupView extends AbstractTabbedModelBoundPopupView<ClusterM
     @WithElementId
     EntityModelCheckBoxEditor vncEncryptionEnabled;
 
-    @UiField
+    @UiField(provided = true)
     InfoIcon vncEncryptionEnabledInfoIcon;
 
 
@@ -542,7 +558,6 @@ public class ClusterPopupView extends AbstractTabbedModelBoundPopupView<ClusterM
         ViewIdHandler.idHandler.generateAndSetIds(this);
         initAdditionalFeaturesExpander();
 
-        serialNumberPolicyEditor.setRenderer(new VisibilityRenderer.SimpleVisibilityRenderer());
         customMigrationBandwidthLimitEditor.hideLabel();
         logMaxMemoryUsedThresholdTypeEditor.hideLabel();
         logMaxMemoryUsedThresholdEditor.hideLabel();
@@ -629,6 +644,8 @@ public class ClusterPopupView extends AbstractTabbedModelBoundPopupView<ClusterM
             }
         });
 
+        biosTypeEditor = new ListModelListBoxEditor<>(new EnumRenderer<BiosType>());
+
         versionEditor = new ListModelListBoxEditor<>(new NullSafeRenderer<Version>() {
             @Override
             public String renderNullSafe(Version object) {
@@ -673,11 +690,25 @@ public class ClusterPopupView extends AbstractTabbedModelBoundPopupView<ClusterM
             }
         });
 
+        serialNumberPolicyEditor = new ListModelListBoxEditor<>(
+                new SystemDefaultRenderer<SerialNumberPolicy>(
+                        new EnumRenderer<SerialNumberPolicy>(),
+                        AsyncDataProvider.getInstance().getSerialNumberPolicy()));
+
+        migrateEncryptedEditor = new ListModelListBoxEditor<>(
+                new SystemDefaultRenderer<Boolean>(
+                        new BooleanRenderer(constants.encrypt(), constants.dontEncrypt()),
+                        AsyncDataProvider.getInstance().getMigrateEncrypted()));
+
         autoConvergeEditor = new ListModelListBoxEditor<>(
-                new BooleanRendererWithNullText(constants.autoConverge(), constants.dontAutoConverge(), constants.inheritFromGlobal()));
+                new SystemDefaultRenderer<Boolean>(
+                        new BooleanRenderer(constants.autoConverge(), constants.dontAutoConverge()),
+                        AsyncDataProvider.getInstance().getAutoConverge()));
 
         migrateCompressedEditor = new ListModelListBoxEditor<>(
-                new BooleanRendererWithNullText(constants.compress(), constants.dontCompress(), constants.inheritFromGlobal()));
+                new SystemDefaultRenderer<Boolean>(
+                        new BooleanRenderer(constants.compress(), constants.dontCompress()),
+                        AsyncDataProvider.getInstance().getMigrateCompressed()));
 
         migrationBandwidthLimitTypeEditor = new ListModelListBoxEditor<>(new EnumRenderer<MigrationBandwidthLimitType>());
         migrationBandwidthLimitTypeEditor.hideLabel();
@@ -751,7 +782,7 @@ public class ClusterPopupView extends AbstractTabbedModelBoundPopupView<ClusterM
         skipFencingIfGlusterQuorumNotMetInfo.setVisible(false);
 
         isVirtioScsiEnabledInfoIcon = new InfoIcon(templates.italicText("")); //$NON-NLS-1$
-        vncEncryptionEnabledInfoIcon = new InfoIcon(templates.italicText("")); //$NON-NLS-1$
+        vncEncryptionEnabledInfoIcon = new InfoIcon(templates.italicText(constants.vncEncryptionEnabledHelpMessage()));
 
         logMaxMemoryUsedThresholdInfoIcon =
                 new InfoIcon(templates.italicText(constants.logMaxMemoryUsedThresholdLabelHelpMessage()));
@@ -789,8 +820,6 @@ public class ClusterPopupView extends AbstractTabbedModelBoundPopupView<ClusterM
 
         enableOvirtServiceOptionEditor.setVisible(!object.getAllowClusterWithVirtGlusterEnabled());
         enableGlusterServiceOptionEditor.setVisible(!object.getAllowClusterWithVirtGlusterEnabled());
-
-        serialNumberPolicyEditor.edit(object.getSerialNumberPolicy());
 
         optimizationForServerFormatter(object);
         optimizationForDesktopFormatter(object);
@@ -914,7 +943,6 @@ public class ClusterPopupView extends AbstractTabbedModelBoundPopupView<ClusterM
 
     @Override
     public ClusterModel flush() {
-        serialNumberPolicyEditor.flush();
         return driver.flush();
     }
 

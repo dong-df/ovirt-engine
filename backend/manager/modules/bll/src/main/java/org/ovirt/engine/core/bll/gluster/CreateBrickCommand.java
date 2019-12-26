@@ -26,7 +26,7 @@ import org.ovirt.engine.core.common.errors.EngineException;
 import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.common.locks.LockingGroup;
 import org.ovirt.engine.core.common.utils.Pair;
-import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandBuilder;
+import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandConfig;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleConstants;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleExecutor;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleReturnCode;
@@ -164,8 +164,8 @@ public class CreateBrickCommand extends VdsCommand<CreateBrickParameters> {
         int diskCount = getParameters().getNoOfPhysicalDisksInRaidVolume() == null ? 1
                 : getParameters().getNoOfPhysicalDisksInRaidVolume();
 
-        AnsibleCommandBuilder command = new AnsibleCommandBuilder()
-                .hostnames(getVds().getHostName())
+        AnsibleCommandConfig commandConfig = new AnsibleCommandConfig()
+                .hosts(getVds())
                 .variable("ssd", ssdDevice)
                 .variable("disks", JsonHelper.objectToJson(disks, false))
                 .variable("vgname", "RHGS_vg_" + getParameters().getLvName())
@@ -186,16 +186,17 @@ public class CreateBrickCommand extends VdsCommand<CreateBrickParameters> {
                 .logFilePrefix("ovirt-gluster-brick-ansible")
                 .logFileName(getVds().getHostName())
                 .logFileSuffix(getCorrelationId())
+                .playAction("Create Brick")
                 .playbook(AnsibleConstants.CREATE_BRICK_PLAYBOOK);
 
-         AnsibleReturnValue ansibleReturnValue = ansibleExecutor.runCommand(command);
+         AnsibleReturnValue ansibleReturnValue = ansibleExecutor.runCommand(commandConfig);
         if (ansibleReturnValue.getAnsibleReturnCode() != AnsibleReturnCode.OK) {
             log.error("Failed to execute Ansible create brick role. Please check logs for more details: {}",
-                    command.logFile());
+                    ansibleReturnValue.getLogFile());
             throw new EngineException(EngineError.GeneralException,
                     String.format(
                             "Failed to execute Ansible create brick role. Please check logs for more details: %1$s",
-                            command.logFile()));
+                            ansibleReturnValue.getLogFile()));
         } else {
             // sync the storage devices, so mount point shows up
             for (StorageDevice storageDevice : getParameters().getDisks()) {

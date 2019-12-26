@@ -1,17 +1,6 @@
 /*
-Copyright (c) 2017 Red Hat, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-  http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+ * Copyright oVirt Authors
+ * SPDX-License-Identifier: Apache-2.0
 */
 
 package org.ovirt.engine.core.common.utils.ansible;
@@ -51,11 +40,6 @@ public class AnsibleConstants {
     public static final String HOST_ENROLL_CERTIFICATE = "ovirt-host-enroll-certificate.yml";
 
     /**
-     * This is name of callback plugin which is used to run update in check mode.
-     */
-    public static final String HOST_UPGRADE_CALLBACK_PLUGIN = "hostupgradeplugin";
-
-    /**
      * This is name of file which executes the host-remove via Ansible.
      */
     public static final String HOST_REMOVE_PLAYBOOK = "ovirt-host-remove.yml";
@@ -81,17 +65,12 @@ public class AnsibleConstants {
     public static final String IMPORT_OVA_PLAYBOOK = "ovirt-ova-import.yml";
 
     /**
-     * This is name of callback plugin which is used to get OVF from an OVA.
-     */
-    public static final String OVA_QUERY_CALLBACK_PLUGIN = "ovaqueryplugin";
-
-    /**
-     * This is name of callback plugin which is used to get the measured size of an image.
-     */
-    public static final String IMAGE_MEASURE_CALLBACK_PLUGIN = "imagemeasureplugin";
-
-    /**
      * This is name of file which executes the lvmcache via Ansible.
      */
     public static final String CREATE_BRICK_PLAYBOOK = "create-brick.yml";
+
+    /**
+     * Name of the task where VDSM_ID is loaded, so we can distinguish this task and parse it.
+     */
+    public static final String TASK_VDSM_ID = "Fetch vdsm id";
 }

@@ -9,11 +9,9 @@ import org.ovirt.engine.core.common.action.AttachStorageDomainToPoolParameters;
 import org.ovirt.engine.core.common.action.StorageDomainManagementParameter;
 import org.ovirt.engine.core.common.businessentities.StoragePool;
 import org.ovirt.engine.core.common.businessentities.StoragePoolStatus;
-import org.ovirt.engine.core.common.businessentities.StorageServerConnections;
 import org.ovirt.engine.core.common.businessentities.storage.StorageType;
-import org.ovirt.engine.core.common.config.Config;
-import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.errors.EngineMessage;
+import org.ovirt.engine.core.common.utils.VersionStorageFormatUtil;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dao.StoragePoolDao;
 import org.ovirt.engine.core.dao.StorageServerConnectionDao;
@@ -54,22 +52,13 @@ public class AddLocalStorageDomainCommand<T extends StorageDomainManagementParam
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_STORAGE_POOL_IS_NOT_LOCAL);
         }
 
-        if (storagePool.getStatus() != StoragePoolStatus.Uninitialized) {
-            if (!checkMasterDomainIsUp()) {
-                return false;
-            }
+        if (VersionStorageFormatUtil.getForVersion(storagePool.getCompatibilityVersion())
+                .compareTo(getStorageDomain().getStorageFormat()) < 0) {
+            return failValidation(EngineMessage.ERROR_CANNOT_ADD_STORAGE_POOL_WITH_DIFFERENT_STORAGE_FORMAT);
         }
 
-        // we limit RHEV-H local storage to its persistence mount - /data/images/rhev/
-        if (getVds().isOvirtVintageNode()) {
-
-            StorageServerConnections conn =
-                    storageServerConnectionDao.get(getParameters().getStorageDomain().getStorage());
-
-            String rhevhLocalFSPath = Config.getValue(ConfigValues.RhevhLocalFSPath);
-            if (!conn.getConnection().equals(rhevhLocalFSPath)) {
-                addValidationMessage(EngineMessage.RHEVH_LOCALFS_WRONG_PATH_LOCATION);
-                addValidationMessageVariable("path", rhevhLocalFSPath);
+        if (storagePool.getStatus() != StoragePoolStatus.Uninitialized) {
+            if (!checkMasterDomainIsUp()) {
                 return false;
             }
         }

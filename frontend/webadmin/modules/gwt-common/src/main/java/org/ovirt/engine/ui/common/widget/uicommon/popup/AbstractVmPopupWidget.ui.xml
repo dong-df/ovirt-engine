@@ -244,9 +244,10 @@
                       <w:EntityModelWidgetWithInfo ui:field="timeZoneEditorWithInfo" usePatternFly="true" labelColSize="SM_6" widgetColSize="SM_6" />
                    </b:Row>
                     <b:Row>
-                      <b:Column size="SM_12">
-                        <vm:SerialNumberPolicyWidget ui:field="serialNumberPolicyEditor" usePatternFly="true" />
-                      </b:Column>
+                        <e:ListModelListBoxEditor ui:field="serialNumberPolicyEditor" label="{constants.vmSerialNumberPolicy}" usePatternFly="true" labelColSize="SM_6" widgetColSize="SM_6" />
+                    </b:Row>
+                    <b:Row>
+                        <ge:StringEntityModelTextBoxEditor ui:field="customSerialNumberEditor" label="{constants.vmCustomSerialNumber}" usePatternFly="true" labelColSize="SM_6" widgetColSize="SM_6" />
                     </b:Row>
                   </b:Container>
                 </t:content>
@@ -316,9 +317,6 @@
                   </b:Column>
                   <b:Column size="SM_2">
                     <e:ListModelListBoxEditor ui:field="numOfMonitorsEditor" usePatternFly="true" />
-                  </b:Column>
-                  <b:Column size="SM_3">
-                    <ge:EntityModelCheckBoxEditor ui:field="isSingleQxlEnabledEditor" label="{constants.singleQxlEnabled}" usePatternFly="true" />
                   </b:Column>
                 </b:Row>
                 <b:Row>
@@ -414,6 +412,23 @@
                 </g:FlowPanel>
                 <b:Row>
                   <b:Column size="SM_12">
+                    <g:Label addStyleNames="{style.sectionLabel}" text="{constants.hostCpuVmPopup}" />
+                  </b:Column>
+                </b:Row>
+                <b:Row>
+                  <b:Column size="SM_5">
+                    <ge:EntityModelCheckBoxEditor ui:field="hostCpuEditor" label="{constants.passThroughHostCpu}" usePatternFly="true" addStyleNames="{style.floatLeft} "/>
+                    <d:InfoIcon ui:field="hostCpuInfoIcon" addStyleNames="{style.infoIcon}"/>
+                  </b:Column>
+                </b:Row>
+                <b:Row>
+                  <b:Column size="SM_12">
+                    <ge:EntityModelCheckBoxEditor ui:field="tscFrequencyEditor" label="{constants.tscFrequency}" usePatternFly="true" addStyleNames="{style.floatLeft} "/>
+                    <d:InfoIcon ui:field="tscFrequencyInfoIcon" addStyleNames="{style.infoIcon}"/>
+                  </b:Column>
+                </b:Row>
+                <b:Row>
+                  <b:Column size="SM_12">
                     <g:Label addStyleNames="{style.sectionLabel}" text="{constants.runMigrationOptionsVmPopup}" />
                   </b:Column>
                 </b:Row>
@@ -431,7 +446,7 @@
                 </b:Row>
                 <b:Row>
                   <b:Column size="SM_5">
-                    <ge:EntityModelCheckBoxEditor ui:field="overrideMigrationPolicyEditor" addStyleNames="{style.floatLeft} " usePatternFly="true" removeFormGroup="true" label="{constants.overrideMigrationPolicyLabel}" />
+                    <g:Label addStyleNames="{style.floatLeft}" text="{constants.vmMigrationPolicyLabel}" />
                     <d:InfoIcon ui:field="migrationPolicyInfoIcon" addStyleNames="{style.infoIcon}"/>
                   </b:Column>
                   <b:Column size="SM_1">
@@ -442,15 +457,18 @@
                   </b:Column>
                 </b:Row>
                 <b:Row>
+                  <e:ListModelListBoxEditor ui:field="migrateEncryptedEditor" label="{constants.migrateEncryptedLabel}" usePatternFly="true" labelColSize="SM_6" widgetColSize="SM_6" />
+                </b:Row>
+                <b:Row>
                   <b:Column size="SM_5">
-                    <ge:EntityModelCheckBoxEditor ui:field="overrideMigrationDowntimeEditor" addStyleNames="{style.floatLeft} " usePatternFly="true" removeFormGroup="true" label="{constants.overrideMigrationDowntimeLabel}" />
+                    <l:EnableableFormLabel ui:field="migrationDowntimeLabel" addStyleNames="{style.floatLeft} " text="{constants.migrationDowntime}" />
                     <d:InfoIcon ui:field="migrationDowntimeInfoIcon" addStyleNames="{style.infoIcon}"/>
                   </b:Column>
                   <b:Column size="SM_1">
                     <ge:EntityModelDetachableWidget ui:field="overrideMigrationDowntimeEditorWithDetachable" usePatternFly="true" />
                   </b:Column>
                   <b:Column size="SM_6">
-                    <ge:IntegerEntityModelTextBoxOnlyEditor ui:field="migrationDowntimeEditor" usePatternFly="true" />
+                    <e:ListModelTypeAheadListBoxEditor ui:field="migrationDowntimeEditor" usePatternFly="true" />
                   </b:Column>
                 </b:Row>
                 <b:Row>
@@ -458,12 +476,6 @@
                 </b:Row>
                 <b:Row>
                   <e:ListModelListBoxEditor ui:field="migrateCompressedEditor" label="{constants.migrateCompressedLabel}" usePatternFly="true" labelColSize="SM_6" widgetColSize="SM_6" />
-                </b:Row>
-                <b:Row>
-                  <b:Column size="SM_5">
-                    <ge:EntityModelCheckBoxEditor ui:field="hostCpuEditor" label="{constants.passThroughHostCpu}" usePatternFly="true" addStyleNames="{style.floatLeft} "/>
-                    <d:InfoIcon ui:field="hostCpuInfoIcon" addStyleNames="{style.infoIcon}"/>
-                  </b:Column>
                 </b:Row>
                 <g:FlowPanel ui:field="numaPanel">
                   <b:Row>
@@ -501,10 +513,22 @@
                   </b:Column>
                 </b:Row>
                 <b:Row>
-                  <e:ListModelListBoxEditor ui:field="leaseEditor" label="{constants.leaseStorageDomain}" usePatternFly="true" labelColSize="SM_6" widgetColSize="SM_6" />
+                  <b:Column size="SM_6">
+                    <g:Label addStyleNames="{style.floatLeft}" text="{constants.leaseStorageDomain}" />
+                    <d:InfoIcon ui:field="leaseInfoIcon" addStyleNames="{style.infoIcon}"/>
+                  </b:Column>
+                  <b:Column size="SM_6">
+                    <e:ListModelListBoxOnlyEditor ui:field="leaseEditor" usePatternFly="true"/>
+                  </b:Column>
                 </b:Row>
                 <b:Row>
-                  <e:ListModelListBoxEditor ui:field="resumeBehavior" label="{constants.resumeBehavior}" usePatternFly="true" labelColSize="SM_6" widgetColSize="SM_6" />
+                  <b:Column size="SM_6">
+                    <g:Label addStyleNames="{style.floatLeft}" text="{constants.resumeBehavior}" />
+                    <d:InfoIcon ui:field="resumeBehaviorInfoIcon" addStyleNames="{style.infoIcon}"/>
+                  </b:Column>
+                  <b:Column size="SM_6">
+                    <e:ListModelListBoxOnlyEditor ui:field="resumeBehavior" usePatternFly="true"/>
+                  </b:Column>
                 </b:Row>
                 <b:Row>
                   <b:Column size="SM_6">
@@ -609,6 +633,7 @@
                     <b:Column size="SM_12">
                       <g:Label addStyleNames="{style.sectionLabel} {style.floatLeft}" text="{constants.storageAllocVmPopup}" />
                       <g:Label addStyleNames="{style.sectionComment}" text="{constants.availOnlyTemplSelectedVmPopup}" />
+                      <d:InfoIcon ui:field="diskFormatTypeMatrixInfo" addStyleNames="{style.infoIcon}"/>
                     </b:Column>
                   </b:Row>
                   <g:FlowPanel ui:field="provisionSelectionPanel">
@@ -676,22 +701,6 @@
                     <ge:EntityModelCheckBoxEditor ui:field="bootMenuEnabledEditor" label="{constants.bootMenuEnabled}" usePatternFly="true" />
                   </b:Column>
                 </b:Row>
-                <g:FlowPanel ui:field="linuxBootOptionsPanel" visible="false">
-                  <b:Row>
-                    <b:Column size="SM_12">
-                      <g:Label addStyleNames="{style.sectionLabel}" text="{constants.linuxBootOptionsVmPopup}" />
-                    </b:Column>
-                  </b:Row>
-                  <b:Row>
-                    <ge:StringEntityModelTextBoxEditor ui:field="kernel_pathEditor" label="{constants.kernelPathVmPopup}" usePatternFly="true" labelColSize="SM_6" widgetColSize="SM_6" />
-                  </b:Row>
-                  <b:Row>
-                    <ge:StringEntityModelTextBoxEditor ui:field="initrd_pathEditor" label="{constants.initrdPathVmPopup}" usePatternFly="true" labelColSize="SM_6" widgetColSize="SM_6" />
-                  </b:Row>
-                  <b:Row>
-                    <ge:StringEntityModelTextBoxEditor ui:field="kernel_parametersEditor" label="{constants.kernelParamsVmPopup}" usePatternFly="true" labelColSize="SM_6" widgetColSize="SM_6" />
-                  </b:Row>
-                </g:FlowPanel>
               </b:Container>
             </t:content>
           </t:DialogTab>
@@ -772,9 +781,12 @@
           </t:DialogTab>
         </t:tab>
         <t:tab>
-          <t:DialogTab ui:field="affinityLabelsTab" label="{constants.affinityLabels}">
+          <t:DialogTab ui:field="affinityTab" label="{constants.affinity}">
             <t:content>
-              <w:AffinityLabelSelectionWithListWidget ui:field="affinityLabelSelectionWidget" />
+              <b:Container addStyleNames="{style.container}" fluid="true">
+                <w:AffinityGroupSelectionWithListWidget ui:field="affinityGroupSelectionWidget" />
+                <w:AffinityLabelSelectionWithListWidget ui:field="affinityLabelSelectionWidget" />
+              </b:Container>
             </t:content>
           </t:DialogTab>
         </t:tab>

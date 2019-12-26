@@ -162,18 +162,20 @@ getent passwd %1 >/dev/null || useradd -r -u %2 -g %3 -c %5 -s /sbin/nologin -d 
 # If you pass -r, then macro expands to: {all arguments}{r value}
 %if 0%{?fedora} || 0%{?rhel} >= 8
 %global with_python3 1
-%define required_python_lib(l:r:) python%{python3_pkgversion}-%{*}, python2-%{*}
+%define required_python_lib(l:r:) python%{python3_pkgversion}-%{*}
+%define py_version 3
 %else
 %global with_python3 0
 %define required_python_lib(l:r:) %{-l*}%{*}%{-r*}
+%define py_version 2
 %endif
 
 %global required_python_lib_ovirt_engine_lib %{required_python_lib -l python2- %{name}-lib >= %{version}-%{release}}
 %global required_python_lib_jinja2 %{required_python_lib -l python- jinja2}
 %global required_python_lib_ovirt_setup_lib %{required_python_lib ovirt-setup-lib >= 1.1.1}
 %global required_python_lib_libxml2 %{required_python_lib -r -python libxml2}
-%global required_python_lib_otopi %{required_python_lib -l python2- otopi >= 1.7.8}
-%global required_python_lib_otopi_devtools %{required_python_lib -l python2- otopi-devtools >= 1.7.8}
+%global required_python_lib_otopi %{required_python_lib -l python2- otopi >= 1.9.0}
+%global required_python_lib_otopi_devtools %{required_python_lib -l python2- otopi-devtools >= 1.9.0}
 %global required_python_lib_paramiko %{required_python_lib -l python- paramiko}
 %global required_python_lib_libselinux %{required_python_lib -r -python libselinux}
 %global required_python_lib_psycopg2 %{required_python_lib -l python- psycopg2}
@@ -224,6 +226,7 @@ getent passwd %1 >/dev/null || useradd -r -u %2 -g %3 -c %5 -s /sbin/nologin -d 
 	PYTHON_DIR=%{python2_sitelib} \\\
 	%{?with_python3: PYTHON3=%{__python3}} \\\
 	%{?with_python3: PYTHON3_DIR=%{python3_sitelib}} \\\
+	PY_VERSION=%{py_version} \\\
 	JAVA_DIR=%{_javadir} \\\
 	MAVENPOM_DIR=%{_mavenpomdir} \\\
 	PKG_SYSCONF_DIR=%{engine_etc} \\\
@@ -259,10 +262,18 @@ BuildRequires:	archaius-core
 BuildRequires:	hystrix-core
 BuildRequires:	hystrix-metrics-event-stream
 BuildRequires:	rxjava
-BuildRequires:	java-1.8.0-openjdk-devel >= 1:1.8.0
+BuildRequires:	java-1.8.0-openjdk-headless >= 1:1.8.0
+BuildRequires:	java-11-openjdk-devel >= 11.0.4
 BuildRequires:	javapackages-tools
 BuildRequires:	make
-BuildRequires:	maven
+
+%if 0%{?rhel}
+BuildRequires:	rh-maven35-maven >= 3.5.0
+BuildRequires:  rh-maven35-maven-enforcer-plugin
+%else
+BuildRequires:	maven >= 3.5.0
+BuildRequires:  maven-enforcer-plugin
+%endif
 BuildRequires:	python
 BuildRequires:	python2-devel
 %if 0%{?with_python3}
@@ -285,7 +296,7 @@ Requires(pre):	shadow-utils
 # bump the requirement (otherwise we would need to pass wildfly,
 # wildfly-overlay and ovirt-engine through the change queue at once)
 %if %{ovirt_provides_jboss}
-Requires:	ovirt-engine-wildfly-overlay >= 15.0.1
+Requires:	ovirt-engine-wildfly-overlay >= 17.0.1
 %endif
 
 Requires:	%{name}-backend = %{version}-%{release}
@@ -297,17 +308,18 @@ Requires:	%{name}-websocket-proxy >= %{version}-%{release}
 Requires:	%{name}-vmconsole-proxy-helper >= %{version}-%{release}
 Requires:	%{name}-ui-extensions >= 1.0.4
 Requires:	ansible >= 2.7.2
+Requires:	ansible-runner-service >= 1.0.1
 Requires:	apache-commons-compress
 Requires:	apache-commons-configuration
 Requires:	apache-commons-jxpath
 Requires:	archaius-core
 Requires:	hystrix-core
 Requires:	hystrix-metrics-event-stream
-Requires:	jakarta-commons-httpclient
-Requires:	java-1.8.0-openjdk-headless >= 1:1.8.0
+Requires:	java-11-openjdk-headless >= 11.0.4
 Requires:	javapackages-tools
 Requires:	objectweb-asm
 Requires:	ovirt-iso-uploader >= 4.1.0
+Requires:	python-mod_wsgi >= 4.6.4
 Requires:	rxjava
 Requires:	slf4j >= 1.7.0
 Requires:	ws-commons-util
@@ -395,6 +407,8 @@ Requires:	%{name}-setup >= %{version}-%{release}
 # we drop Requires: mod_ssl
 Conflicts:	freeipa-server
 Conflicts:	ipa-server
+Conflicts:	python2-ipaserver
+Conflicts:	python3-ipaserver
 
 # Userportal is retired
 Obsoletes:	%{name}-userportal
@@ -403,8 +417,12 @@ Obsoletes:	%{name}-userportal
 Requires:	pyOpenSSL
 Requires:	ovirt-provider-ovn >= 1.2.1
 
-# JavaScript and CSS libraries are currently bundled
-Provides:	 bundled(js-jquery) = 3.2.1
+#JavaScript and CSS libraries are currently bundled
+Provides:	bundled(js-jquery) = 3.4.1
+Provides:	bundled(js-jquery-ui) = 1.12.1
+Provides:	bundled(js-bootstrap) = 3.4.1
+Provides:	bundled(js-patternfly) = 3.59.3
+Provides:	bundled(js-patternfly-next) = 2.26.1
 
 %description
 %{ovirt_product_name} is a feature-rich server virtualization management
@@ -468,7 +486,7 @@ Requires:	aopalliance >= 1.0
 Requires:	curl
 Requires:	ebay-cors-filter
 Requires:	httpd
-Requires:	java-headless
+Requires:	java-11-openjdk-headless
 Requires:	logrotate
 Requires:	mailcap
 Requires:	mod_ssl
@@ -479,7 +497,7 @@ Requires:	novnc >= 0.5.0, novnc < 0.6.0
 %endif
 Requires:	%{required_python_lib_ovirt_engine_lib}
 Requires:	openssh
-Requires:	vdsm-jsonrpc-java >= 1.4.18
+Requires:	vdsm-jsonrpc-java >= 1.5.2
 Requires:	openssl
 Requires:	ovirt-engine-extension-aaa-jdbc
 Requires:	ovirt-host-deploy-java >= 1.7.3
@@ -524,8 +542,8 @@ Requires:	logrotate
 Requires:	%{required_python_lib_otopi}
 Requires:	%{required_python_lib_paramiko}
 Requires(pre):	shadow-utils
-Conflicts:	%{name}-dwh < 4.2.0
-Conflicts:	%{name}-dwh-setup < 4.3.0
+Conflicts:	%{name}-dwh < 4.3.0
+Conflicts:	%{name}-dwh-setup < 4.4.0
 
 %description setup-base
 %{ovirt_product_name_short} suite base setup components.
@@ -572,7 +590,7 @@ Requires:       %{scl_pg_base}-postgresql-contrib
 Requires:       postgresql-server >= 10.0
 Requires:       postgresql-contrib >= 10.0
 %endif
-Conflicts:	%{name} < 4.2.6
+Conflicts:	%{name} < 4.3.7
 # See rhbz# 1676461
 Requires:	ovirt-vmconsole >= 1.0.7
 
@@ -596,7 +614,7 @@ Requires:	nfs-utils
 Requires:	%{policycoreutils_python_utils}
 Requires:	%{required_python_lib_psycopg2}
 Requires(pre):	shadow-utils
-Requires:	java-1.8.0-openjdk-headless >= 1:1.8.0
+Requires:	java-11-openjdk-headless >= 11.0.4
 Requires:	%{required_python_lib_pwquality}
 Requires:	%{required_python_lib_m2crypto}
 Requires:	%{required_package_manager}
@@ -637,8 +655,8 @@ Group:		%{ovirt_product_group}
 Requires:	%{name} = %{version}-%{release}
 Requires:	%{required_python_lib_ovirt_engine_lib}
 Requires:	%{name}-tools-backup = %{version}-%{release}
-Requires:	ovirt-engine-metrics >= 1.1.2
-Requires:	java-headless
+Requires:	ovirt-engine-metrics >= 1.3.4.1
+Requires:	java-11-openjdk-headless
 Requires:	logrotate
 Requires:	%{required_python_lib_dateutil}
 Requires:	%{required_python_lib_netaddr}
@@ -765,7 +783,7 @@ Setup and upgrade specific plugins for cinderlib integration database
 %build
 
 # Set the location of the JDK that will be used for compilation:
-export JAVA_HOME="${JAVA_HOME:=/usr/lib/jvm/java-1.8.0}"
+export JAVA_HOME="${JAVA_HOME:=/usr/lib/jvm/java-11-openjdk}"
 
 make %{make_common_opts}
 
@@ -956,11 +974,11 @@ common/com/netflix/hystrix/main/hystrix-core.jar hystrix/hystrix-core.jar
 common/com/netflix/hystrix/contrib/main/hystrix-metrics-event-stream.jar hystrix/hystrix-metrics-event-stream.jar
 common/com/nimbusds/main/nimbus-jose-jwt.jar nimbus-jose-jwt/nimbus-jose-jwt.jar
 common/io/reactivex/rxjava/main/rxjava.jar
+common/net/minidev/main/accessors-smart.jar json-smart/accessors-smart.jar
 common/net/minidev/main/json-smart.jar json-smart.jar
 common/org/aopalliance/main/aopalliance.jar
 common/org/apache/commons/compress/main/commons-compress.jar
 common/org/apache/commons/configuration/main/commons-configuration.jar
-common/org/apache/commons/httpclient/main/commons-httpclient.jar
 common/org/apache/commons/jxpath/main/commons-jxpath.jar
 common/org/apache/ws/commons/main/ws-commons-util.jar
 common/org/apache/xmlrpc/main/xmlrpc-client.jar
@@ -1090,6 +1108,8 @@ fi
 %dir %{engine_data}/extensions.d
 %dir %{engine_data}/services
 %dir %{engine_data}/playbooks
+%dir %{engine_data}/selinux
+%dir %attr(-, %{engine_user}, %{engine_group}) %{engine_data}/ansible-runner-service-project
 %dir %{engine_etc}
 %dir %{engine_etc}/ansible
 %dir %{engine_etc}/branding
@@ -1196,8 +1216,10 @@ fi
 %config(noreplace) %{engine_pki}/openssl.conf
 %dir %attr(-, %{engine_user}, %{engine_group}) %{engine_pki}
 %dir %attr(-, %{engine_user}, %{engine_group}) %{engine_pki}/certs
+%dir %attr(-, %{engine_user}, %{engine_group}) %{engine_pki}/certs-qemu
 %dir %attr(-, %{engine_user}, %{engine_group}) %{engine_pki}/private
 %dir %attr(-, %{engine_user}, %{engine_group}) %{engine_pki}/requests
+%dir %attr(-, %{engine_user}, %{engine_group}) %{engine_pki}/requests-qemu
 %dir %{engine_pki}/keys
 %{engine_data}/bin/pki-common.sh
 %{engine_data}/bin/pki-create-ca.sh
@@ -1348,6 +1370,21 @@ fi
 %{_bindir}/ovirt-register-sso-client-tool
 %{_bindir}/engine-vacuum
 %{_mandir}/man8/engine-config.*
+%dir %attr(-, %{engine_user}, %{engine_group}) %{engine_data}/ansible-runner-service-project/env
+%dir %attr(-, %{engine_user}, %{engine_group}) %{engine_data}/ansible-runner-service-project/inventory
+%attr(-, %{engine_user}, %{engine_group}) %{engine_data}/ansible-runner-service-project/inventory/hosts
+%{engine_data}/ansible-runner-service-project/project/ansible.cfg
+%{engine_data}/ansible-runner-service-project/project/create-brick.yml
+%{engine_data}/ansible-runner-service-project/project/ovirt-host-deploy.yml
+%{engine_data}/ansible-runner-service-project/project/ovirt-host-enroll-certificate.yml
+%{engine_data}/ansible-runner-service-project/project/ovirt-host-remove.yml
+%{engine_data}/ansible-runner-service-project/project/ovirt-host-upgrade.yml
+%{engine_data}/ansible-runner-service-project/project/ovirt-ova-export.yml
+%{engine_data}/ansible-runner-service-project/project/ovirt-ova-import.yml
+%{engine_data}/ansible-runner-service-project/project/ovirt-ova-query.yml
+%{engine_data}/ansible-runner-service-project/project/ovirt-image-measure.yml
+%{engine_data}/ansible-runner-service-project/project/ovirt-vnc-sasl.yml
+%{engine_data}/ansible-runner-service-project/project/roles/
 %{engine_data}/bin/engine-config.sh
 %{engine_data}/bin/engine-prolog.sh
 %{engine_data}/bin/engine-vacuum.sh
@@ -1362,22 +1399,11 @@ fi
 %{engine_data}/conf/jaas.conf
 %{engine_data}/conf/notifier-logging.properties
 %{engine_data}/conf/tools-logging.properties
-%{engine_data}/playbooks/ansible.cfg
-%{engine_data}/playbooks/create-brick.yml
 %{engine_data}/playbooks/install-skydive.inventory.sample/00_ovirt-engine-hosts-ansible-inventory
 %{engine_data}/playbooks/install-skydive.inventory.sample/01_hosts
 %{engine_data}/playbooks/install-skydive.yml
-%{engine_data}/playbooks/ovirt-host-deploy.yml
-%{engine_data}/playbooks/ovirt-host-enroll-certificate.yml
-%{engine_data}/playbooks/ovirt-host-remove.yml
-%{engine_data}/playbooks/ovirt-host-upgrade.yml
-%{engine_data}/playbooks/ovirt-ova-export.yml
-%{engine_data}/playbooks/ovirt-ova-import.yml
-%{engine_data}/playbooks/ovirt-ova-query.yml
-%{engine_data}/playbooks/ovirt-image-measure.yml
 %{engine_data}/playbooks/ovirt-provider-ovn-driver.yml
-%{engine_data}/playbooks/ovirt-vnc-sasl.yml
-%{engine_data}/playbooks/roles/
+%{engine_data}/selinux/ansible-runner-service.cil
 %{engine_data}/services/ovirt-engine-notifier
 %{engine_data}/services/ovirt-fence-kdump-listener/
 %{engine_etc}/ansible/ovirt-host-deploy-post-tasks.yml.example

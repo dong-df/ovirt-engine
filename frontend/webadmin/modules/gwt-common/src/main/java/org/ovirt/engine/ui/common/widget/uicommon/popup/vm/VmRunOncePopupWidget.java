@@ -5,7 +5,6 @@ import org.gwtbootstrap3.client.ui.Column;
 import org.gwtbootstrap3.client.ui.Container;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.storage.RepoImage;
-import org.ovirt.engine.core.compat.StringHelper;
 import org.ovirt.engine.ui.common.CommonApplicationConstants;
 import org.ovirt.engine.ui.common.CommonApplicationResources;
 import org.ovirt.engine.ui.common.CommonApplicationTemplates;
@@ -16,7 +15,6 @@ import org.ovirt.engine.ui.common.idhandler.WithElementId;
 import org.ovirt.engine.ui.common.widget.Align;
 import org.ovirt.engine.ui.common.widget.ComboBox;
 import org.ovirt.engine.ui.common.widget.EntityModelWidgetWithInfo;
-import org.ovirt.engine.ui.common.widget.VisibilityRenderer;
 import org.ovirt.engine.ui.common.widget.dialog.InfoIcon;
 import org.ovirt.engine.ui.common.widget.editor.ListModelListBoxEditor;
 import org.ovirt.engine.ui.common.widget.editor.ListModelTypeAheadChangeableListBoxEditor;
@@ -82,13 +80,6 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
 
     @UiField
     Container generalBootOptionsContainer;
-
-    @UiField
-    @WithElementId
-    DisclosurePanel linuxBootOptionsPanel;
-
-    @UiField
-    Container linuxBootOptionsContainer;
 
     @UiField
     @WithElementId
@@ -164,6 +155,11 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
     EntityModelCheckBoxEditor attachIsoEditor;
 
     @UiField(provided = true)
+    @Path(value = "attachSysprep.entity")
+    @WithElementId("attachSysprep")
+    EntityModelCheckBoxEditor attachSysprepEditor;
+
+    @UiField(provided = true)
     @Path("bootMenuEnabled.entity")
     @WithElementId("bootMenuEnabled")
     EntityModelCheckBoxEditor bootMenuEnabledEditor;
@@ -179,27 +175,8 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
     EntityModelCheckBoxEditor runAndPauseEditor;
 
     @UiField(provided = true)
-    @Path(value = "kernelImage.selectedItem")
-    @WithElementId("kernelImage")
-    ListModelTypeAheadChangeableListBoxEditor kernelImageEditor;
-
-    @UiField(provided = true)
-    @Path(value = "initrdImage.selectedItem")
-    @WithElementId("initrdImage")
-    ListModelTypeAheadChangeableListBoxEditor initrdImageEditor;
-
-    @UiField
-    @Path(value = "kernelParameters.entity")
-    @WithElementId("kernelParameters")
-    StringEntityModelTextBoxEditor kernelParamsEditor;
-
-    @UiField(provided = true)
     @WithElementId("sysPrepDomainNameComboBox")
     ComboBox<String> sysPrepDomainNameComboBox;
-
-    @UiField
-    @Ignore
-    Label sysprepToEnableLabel;
 
     @Path(value = "sysPrepDomainName.selectedItem")
     @WithElementId("sysPrepDomainNameListBox")
@@ -312,10 +289,6 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
     @Ignore
     ButtonBase isoImagesRefreshButton;
 
-    @UiField
-    @Ignore
-    ButtonBase linuxBootOptionsRefreshButton;
-
     @Path("volatileRun.entity")
     @WithElementId("volatileRun")
     public EntityModelCheckBoxOnlyEditor volatileRunEditor;
@@ -357,8 +330,6 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
     private void fixStylesForPatternfly() {
         generalBootOptionsContainer.removeStyleName(CONTENT);
         generalBootOptionsContainer.getParent().getElement().getStyle().setOverflow(Overflow.VISIBLE);
-        linuxBootOptionsContainer.removeStyleName(CONTENT);
-        linuxBootOptionsContainer.getParent().getElement().getStyle().setOverflow(Overflow.VISIBLE);
         initialRunContainer.removeStyleName(CONTENT);
         initialRunContainer.getParent().getElement().getStyle().setOverflow(Overflow.VISIBLE);
         systemContainer.removeStyleName(CONTENT);
@@ -371,13 +342,13 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
         customPropertiesContainer.getParent().getElement().getStyle().setOverflow(Overflow.VISIBLE);
         floppyImageEditor.hideLabel();
         isoImageEditor.hideLabel();
-        kernelImageEditor.hideLabel();
         defaultHostEditor.hideLabel();
     }
 
     void initCheckBoxEditors() {
         attachFloppyEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
         attachIsoEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
+        attachSysprepEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
         bootMenuEnabledEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
         runAsStatelessEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
         runAndPauseEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
@@ -393,38 +364,11 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
 
     void initListBoxEditors() {
         vncKeyboardLayoutEditor = new ListModelListBoxEditor<>(new VncKeyMapRenderer());
-        this.kernelImageEditor = new ListModelTypeAheadChangeableListBoxEditor(
-                new ListModelTypeAheadChangeableListBoxEditor.NullSafeSuggestBoxRenderer() {
-
-                    @Override
-                    public String getDisplayStringNullSafe(String data) {
-                        return typeAheadNameTemplateNullSafe(data);
-                    }
-                },
-                false,
-                new VisibilityRenderer.SimpleVisibilityRenderer(),
-                constants.empty());
-
-        this.initrdImageEditor = new ListModelTypeAheadChangeableListBoxEditor(
-                new ListModelTypeAheadChangeableListBoxEditor.NullSafeSuggestBoxRenderer() {
-
-                    @Override
-                    public String getDisplayStringNullSafe(String data) {
-                        return typeAheadNameTemplateNullSafe(data);
-                    }
-                },
-                false,
-                new VisibilityRenderer.SimpleVisibilityRenderer(),
-                constants.empty());
 
         isoImageEditor = new ListModelListBoxEditor<>(new NullSafeRenderer<RepoImage>() {
             @Override
             protected String renderNullSafe(RepoImage object) {
-                // For old ISO images from an ISO domain the image name is empty
-                if (StringHelper.isNullOrEmpty(object.getRepoImageName())) {
-                    return object.getRepoImageId();
-                }
-                return object.getRepoImageName();
+                return object.getName();
             }
         });
     }
@@ -481,7 +425,6 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
 
     void addStyles() {
         addStyleName(style.widgetStyle());
-        linuxBootOptionsPanel.setVisible(false);
         initialRunPanel.setVisible(false);
         systemPanel.setVisible(true);
         hostPanel.setVisible(true);
@@ -492,13 +435,6 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
         driver.edit(object);
         customPropertiesSheetEditor.edit(object.getCustomPropertySheet());
         runOnceModel = object;
-
-        // Update Linux options panel
-        final EntityModel<Boolean> isLinuxOptionsAvailable = object.getIsLinuxOptionsAvailable();
-        object.getIsLinuxOptionsAvailable().getEntityChangedEvent().addListener((ev, sender, args) -> {
-            boolean isLinux = isLinuxOptionsAvailable.getEntity();
-            linuxBootOptionsPanel.setVisible(isLinux);
-        });
 
         object.getIsSysprepEnabled().getEntityChangedEvent().addListener((ev, sender, args) -> {
             updateSysprepVisibility(object);
@@ -567,8 +503,6 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
 
         vmInitWidget.setSyspepContentVisible(selected && possible);
         runOnceSpecificSysprepOptions.setVisible(selected && possible);
-
-        sysprepToEnableLabel.setVisible(!selected && possible);
     }
 
     private void updateInitialRunTabVisibility(RunOnceModel model) {
@@ -591,11 +525,6 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
     @UiHandler("isoImagesRefreshButton")
     void handleIsoImagesRefreshButtonClick(ClickEvent event) {
         runOnceModel.updateIsoList(true);
-    }
-
-    @UiHandler("linuxBootOptionsRefreshButton")
-    void handleLinuxBootOptionsRefreshButtonRefreshButtonClick(ClickEvent event) {
-        runOnceModel.updateUnknownTypeImagesList(true);
     }
 
     @UiHandler("bootSequenceUpButton")

@@ -166,11 +166,6 @@
            display: inline-block;
        }
 
-        .warningLabel {
-            color: red;
-            margin-bottom: 10px
-        }
-
         .inline {
             display: inline-block;
         }
@@ -391,15 +386,6 @@
                     </t:DialogTab>
                 </t:tab>
                 <t:tab>
-                    <t:DialogTab ui:field="networkProviderTab">
-                        <t:content>
-                            <b:Container fluid="true">
-                                <p:HostNetworkProviderWidget ui:field="networkProviderWidget" usePatternFly="true" addStyleNames="{style.topElement}" />
-                            </b:Container>
-                        </t:content>
-                    </t:DialogTab>
-                </t:tab>
-                <t:tab>
                     <t:DialogTab ui:field="kernelTab" label="{constants.hostKernelTabLabel}">
                         <t:content>
                             <b:Container fluid="true">
@@ -410,12 +396,12 @@
                                 </b:Row>
                                 <b:Row>
                                     <b:Column size="SM_12">
-                                        <g:Label text="{constants.modifyingkernelCmdlineWarning}" addStyleNames="{style.warningLabel}"/>
+                                        <l:WarningNotificationLabel ui:field="kernelModificationCmdlineWarning" />
                                     </b:Column>
                                 </b:Row>
                                 <b:Row>
                                     <b:Column size="SM_12">
-                                        <g:Label text="{constants.reinstallRequiredkernelCmdlineWarning}" addStyleNames="{style.warningLabel}"/>
+                                        <l:WarningNotificationLabel ui:field="kernelReinstallRequiredCmdlineWarning" />
                                     </b:Column>
                                 </b:Row>
                                 <b:Row>
@@ -530,9 +516,12 @@
                     </t:DialogTab>
                 </t:tab>
                 <t:tab>
-                    <t:DialogTab ui:field="affinityLabelsTab">
+                    <t:DialogTab ui:field="affinityTab">
                         <t:content>
-                            <w:AffinityLabelSelectionWithListWidget ui:field="affinityLabelSelectionWidget" />
+                            <b:Container fluid="true">
+                                <w:AffinityGroupSelectionWithListWidget ui:field="affinityGroupSelectionWidget" />
+                                <w:AffinityLabelSelectionWithListWidget ui:field="affinityLabelSelectionWidget" />
+                            </b:Container>
                         </t:content>
                     </t:DialogTab>
                 </t:tab>

@@ -28,7 +28,6 @@ import org.ovirt.engine.core.common.action.ImportVmTemplateFromOvaParameters.Pha
 import org.ovirt.engine.core.common.action.RemoveAllVmImagesParameters;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VDSStatus;
-import org.ovirt.engine.core.common.businessentities.VmDevice;
 import org.ovirt.engine.core.common.businessentities.VmEntityType;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskVmElement;
@@ -44,8 +43,8 @@ import org.ovirt.engine.core.dao.DiskDao;
 import org.ovirt.engine.core.dao.VdsDao;
 
 @NonTransactiveCommandAttribute(forceCompensation = true, compensationPhase = CommandCompensationPhase.END_COMMAND)
-public class ImportVmTemplateFromOvaCommand<T extends ImportVmTemplateFromOvaParameters> extends ImportVmTemplateCommand<T>
-implements SerialChildExecutingCommand {
+public class ImportVmTemplateFromOvaCommand<T extends ImportVmTemplateFromOvaParameters> extends ImportVmTemplateCommandBase<T>
+        implements SerialChildExecutingCommand {
 
     @Inject
     private VdsDao vdsDao;
@@ -72,6 +71,18 @@ implements SerialChildExecutingCommand {
         return super.validate();
     }
 
+    @Override
+    protected void initImportClonedTemplateDisks() {
+        for (DiskImage image : getImages()) {
+            if (getParameters().isImportAsNewEntity()) {
+                generateNewDiskId(image);
+            } else {
+                originalDiskIdMap.put(image.getId(), image.getId());
+                originalDiskImageIdMap.put(image.getId(), image.getImageId());
+            }
+        }
+    }
+
     protected Guid createDisk(DiskImage image) {
         ActionReturnValue actionReturnValue = runInternalActionWithTasksContext(
                 ActionType.AddDiskToTemplate,
@@ -86,14 +97,9 @@ implements SerialChildExecutingCommand {
         return actionReturnValue.getActionReturnValue();
     }
 
-    @Override
-    protected void updateManagedDeviceMap(DiskImage disk, Map<Guid, VmDevice> managedDeviceMap) {
-        // no-op
-    }
-
     protected AddDiskParameters buildAddDiskParameters(DiskImage image) {
         AddDiskParameters diskParameters = new AddDiskParameters(image.getDiskVmElementForVm(getVmTemplateId()), image);
-        Guid originalId = getNewDiskIdForDisk(image.getId()).getId();
+        Guid originalId = getOriginalDiskIdMap(image.getId());
         diskParameters.setStorageDomainId(getParameters().getImageToDestinationDomainMap().get(originalId));
         diskParameters.setParentCommand(getActionType());
         diskParameters.setParentParameters(getParameters());
@@ -169,11 +175,11 @@ implements SerialChildExecutingCommand {
     @Override
     protected void addDisksToDb() {
         // we cannot trigger AddDiskToTemplate here because we're inside a transaction
-        // so the disks would be added to DB and attached as part of moveOrCopyAllImageGroups
+        // so the disks would be added to DB and attached as part of copyImagesToTargetDomain
     }
 
     @Override
-    protected void moveOrCopyAllImageGroups(final Guid containerID, final Iterable<DiskImage> disks) {
+    protected void copyImagesToTargetDomain() {
         getImages().stream().map(this::adjustDisk).forEach(this::createDisk);
         getParameters().setDiskMappings(getImageMappings());
     }
@@ -185,6 +191,12 @@ implements SerialChildExecutingCommand {
                 .map(dve -> DiskVmElement.copyOf(dve, image.getId(), getVmTemplateId()))
                 .collect(Collectors.toList()));
         return image;
+    }
+
+    protected Map<Guid, Guid> getImageMappings() {
+        return getImages().stream().collect(Collectors.toMap(
+                DiskImage::getImageId,
+                d -> getOriginalDiskImageIdMap(d.getId())));
     }
 
     private void convert() {

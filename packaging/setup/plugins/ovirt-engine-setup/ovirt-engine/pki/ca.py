@@ -1,18 +1,9 @@
 #
 # ovirt-engine-setup -- ovirt engine setup
-# Copyright (C) 2013-2015 Red Hat, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Copyright oVirt Authors
+# SPDX-License-Identifier: Apache-2.0
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 #
 
 
@@ -51,6 +42,16 @@ def _(m):
 @util.export
 class Plugin(plugin.PluginBase):
     """CA plugin."""
+
+    _CA_FILES = (
+        oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_CA_CERT,
+        oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_QEMU_CA_CERT,
+    )
+
+    def _ca_file_name(self, ca_file):
+        basename = os.path.basename(ca_file)
+        name = os.path.splitext(basename)[0]
+        return name
 
     class CATransaction(transaction.TransactionElement):
         """CA transaction element."""
@@ -398,7 +399,7 @@ class Plugin(plugin.PluginBase):
     def __init__(self, context):
         super(Plugin, self).__init__(context=context)
         self._enabled = False
-        self._ca_was_renewed = False
+        self._renewed_ca_files = set()
 
     @plugin.event(
         stage=plugin.Stages.STAGE_INIT,
@@ -490,11 +491,9 @@ class Plugin(plugin.PluginBase):
     )
     def _customization_upgrade(self):
         if True in [
-            self._expired(
-                self._x509_load_cert(
-                    oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_CA_CERT
-                )
-            )
+            self._expired(self._x509_load_cert(cert))
+            for cert in self._CA_FILES
+            if os.path.exists(cert)
         ] + [
             self._ok_to_renew_cert(
                 os.path.join(
@@ -559,9 +558,56 @@ class Plugin(plugin.PluginBase):
                         raise RuntimeError('Aborted by user')
 
     @plugin.event(
+        stage=plugin.Stages.STAGE_VALIDATION,
+        condition=lambda self: (
+            self.environment[oenginecons.CoreEnv.ENABLE] and
+            not os.path.exists(
+                oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_CA_CERT
+            )
+        ),
+    )
+    def _check_existing_pki(self):
+        pki_files_to_check = (
+            oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_SSH_KEY,
+            oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_STORE,
+            oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_TRUST_STORE,
+        )
+        if True in [os.path.exists(f) for f in pki_files_to_check]:
+            ans = dialog.queryBoolean(
+                dialog=self.dialog,
+                name='OVESETUP_PKI_VERIFY_MISSING_CA_PEM',
+                note=_(
+                    'Found existing PKI files, but {capem} is missing. If '
+                    'you continue, Setup will overwrite existing PKI files '
+                    'with new ones, including {capem}. After Setup completes '
+                    'you must reinstall or re-enroll certificates for all '
+                    'your hosts.\n\n'
+                    'If {capem} was accidentally deleted, stop Setup, restore '
+                    '{capem} from backup ({certs}/ca.der), and then run '
+                    'Setup again.\n\n'
+                    'Continue with Setup and overwrite existing PKI files? '
+                    '(@VALUES@) [@DEFAULT@]: '
+                ).format(
+                    capem=(
+                        oenginecons.FileLocations.
+                        OVIRT_ENGINE_PKI_ENGINE_CA_CERT
+                    ),
+                    certs=(
+                        oenginecons.FileLocations.
+                        OVIRT_ENGINE_PKICERTSDIR
+                    ),
+                ),
+                prompt=True,
+                default=False,
+            )
+            if not ans:
+                raise RuntimeError('Aborted by user')
+
+    @plugin.event(
         stage=plugin.Stages.STAGE_MISC,
         before=(
             oenginecons.Stages.CA_AVAILABLE,
+            oenginecons.Stages.QEMU_CA_AVAILABLE,
         ),
         condition=lambda self: self.environment[oenginecons.CoreEnv.ENABLE],
     )
@@ -643,33 +689,33 @@ class Plugin(plugin.PluginBase):
                     )
 
         if self.environment[oenginecons.PKIEnv.RENEW]:
-            if self._expired(
-                self._x509_load_cert(
-                    oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_CA_CERT
-                )
-            ):
-                self._ca_was_renewed = True
-                self.logger.info(_('Renewing CA'))
-                self.execute(
-                    args=(
+            for ca_file in self._CA_FILES:
+                if self._expired(self._x509_load_cert(ca_file)):
+                    self._renewed_ca_files.add(ca_file)
+                    self.logger.info(_('Renewing CA: %s'), ca_file)
+                    args = (
                         oenginecons.FileLocations.OVIRT_ENGINE_PKI_CA_CREATE,
                         '--renew',
                         '--keystore-password=%s' % (
                             self.environment[oenginecons.PKIEnv.STORE_PASS],
                         ),
-                    ),
-                    envAppend={
-                        'JAVA_HOME': self.environment[
-                            oengcommcons.ConfigEnv.JAVA_HOME
-                        ],
-                    },
-                )
+                        '--ca-file=%s' % (self._ca_file_name(ca_file),),
+                    )
+                    self.execute(
+                        args=args,
+                        envAppend={
+                            'JAVA_HOME': self.environment[
+                                oengcommcons.ConfigEnv.JAVA_HOME
+                            ],
+                        },
+                    )
 
             self._enrollCertificates(True, uninstall_files)
 
         # Also enroll missing parts on upgrade
+        # We check just Engine CA, QEMU certificates are only on hosts
         if os.path.exists(
-            oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_CA_CERT
+                oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_CA_CERT
         ):
             self._enrollCertificates(False, uninstall_files)
 
@@ -683,7 +729,32 @@ class Plugin(plugin.PluginBase):
             )
         ),
     )
-    def _misc(self):
+    def _create_primary_ca(self):
+        self._create_ca(
+            oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_CA_CERT,
+            oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_CA_KEY,
+            oenginecons.Const.ENGINE_PKI_CA_URI
+        )
+
+    @plugin.event(
+        stage=plugin.Stages.STAGE_MISC,
+        name=oenginecons.Stages.QEMU_CA_AVAILABLE,
+        condition=lambda self: (
+            self.environment[oenginecons.CoreEnv.ENABLE] and
+            not os.path.exists(
+                oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_QEMU_CA_CERT
+            )
+        ),
+    )
+    def _create_qemu_ca(self):
+        self._create_ca(
+            oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_QEMU_CA_CERT,
+            oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_QEMU_CA_KEY,
+            oenginecons.Const.ENGINE_PKI_QEMU_CA_URI,
+            'qemu'
+        )
+
+    def _create_ca(self, ca_file, key_file, ca_uri, ou=None):
         self._enabled = True
 
         # TODO
@@ -708,7 +779,7 @@ class Plugin(plugin.PluginBase):
         # to create a unique CN value.
         MAX_HOST_FQDN_LEN = 55
 
-        self.logger.info(_('Creating CA'))
+        self.logger.info(_('Creating CA: {}').format(ca_file))
 
         localtransaction = transaction.Transaction()
         with localtransaction:
@@ -729,7 +800,7 @@ class Plugin(plugin.PluginBase):
                                     self.environment[
                                         oengcommcons.ConfigEnv.PUBLIC_HTTP_PORT
                                     ],
-                                    oenginecons.Const.ENGINE_PKI_CA_URI,
+                                    ca_uri,
                                 )
                             }
                         ),
@@ -740,13 +811,14 @@ class Plugin(plugin.PluginBase):
         self.execute(
             args=(
                 oenginecons.FileLocations.OVIRT_ENGINE_PKI_CA_CREATE,
-                '--subject=/C=%s/O=%s/CN=%s.%s' % (
+                '--subject=/C=%s/O=%s%s/CN=%s.%s' % (
                     self._subjectComponentEscape(
                         self.environment[oenginecons.PKIEnv.COUNTRY],
                     ),
                     self._subjectComponentEscape(
                         self.environment[oenginecons.PKIEnv.ORG],
                     ),
+                    ('' if ou is None else '/OU=%s' % (ou,)),
                     self._subjectComponentEscape(
                         self.environment[
                             osetupcons.ConfigEnv.FQDN
@@ -757,6 +829,7 @@ class Plugin(plugin.PluginBase):
                 '--keystore-password=%s' % (
                     self.environment[oenginecons.PKIEnv.STORE_PASS],
                 ),
+                '--ca-file=%s' % (self._ca_file_name(ca_file),),
             ),
             envAppend={
                 'JAVA_HOME': self.environment[
@@ -767,8 +840,8 @@ class Plugin(plugin.PluginBase):
 
         uninstall_files.extend(
             (
-                oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_CA_CERT,
-                oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_CA_KEY,
+                ca_file,
+                key_file,
                 oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_TRUST_STORE,
                 oenginecons.FileLocations.OVIRT_ENGINE_PKI_CA_CERT_CONF,
                 oenginecons.FileLocations.OVIRT_ENGINE_PKI_CERT_CONF,
@@ -832,12 +905,13 @@ class Plugin(plugin.PluginBase):
                 )[1:],
             )
         )
-        if self._ca_was_renewed:
+        for ca_file in self._renewed_ca_files:
             self.logger.warning(
                 _(
-                    'Internal CA was renewed, please refresh manually '
+                    'CA %s was renewed, please refresh manually '
                     'distributed copies'
                 ),
+                ca_file
             )
 
 

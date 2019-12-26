@@ -8,12 +8,14 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
 import org.ovirt.engine.core.common.TimeZoneType;
 import org.ovirt.engine.core.common.businessentities.ActionGroup;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
+import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
 import org.ovirt.engine.core.common.businessentities.InstanceType;
@@ -37,13 +39,16 @@ import org.ovirt.engine.core.common.businessentities.comparators.DiskByDiskAlias
 import org.ovirt.engine.core.common.businessentities.comparators.NameableComparator;
 import org.ovirt.engine.core.common.businessentities.profiles.CpuProfile;
 import org.ovirt.engine.core.common.businessentities.storage.CinderDisk;
+import org.ovirt.engine.core.common.businessentities.storage.Disk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskStorageType;
+import org.ovirt.engine.core.common.businessentities.storage.DiskVmElement;
 import org.ovirt.engine.core.common.businessentities.storage.ManagedBlockStorageDisk;
 import org.ovirt.engine.core.common.businessentities.storage.RepoImage;
 import org.ovirt.engine.core.common.businessentities.storage.StorageType;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeFormat;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeType;
+import org.ovirt.engine.core.common.migration.MigrationPolicy;
 import org.ovirt.engine.core.common.queries.IdQueryParameters;
 import org.ovirt.engine.core.common.queries.QueryReturnValue;
 import org.ovirt.engine.core.common.queries.QueryType;
@@ -81,7 +86,7 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
     // no need to have this configurable
     public static final int DEFAULT_NUM_OF_IOTHREADS = 1;
 
-    private final UIConstants constants = ConstantsManager.getInstance().getConstants();
+    protected final UIConstants constants = ConstantsManager.getInstance().getConstants();
     private final UIMessages messages = ConstantsManager.getInstance().getMessages();
 
     private TModel privateModel;
@@ -137,8 +142,34 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
                 getModel().getLease().setSelectedItem(null);
             }
         });
-        getModel().getMigrationPolicies()
-                .setItems(AsyncDataProvider.getInstance().getMigrationPolicies(Version.getLast()));
+        List<MigrationPolicy> policies = AsyncDataProvider.getInstance().getMigrationPolicies(Version.getLast());
+        policies.add(0, null);
+        getModel().getMigrationPolicies().setItems(policies);
+    }
+
+    protected Guid findDefaultStorageDomainForVmLease(Collection<Disk> disks) {
+        // The default storage domain for the VM lease will be the storage domain
+        // that contains the VM bootable disk
+        for (Disk disk : disks) {
+            DiskVmElement bootableDiskVmElement = disk.getDiskVmElements().stream()
+                    .filter(DiskVmElement::isBoot)
+                    .findFirst()
+                    .orElse(null);
+            if (bootableDiskVmElement != null && disk.getDiskStorageType() == DiskStorageType.IMAGE) {
+                DiskImage diskImage = (DiskImage) disk;
+                return diskImage.getStorageIds().get(0);
+            }
+        }
+
+        return null;
+    }
+
+    protected void setVmLeaseDefaultStorageDomain(Guid defaultStorageDomainId) {
+        Collection<StorageDomain> domains = getModel().getLease().getItems();
+        domains.stream()
+                .filter(Objects::nonNull)
+                .filter(sd -> sd.getId().equals(defaultStorageDomainId))
+                .findFirst().ifPresent(sd -> getModel().getLease().setSelectedItem(sd));
     }
 
     public void dataCenterWithClusterSelectedItemChanged() {
@@ -607,25 +638,27 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
         AsyncDataProvider.getInstance().getTemplateDiskList(asyncQuery(this::initTemplateDisks), template.getId());
     }
 
-    protected void initTemplateDisks(List<DiskImage> disks) {
+    protected void initTemplateDisks(List<? extends Disk> disks) {
         disks.sort(new DiskByDiskAliasComparator());
         ArrayList<DiskModel> list = new ArrayList<>();
 
-        for (DiskImage disk : disks) {
+        for (Disk disk : disks) {
             DiskModel diskModel = new DiskModel();
             diskModel.getAlias().setEntity(disk.getDiskAlias());
             diskModel.getVolumeType().setIsAvailable(false);
 
             switch (disk.getDiskStorageType()) {
                 case IMAGE:
-                    diskModel.setSize(new EntityModel<>((int) disk.getSizeInGigabytes()));
+                    DiskImage diskImage = (DiskImage) disk;
+                    diskModel.setSize(new EntityModel<>((int) diskImage.getSizeInGigabytes()));
                     ListModel volumes = new ListModel();
-                    volumes.setItems(disk.getVolumeType() == VolumeType.Preallocated ?
+                    volumes.setItems(diskImage.getVolumeType() == VolumeType.Preallocated ?
                             new ArrayList<>(Collections.singletonList(VolumeType.Preallocated))
-                            : AsyncDataProvider.getInstance().getVolumeTypeList(), disk.getVolumeType());
+                            : AsyncDataProvider.getInstance().getVolumeTypeList(), diskImage.getVolumeType());
                     diskModel.setVolumeType(volumes);
                     VM vm = new VM();
                     vm.setClusterCompatibilityVersion(getCompatibilityVersion());
+                    vm.setClusterBiosType(getSelectedBiosType());
                     diskModel.setVm(vm);
                     break;
                 case CINDER:
@@ -781,7 +814,7 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
                             hasQuotaInList = defaultQuota.equals(quotaList.get(0).getId());
                         }
 
-                        // Add the quota to the list only in edit mode
+                        // Add the quota to the list only in edit or clone mode
                         if (!hasQuotaInList && !getModel().getIsNew()) {
                             Quota quota = new Quota();
                             quota.setId(defaultQuota);
@@ -1407,9 +1440,8 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
     }
 
     public void enableSinglePCI(boolean enabled) {
-        getModel().getIsSingleQxlEnabled().setIsChangeable(enabled);
         if (!enabled) {
-            getModel().getIsSingleQxlEnabled().setEntity(false);
+            getModel().setSingleQxlEnabled(false);
         }
     }
 
@@ -1490,6 +1522,10 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
 
     protected Version getCompatibilityVersion() {
         return getModel().getCompatibilityVersion();
+    }
+
+    protected BiosType getSelectedBiosType() {
+        return getModel().getBiosType().getSelectedItem();
     }
 
     protected Version latestCluster() {

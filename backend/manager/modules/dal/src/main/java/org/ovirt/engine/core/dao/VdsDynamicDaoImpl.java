@@ -119,7 +119,6 @@ public class VdsDynamicDaoImpl extends MassOperationsGenericDao<VdsDynamic, Guid
         entity.setPrettyName(rs.getString("pretty_name"));
         entity.setHostedEngineConfigured(rs.getBoolean("hosted_engine_configured"));
 
-        entity.setReportedDnsResolverConfiguration(dnsResolverConfigurationDao.get(hostId));
         entity.setInFenceFlow(rs.getBoolean("in_fence_flow"));
         entity.setKernelFeatures(
                 ObjectUtils.mapNullable(rs.getString("kernel_features"), JsonHelper::jsonToMapUnchecked));
@@ -128,6 +127,11 @@ public class VdsDynamicDaoImpl extends MassOperationsGenericDao<VdsDynamic, Guid
                 ObjectUtils.mapNullable(rs.getString("connector_info"), JsonHelper::jsonToMapUnchecked));
         entity.setBackupEnabled(rs.getBoolean("backup_enabled"));
         entity.setSupportedDomainVersionsAsString(rs.getString("supported_domain_versions"));
+        entity.setSupportedBlockSize(ObjectUtils.mapNullable(
+                rs.getString("supported_block_size"), JsonHelper::jsonToMapUnchecked));
+        entity.setTscFrequency(rs.getString("tsc_frequency"));
+        entity.setTscScalingEnabled(rs.getBoolean("tsc_scaling"));
+        entity.setFipsEnabled(rs.getBoolean("fips_enabled"));
 
         return entity;
     };
@@ -325,7 +329,12 @@ public class VdsDynamicDaoImpl extends MassOperationsGenericDao<VdsDynamic, Guid
                 .addValue("connector_info",
                     ObjectUtils.mapNullable(vds.getConnectorInfo(), JsonHelper::mapToJsonUnchecked))
                 .addValue("backup_enabled", vds.isBackupEnabled())
-                .addValue("supported_domain_versions", vds.getSupportedDomainVersionsAsString());
+                .addValue("supported_domain_versions", vds.getSupportedDomainVersionsAsString())
+                .addValue("supported_block_size",
+                        ObjectUtils.mapNullable(vds.getSupportedBlockSize(), JsonHelper::mapToJsonUnchecked))
+                .addValue("tsc_frequency", vds.getTscFrequency())
+                .addValue("tsc_scaling", vds.isTscScalingEnabled())
+                .addValue("fips_enabled", vds.isFipsEnabled());
     }
 
     @Override

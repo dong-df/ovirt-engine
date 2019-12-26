@@ -749,7 +749,7 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String ActionType___RemoveDisk();
 
-    String ActionType___UpdateVmDisk();
+    String ActionType___UpdateDisk();
 
     String ActionType___AttachDiskToVm();
 
@@ -1175,6 +1175,8 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String AuditLogType___HOST_CERTIFICATION_HAS_EXPIRED();
 
+    String AuditLogType___HOST_CERTIFICATE_HAS_INVALID_SAN();
+
     String AuditLogType___HOST_CERTIFICATION_IS_ABOUT_TO_EXPIRE();
 
     String AuditLogType___ENGINE_CERTIFICATION_HAS_EXPIRED();
@@ -1358,6 +1360,8 @@ public interface LocalizedEnums extends ConstantsWithLookup {
     String NfsVersion___V3();
 
     String NfsVersion___V4();
+
+    String NfsVersion___V4_0();
 
     String NfsVersion___V4_1();
 
@@ -1720,17 +1724,19 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String DiskContentType___HOSTED_ENGINE_CONFIGURATION();
 
-    String ResumeBehavior___AUTO_RESUME();
+    String VmResumeBehavior___AUTO_RESUME();
 
-    String ResumeBehavior___LEAVE_PAUSED();
+    String VmResumeBehavior___LEAVE_PAUSED();
 
-    String ResumeBehavior___KILL();
+    String VmResumeBehavior___KILL();
 
     String AuditLogType___GLUSTER_VOLUME_REBALANCE_START_DETECTED_FROM_CLI();
 
     String AuditLogType___START_REMOVING_GLUSTER_VOLUME_BRICKS_DETECTED_FROM_CLI();
 
     String ActionType___ResetGlusterVolumeBrick();
+
+    String BiosType___CLUSTER_DEFAULT();
 
     String BiosType___I440FX_SEA_BIOS();
 

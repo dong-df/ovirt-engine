@@ -22,12 +22,12 @@ import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.FullEntityOvfData;
 import org.ovirt.engine.core.common.errors.EngineError;
 import org.ovirt.engine.core.common.errors.EngineException;
-import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandBuilder;
+import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandConfig;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleConstants;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleExecutor;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleReturnCode;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleReturnValue;
-import org.ovirt.engine.core.common.utils.ansible.AnsibleVerbosity;
+import org.ovirt.engine.core.common.utils.ansible.AnsibleRunnerHTTPClient;
 import org.ovirt.engine.core.common.vdscommands.VDSReturnValue;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
@@ -45,6 +45,8 @@ public class CreateOvaCommand<T extends CreateOvaParameters> extends CommandBase
     private OvfManager ovfManager;
     @Inject
     private AnsibleExecutor ansibleExecutor;
+    @Inject
+    private AnsibleRunnerHTTPClient runnerClient;
     @Inject
     protected AuditLogDirector auditLogDirector;
     @Inject
@@ -155,37 +157,41 @@ public class CreateOvaCommand<T extends CreateOvaParameters> extends CommandBase
     }
 
     private String runAnsibleImageMeasurePlaybook(String path) {
-        AnsibleCommandBuilder command = new AnsibleCommandBuilder()
-                .hostnames(getVds().getHostName())
-                .variable("image_path", path)
-                // /var/log/ovirt-engine/ova/ovirt-export-ova-ansible-{hostname}-{correlationid}-{timestamp}.log
-                .logFileDirectory(CREATE_OVA_LOG_DIRECTORY)
-                .logFilePrefix("ovirt-image-measure-ansible")
-                .logFileName(getVds().getHostName())
-                .logFileSuffix(getCorrelationId())
-                .verboseLevel(AnsibleVerbosity.LEVEL0)
-                .stdoutCallback(AnsibleConstants.IMAGE_MEASURE_CALLBACK_PLUGIN)
-                .playbook(AnsibleConstants.IMAGE_MEASURE_PLAYBOOK);
+        AnsibleCommandConfig command = new AnsibleCommandConfig()
+            .hosts(getVds())
+            .variable("image_path", path)
+            .playAction("Image measure")
+            // /var/log/ovirt-engine/ova/ovirt-export-ova-ansible-{hostname}-{correlationid}-{timestamp}.log
+            .logFileDirectory(CREATE_OVA_LOG_DIRECTORY)
+            .logFilePrefix("ovirt-image-measure-ansible")
+            .logFileName(getVds().getHostName())
+            .logFileSuffix(getCorrelationId())
+            .playbook(AnsibleConstants.IMAGE_MEASURE_PLAYBOOK);
 
-        AnsibleReturnValue ansibleReturnValue = ansibleExecutor.runCommand(command);
+        StringBuilder stdout = new StringBuilder();
+        AnsibleReturnValue ansibleReturnValue = ansibleExecutor.runCommand(
+            command,
+            log,
+            (eventName, eventUrl) -> stdout.append(runnerClient.getCommandStdout(eventUrl))
+        );
+
         boolean succeeded = ansibleReturnValue.getAnsibleReturnCode() == AnsibleReturnCode.OK;
         if (!succeeded) {
             log.error(
                 "Failed to measure image: {}. Please check logs for more details: {}",
                 ansibleReturnValue.getStderr(),
-                command.logFile()
+                ansibleReturnValue.getLogFile()
             );
             throw new EngineException(EngineError.GeneralException, "Failed to measure image");
         }
 
-        String a = ansibleReturnValue.getStdout();
-        return a;
+        return stdout.toString();
     }
 
     private boolean runAnsiblePackOvaPlaybook(String ovf, Collection<DiskImage> disks, Map<Guid, String> diskIdToPath) {
         String encodedOvf = genOvfParameter(ovf);
-        AnsibleCommandBuilder command = new AnsibleCommandBuilder()
-                .hostnames(getVds().getHostName())
+        AnsibleCommandConfig commandConfig = new AnsibleCommandConfig()
+                .hosts(getVds())
                 .variable("target_directory", getParameters().getDirectory())
                 .variable("entity_type", getParameters().getEntityType().name().toLowerCase())
                 .variable("ova_size", String.valueOf(calcOvaSize(disks, encodedOvf)))
@@ -197,11 +203,13 @@ public class CreateOvaCommand<T extends CreateOvaParameters> extends CommandBase
                 .logFilePrefix("ovirt-export-ova-ansible")
                 .logFileName(getVds().getHostName())
                 .logFileSuffix(getCorrelationId())
+                .playAction("Pack OVA")
                 .playbook(AnsibleConstants.EXPORT_OVA_PLAYBOOK);
 
-        boolean succeeded = ansibleExecutor.runCommand(command).getAnsibleReturnCode() == AnsibleReturnCode.OK;
+        AnsibleReturnValue ansibleReturnCode = ansibleExecutor.runCommand(commandConfig);
+        boolean succeeded = ansibleReturnCode.getAnsibleReturnCode() == AnsibleReturnCode.OK;
         if (!succeeded) {
-            log.error("Failed to create OVA. Please check logs for more details: {}", command.logFile());
+            log.error("Failed to create OVA. Please check logs for more details: {}", ansibleReturnCode.getLogFile());
         }
 
         return succeeded;

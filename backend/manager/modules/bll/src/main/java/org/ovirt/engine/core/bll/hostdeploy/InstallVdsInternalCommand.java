@@ -2,48 +2,61 @@ package org.ovirt.engine.core.bll.hostdeploy;
 
 import static org.ovirt.engine.core.common.businessentities.ExternalNetworkPluginType.OVIRT_PROVIDER_OVN;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import javax.inject.Inject;
 
-import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang.StringUtils;
 import org.ovirt.engine.core.bll.LockMessagesMatchUtil;
 import org.ovirt.engine.core.bll.NonTransactiveCommandAttribute;
 import org.ovirt.engine.core.bll.VdsCommand;
 import org.ovirt.engine.core.bll.context.CommandContext;
 import org.ovirt.engine.core.bll.network.NetworkConfigurator;
-import org.ovirt.engine.core.bll.network.cluster.ManagementNetworkUtil;
+import org.ovirt.engine.core.bll.utils.EngineSSHClient;
 import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.action.LockProperties;
 import org.ovirt.engine.core.common.action.LockProperties.Scope;
+import org.ovirt.engine.core.common.action.VdsOperationActionParameters.AuthenticationMethod;
 import org.ovirt.engine.core.common.action.hostdeploy.InstallVdsParameters;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.OpenstackNetworkProviderProperties;
 import org.ovirt.engine.core.common.businessentities.Provider;
 import org.ovirt.engine.core.common.businessentities.ProviderType;
+import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VDSStatus;
-import org.ovirt.engine.core.common.businessentities.VDSType;
 import org.ovirt.engine.core.common.businessentities.VdsStatic;
+import org.ovirt.engine.core.common.config.Config;
+import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.common.locks.LockingGroup;
-import org.ovirt.engine.core.common.network.FirewallType;
+import org.ovirt.engine.core.common.utils.CertificateUtils;
 import org.ovirt.engine.core.common.utils.Pair;
-import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandBuilder;
+import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandConfig;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleConstants;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleExecutor;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleReturnCode;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleReturnValue;
+import org.ovirt.engine.core.common.utils.ansible.AnsibleRunnerHTTPClient;
 import org.ovirt.engine.core.compat.Guid;
+import org.ovirt.engine.core.compat.Version;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogable;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogableImpl;
 import org.ovirt.engine.core.dao.ClusterDao;
+import org.ovirt.engine.core.dao.VdsDao;
 import org.ovirt.engine.core.dao.VdsStaticDao;
 import org.ovirt.engine.core.dao.provider.ProviderDao;
+import org.ovirt.engine.core.utils.EngineLocalConfig;
 import org.ovirt.engine.core.utils.NetworkUtils;
-import org.ovirt.engine.core.vdsbroker.ResourceManager;
+import org.ovirt.engine.core.utils.PKIResources;
+import org.ovirt.engine.core.utils.crypt.EngineEncryptionUtils;
+import org.ovirt.engine.core.utils.transaction.TransactionSupport;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.VDSNetworkException;
+import org.ovirt.otopi.dialog.SoftError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,22 +64,23 @@ import org.slf4j.LoggerFactory;
 public class InstallVdsInternalCommand<T extends InstallVdsParameters> extends VdsCommand<T> {
 
     private static Logger log = LoggerFactory.getLogger(InstallVdsInternalCommand.class);
-    private VDSStatus vdsInitialStatus;
 
-    @Inject
-    private ManagementNetworkUtil managementNetworkUtil;
-
-    @Inject
-    private ResourceManager resourceManager;
     @Inject
     private ProviderDao providerDao;
     @Inject
     private VdsStaticDao vdsStaticDao;
     @Inject
     private ClusterDao clusterDao;
+    @Inject
+    private VdsDao vdsDao;
 
     @Inject
     private AnsibleExecutor ansibleExecutor;
+
+    @Inject
+    private AnsibleRunnerHTTPClient runnerClient;
+
+    private EngineLocalConfig config = EngineLocalConfig.getInstance();
 
     public InstallVdsInternalCommand(T parameters, CommandContext commandContext) {
         super(parameters, commandContext);
@@ -108,126 +122,32 @@ public class InstallVdsInternalCommand<T extends InstallVdsParameters> extends V
             return;
         }
 
-        vdsInitialStatus = getVds().getStatus();
-        installHost();
-    }
+        log.info("Before Installation host {}, {}", getVds().getId(), getVds().getName());
 
-    private void installHost() {
-        try (final VdsDeploy deploy = new VdsDeploy("ovirt-host-deploy", getVds(), true)) {
-            log.info(
-                "Before Installation host {}, {}",
-                getVds().getId(),
-                getVds().getName()
-            );
-
-            T parameters = getParameters();
-            deploy.setCorrelationId(getCorrelationId());
-
-            Cluster hostCluster = clusterDao.get(getClusterId());
-
-            deploy.addUnit(
-                new VdsDeployMiscUnit(),
-                new VdsDeployVdsmUnit(hostCluster.getCompatibilityVersion()),
-                new VdsDeployPKIUnit(),
-                new VdsDeployKdumpUnit(),
-                new VdsDeployKernelUnit()
-            );
-
-            if (parameters.getNetworkProviderId() != null) {
-                Provider<?> provider = providerDao.get(parameters.getNetworkProviderId());
-                if (provider.getType() == ProviderType.OPENSTACK_NETWORK) {
-                    OpenstackNetworkProviderProperties agentProperties =
-                            (OpenstackNetworkProviderProperties) provider.getAdditionalProperties();
-                    if (StringUtils.isNotBlank(parameters.getNetworkMappings())) {
-                        agentProperties.getAgentConfiguration().setNetworkMappings(
-                            parameters.getNetworkMappings()
-                        );
-                    }
-                    deploy.addUnit(new VdsDeployOpenStackUnit(agentProperties));
-                }
-            }
-
-            FirewallType hostFirewallType = hostCluster.getFirewallType();
-            if (parameters.getOverrideFirewall()) {
-                switch (getVds().getVdsType()) {
-                    case VDS:
-                    case oVirtNode:
-                        deploy.addUnit(new VdsDeployIptablesUnit(hostFirewallType.equals(FirewallType.IPTABLES)));
-                    break;
-                    case oVirtVintageNode:
-                        log.warn(
-                            "Installation of Host {} will ignore Firewall Override option, since it is not supported for Host type {}",
-                            getVds().getName(),
-                            getVds().getVdsType().name()
-                        );
-                    break;
-                    default:
-                        throw new IllegalArgumentException(
-                            String.format(
-                                "Not handled VDS type: %1$s",
-                                getVds().getVdsType()
-                            )
-                        );
-                }
-            }
-
-            if (parameters.getEnableSerialConsole()) {
-                deploy.addUnit(new VdsDeployVmconsoleUnit());
-            }
-
-            if (MapUtils.isNotEmpty(parameters.getHostedEngineConfiguration())) {
-                deploy.addUnit(new VdsDeployHostedEngineUnit(parameters.getHostedEngineConfiguration()));
-            }
-
-            switch (getParameters().getAuthMethod()) {
-                case Password:
-                    deploy.setPassword(parameters.getPassword());
-                break;
-                case PublicKey:
-                    deploy.useDefaultKeyPair();
-                break;
-                default:
-                    throw new Exception("Invalid authentication method value was sent to InstallVdsInternalCommand");
-            }
-
+        try {
             setVdsStatus(VDSStatus.Installing);
-            deploy.execute();
 
-            switch (deploy.getDeployStatus()) {
-                case Failed:
-                    throw new VdsInstallException(VDSStatus.InstallFailed, StringUtils.EMPTY);
-                case Incomplete:
-                    markCurrentCmdlineAsStored();
-                    throw new VdsInstallException(VDSStatus.InstallFailed, "Partial installation");
-                case Reboot:
-                    markCurrentCmdlineAsStored();
-                    markVdsReinstalled();
-                    setVdsStatus(VDSStatus.Reboot);
-                    runSleepOnReboot(getStatusOnReboot());
-                break;
-                case Complete:
-                    markCurrentCmdlineAsStored();
-                    markVdsReinstalled();
-
-                    // TODO: When more logic goes to ovirt-host-deploy role,
-                    // this code should be moved to appropriate place, currently
-                    // we run this playbook only after successful run of otopi host-deploy
-                    runAnsibleHostDeployPlaybook(hostCluster);
-
-                    configureManagementNetwork();
-                    if (!getParameters().getActivateHost()) {
-                        setVdsStatus(VDSStatus.Maintenance);
-                    } else {
-                        setVdsStatus(VDSStatus.Initializing);
-                    }
-                break;
+            if (getParameters().getAuthMethod() == AuthenticationMethod.Password) {
+                copyEngineSshId();
             }
 
-            log.info(
-                "After Installation host {}, {}",
-                getVds().getName(),
-                getVds().getVdsType().name()
-            );
+            /*
+             * TODO: do we have a way to pass correlationId to ansible playbook, so it will be logged to audit log when
+             * we start using ansible-runner?
+             */
+            // deploy.setCorrelationId(getCorrelationId());
+
+            runAnsibleHostDeployPlaybook();
+            markCurrentCmdlineAsStored();
+            markVdsReinstalled();
+            configureManagementNetwork();
+            if (!getParameters().getActivateHost()) {
+                setVdsStatus(VDSStatus.Maintenance);
+            } else {
+                setVdsStatus(VDSStatus.Initializing);
+            }
+
+            log.info("After Installation host {}, {}", getVds().getName(), getVds().getVdsType().name());
             setSucceeded(true);
         } catch (VdsInstallException e) {
             handleError(e, e.getStatus());
@@ -236,54 +156,171 @@ public class InstallVdsInternalCommand<T extends InstallVdsParameters> extends V
         }
     }
 
-    private void runAnsibleHostDeployPlaybook(Cluster hostCluster) {
-        // TODO: Remove when we remove support for legacy oVirt node:
-        if (getVds().getVdsType().equals(VDSType.oVirtVintageNode)) {
-            log.warn("Skipping Ansible runner, because it isn't supported for legacy oVirt node.");
-            return;
+    private void runAnsibleHostDeployPlaybook() {
+        String hostedEngineAction = "";
+        String hostedEngineContent = "";
+        Map<String, String> hostedEngineConfiguration = getParameters().getHostedEngineConfiguration();
+        if (hostedEngineConfiguration != null && !hostedEngineConfiguration.isEmpty()) {
+            hostedEngineAction = hostedEngineConfiguration.get("HOSTED_ENGINE/action");
+            hostedEngineContent =
+                    String.format("host_id %s\n", hostedEngineConfiguration.get("HOSTED_ENGINE_CONFIG/host_id"));
         }
 
-        AnsibleCommandBuilder command = new AnsibleCommandBuilder()
-                .hostnames(getVds().getHostName())
-                .variable("host_deploy_cluster_version", hostCluster.getCompatibilityVersion())
+        String kdumpDestinationAddress = Config.getValue(ConfigValues.FenceKdumpDestinationAddress);
+        if (StringUtils.isBlank(kdumpDestinationAddress)) {
+            // destination address not entered, use engine FQDN
+            kdumpDestinationAddress = EngineLocalConfig.getInstance().getHost();
+        }
+        Cluster hostCluster = clusterDao.get(getClusterId());
+        VDS vds = getVds();
+        boolean isGlusterServiceSupported = hostCluster.supportsGlusterService();
+        String tunedProfile = isGlusterServiceSupported ? hostCluster.getGlusterTunedProfile() : null;
+        Version clusterVersion = hostCluster.getCompatibilityVersion();
+        AnsibleCommandConfig commandConfig = new AnsibleCommandConfig()
+                .hosts(vds)
+                .variable("host_deploy_cluster_version", clusterVersion)
                 .variable("host_deploy_cluster_name", hostCluster.getName())
                 .variable("host_deploy_cluster_switch_type",
                         hostCluster.getRequiredSwitchTypeForCluster().getOptionValue())
                 .variable("host_deploy_gluster_enabled", hostCluster.supportsGlusterService())
                 .variable("host_deploy_virt_enabled", hostCluster.supportsVirtService())
-                .variable("host_deploy_vdsm_port", getVds().getPort())
+                .variable("host_deploy_vdsm_port", vds.getPort())
                 .variable("host_deploy_override_firewall", getParameters().getOverrideFirewall())
                 .variable("host_deploy_firewall_type", hostCluster.getFirewallType().name())
-                .variable("ansible_port", getVds().getSshPort())
+                .variable("ansible_port", vds.getSshPort())
                 .variable("host_deploy_post_tasks", AnsibleConstants.HOST_DEPLOY_POST_TASKS_FILE_PATH)
-                .variable("host_deploy_ovn_tunneling_interface", NetworkUtils.getHostIp(getVds()))
+                .variable("host_deploy_ovn_tunneling_interface", NetworkUtils.getHostIp(vds))
                 .variable("host_deploy_ovn_central", getOvnCentral())
                 .variable("host_deploy_vnc_tls", hostCluster.isVncEncryptionEnabled() ? "true" : "false")
+                .variable("host_deploy_kdump_integration", vds.isPmEnabled() && vds.isPmKdumpDetection())
+                .variable("host_deploy_kdump_destination_address", kdumpDestinationAddress)
+                .variable("host_deploy_kdump_destination_port",
+                        Config.getValue(ConfigValues.FenceKdumpDestinationPort))
+                .variable("host_deploy_kdump_message_interval",
+                        Config.getValue(ConfigValues.FenceKdumpMessageInterval))
+                .variable("host_deploy_kernel_cmdline_new", vds.getCurrentKernelCmdline())
+                .variable("host_deploy_kernel_cmdline_old", vds.getLastStoredKernelCmdline())
+                .variable("ovirt_pki_dir", config.getPKIDir())
+                .variable("ovirt_vds_hostname", vds.getHostName())
+                .variable("ovirt_san", CertificateUtils.getSan(vds.getHostName()))
+                .variable("ovirt_vdscertificatevalidityinyears",
+                        Config.<Integer> getValue(ConfigValues.VdsCertificateValidityInYears))
+                .variable("ovirt_signcerttimeoutinseconds",
+                        Config.<Integer> getValue(ConfigValues.SignCertTimeoutInSeconds))
+                .variable("ovirt_ca_key",
+                        PKIResources.getCaCertificate()
+                                .toString(PKIResources.Format.OPENSSH_PUBKEY)
+                                .replace("\n", ""))
+                .variable("ovirt_ca_cert", PKIResources.getCaCertificate().toString(PKIResources.Format.X509_PEM))
+                .variable("ovirt_qemu_ca_cert", PKIResources.getQemuCaCertificate().toString(PKIResources.Format.X509_PEM))
+                .variable("ovirt_engine_usr", config.getUsrDir())
+                .variable("ovirt_organizationname", Config.getValue(ConfigValues.OrganizationName))
+                .variable("host_deploy_iptables_rules", getIptablesRules(vds, hostCluster))
+                .variable("host_deploy_gluster_supported", isGlusterServiceSupported)
+                .variable("host_deploy_tuned_profile", tunedProfile)
+                .variable("host_deploy_vdsm_encrypt_host_communication",
+                        Config.<Boolean> getValue(ConfigValues.EncryptHostCommunication).toString())
+                .variable("host_deploy_vdsm_nmstate_enabled",
+                        Config.getValue(ConfigValues.VdsmUseNmstate, clusterVersion.toString()))
+                .variable("host_deploy_vdsm_ssl_ciphers", Config.<String> getValue(ConfigValues.VdsmSSLCiphers))
+                .variable("host_deploy_vdsm_min_version", Config.getValue(ConfigValues.BootstrapMinimalVdsmVersion))
+                .variable("hosted_engine_deploy_action", hostedEngineAction)
+                .variable("hosted_engine_deploy_content", hostedEngineContent)
+                .playbook(AnsibleConstants.HOST_DEPLOY_PLAYBOOK)
                 // /var/log/ovirt-engine/host-deploy/ovirt-host-deploy-ansible-{hostname}-{correlationid}-{timestamp}.log
                 .logFileDirectory(VdsDeployBase.HOST_DEPLOY_LOG_DIRECTORY)
                 .logFilePrefix("ovirt-host-deploy-ansible")
-                .logFileName(getVds().getHostName())
+                .logFileName(vds.getHostName())
                 .logFileSuffix(getCorrelationId())
+                .correlationId(getCorrelationId())
+                .playAction(String.format("Installing Host %s", vds.getName()))
                 .playbook(AnsibleConstants.HOST_DEPLOY_PLAYBOOK);
 
         AuditLogable logable = new AuditLogableImpl();
-        logable.setVdsName(getVds().getName());
-        logable.setVdsId(getVds().getId());
+        logable.setVdsName(vds.getName());
+        logable.setVdsId(vds.getId());
         logable.setCorrelationId(getCorrelationId());
         auditLogDirector.log(logable, AuditLogType.VDS_ANSIBLE_INSTALL_STARTED);
 
-        AnsibleReturnValue ansibleReturnValue = ansibleExecutor.runCommand(command);
+        AnsibleReturnValue ansibleReturnValue = ansibleExecutor.runCommand(
+                commandConfig,
+                log,
+                (eventName, eventUrl) -> setVdsmId(eventName, eventUrl)
+        );
         if (ansibleReturnValue.getAnsibleReturnCode() != AnsibleReturnCode.OK) {
             throw new VdsInstallException(
                 VDSStatus.InstallFailed,
                 String.format(
-                    "Failed to execute Ansible host-deploy role. Please check logs for more details: %1$s",
-                    command.logFile()
+                    "Failed to execute Ansible host-deploy role: %1$s. Please check logs for more details: %2$s",
+                    ansibleReturnValue.getStderr(),
+                    ansibleReturnValue.getLogFile()
                 )
             );
         }
 
         auditLogDirector.log(logable, AuditLogType.VDS_ANSIBLE_INSTALL_FINISHED);
+    }
+
+    private void setVdsmId(String eventName, String eventUrl) {
+        if (!eventName.equals(AnsibleConstants.TASK_VDSM_ID)) {
+            return;
+        }
+        String vdsmid = runnerClient.getVdsmId(eventUrl);
+        log.info(
+                "Host {} reports unique id {}",
+                getVds().getHostName(),
+                vdsmid
+        );
+
+        final String hosts = vdsDao.getAllWithUniqueId(vdsmid)
+                .stream()
+                .filter(vds -> !vds.getId().equals(getVds().getId()))
+                .map(VDS::getName)
+                .collect(Collectors.joining(","));
+
+        if (!hosts.isEmpty()) {
+            log.error(
+                    "Host {} reports duplicate unique id {} of following hosts {}",
+                    getVds().getHostName(),
+                    vdsmid,
+                    hosts
+            );
+            throw new SoftError(
+                    String.format(
+                            "Host %1$s reports unique id which already registered for %2$s",
+                            getVds().getHostName(),
+                            hosts
+                    )
+            );
+        }
+
+        log.info("Assigning unique id {} to Host {}", vdsmid, getVds().getHostName());
+        getVds().setUniqueId(vdsmid);
+
+        TransactionSupport.executeInNewTransaction(() -> {
+            vdsStaticDao.update(getVds().getStaticData());
+            return null;
+        });
+    }
+
+    private String getIptablesRules(VDS host, Cluster cluster) {
+        String ipTablesConfig = Config.getValue(ConfigValues.IPTablesConfig);
+
+        String serviceIPTablesConfig = "";
+        if (cluster.supportsVirtService()) {
+            serviceIPTablesConfig += Config.getValue(ConfigValues.IPTablesConfigForVirt);
+        }
+        if (cluster.supportsGlusterService()) {
+            serviceIPTablesConfig += Config.getValue(ConfigValues.IPTablesConfigForGluster);
+        }
+        serviceIPTablesConfig += Config.getValue(ConfigValues.IPTablesConfigSiteCustom);
+
+        ipTablesConfig = ipTablesConfig
+                .replace("@CUSTOM_RULES@", serviceIPTablesConfig)
+                .replace("@VDSM_PORT@", Integer.toString(host.getSshPort()))
+                .replace("@SSH_PORT@", Integer.toString(host.getPort()));
+
+        return ipTablesConfig;
     }
 
     private void markCurrentCmdlineAsStored() {
@@ -354,10 +391,44 @@ public class InstallVdsInternalCommand<T extends InstallVdsParameters> extends V
         );
     }
 
-    private VDSStatus getStatusOnReboot() {
-        if (getParameters().getActivateHost()) {
-            return VDSStatus.NonResponsive;
+    private void copyEngineSshId() {
+        VDS host = getVds();
+        String sshCopyIdCommand =
+                "exec sh -c 'cd ;"
+                        + " umask 077 ;"
+                        + " mkdir -p .ssh && "
+                        + "{ [ -z \"'`tail -1c .ssh/authorized_keys 2>/dev/null`'\" ] "
+                        + "|| echo >> .ssh/authorized_keys || exit 1; }"
+                        + " && cat >> .ssh/authorized_keys || exit 1 ; "
+                        + "if type restorecon >/dev/null 2>&1 ; then restorecon -F .ssh .ssh/authorized_keys ; fi'";
+        try (
+                final EngineSSHClient sshClient = new EngineSSHClient();
+                final ByteArrayInputStream cmdIn = new ByteArrayInputStream(
+                        EngineEncryptionUtils.getEngineSSHPublicKey().getBytes());
+                final ByteArrayOutputStream cmdOut = new ByteArrayOutputStream();
+                final ByteArrayOutputStream cmdErr = new ByteArrayOutputStream()) {
+            try {
+                log.info("Opening ssh-copy-id session on host {}", host.getHostName());
+                sshClient.setVds(host);
+                sshClient.setPassword(getParameters().getPassword());
+                sshClient.connect();
+                sshClient.authenticate();
+
+                log.info("Executing ssh-copy-id command on host {}", host.getHostName());
+                sshClient.executeCommand(sshCopyIdCommand, cmdIn, cmdOut, cmdErr);
+            } catch (Exception ex) {
+                log.error("ssh-copy-id command failed on host '{}': {}\nStdout: {}\nStderr: {}",
+                        host.getHostName(),
+                        ex.getMessage(),
+                        cmdOut,
+                        cmdErr);
+                log.debug("Exception", ex);
+            }
+        } catch (IOException e) {
+            log.error("Error opening SSH connection to '{}': {}",
+                    host.getHostName(),
+                    e.getMessage());
+            log.debug("Exception", e);
         }
-        return VDSStatus.Maintenance.equals(vdsInitialStatus) ? VDSStatus.Maintenance : VDSStatus.NonResponsive;
     }
 }

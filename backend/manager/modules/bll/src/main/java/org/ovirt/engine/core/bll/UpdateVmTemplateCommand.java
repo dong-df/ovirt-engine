@@ -22,13 +22,13 @@ import org.ovirt.engine.core.bll.validator.IconValidator;
 import org.ovirt.engine.core.bll.validator.VmValidator;
 import org.ovirt.engine.core.bll.validator.VmWatchdogValidator;
 import org.ovirt.engine.core.common.AuditLogType;
-import org.ovirt.engine.core.common.FeatureSupported;
 import org.ovirt.engine.core.common.VdcObjectType;
 import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.GraphicsParameters;
 import org.ovirt.engine.core.common.action.UpdateVmTemplateParameters;
 import org.ovirt.engine.core.common.action.VmManagementParametersBase;
 import org.ovirt.engine.core.common.businessentities.ActionGroup;
+import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.DisplayType;
 import org.ovirt.engine.core.common.businessentities.GraphicsDevice;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
@@ -36,7 +36,6 @@ import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VmEntityType;
 import org.ovirt.engine.core.common.businessentities.VmTemplate;
 import org.ovirt.engine.core.common.businessentities.VmTemplateStatus;
-import org.ovirt.engine.core.common.businessentities.VmType;
 import org.ovirt.engine.core.common.businessentities.network.VmNic;
 import org.ovirt.engine.core.common.businessentities.storage.DiskVmElement;
 import org.ovirt.engine.core.common.errors.EngineMessage;
@@ -52,6 +51,7 @@ import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.compat.Version;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogable;
+import org.ovirt.engine.core.dao.ClusterDao;
 import org.ovirt.engine.core.dao.DiskVmElementDao;
 import org.ovirt.engine.core.dao.VmDao;
 import org.ovirt.engine.core.dao.VmStaticDao;
@@ -77,6 +77,8 @@ public class UpdateVmTemplateCommand<T extends UpdateVmTemplateParameters> exten
     private VmStaticDao vmStaticDao;
     @Inject
     private VmDao vmDao;
+    @Inject
+    private ClusterDao clusterDao;
     @Inject
     private IconUtils iconUtils;
     @Inject
@@ -161,14 +163,6 @@ public class UpdateVmTemplateCommand<T extends UpdateVmTemplateParameters> exten
                     }
                 }
             }
-        }
-
-        Version effectiveCompatibilityVersion =
-                CompatibilityVersionUtils.getEffective(getParameters().getVmTemplateData(), this::getCluster);
-        if (getParameters().getVmTemplateData().getVmType() == VmType.HighPerformance
-                && !FeatureSupported.isHighPerformanceTypeSupported(effectiveCompatibilityVersion)) {
-            return failValidation(EngineMessage.ACTION_TYPE_FAILED_HIGH_PERFORMANCE_IS_NOT_SUPPORTED,
-                    String.format("$Version %s", effectiveCompatibilityVersion));
         }
 
         if (vmHandler.isVmPriorityValueLegal(getParameters().getVmTemplateData().getPriority()).isValid() &&
@@ -447,12 +441,20 @@ public class UpdateVmTemplateCommand<T extends UpdateVmTemplateParameters> exten
         // update audio device
         getVmDeviceUtils().updateSoundDevice(oldTemplate,
                 getVmTemplate(),
+                getCluster(),
                 getVmTemplate().getCompatibilityVersion(),
                 getParameters().isSoundDeviceEnabled());
 
         getVmDeviceUtils().updateConsoleDevice(getVmTemplateId(), getParameters().isConsoleEnabled());
         if (oldTemplate.getUsbPolicy() != getVmTemplate().getUsbPolicy() || oldTemplate.getVmType() != getVmTemplate().getVmType()) {
-            getVmDeviceUtils().updateUsbSlots(oldTemplate, getVmTemplate());
+            Cluster newCluster = getCluster();
+            Cluster oldCluster;
+            if (oldTemplate.getClusterId().equals(newCluster.getId())) {
+                oldCluster = newCluster;
+            } else {
+                oldCluster = oldTemplate.getClusterId() != null ? clusterDao.get(oldTemplate.getClusterId()) : null;
+            }
+            getVmDeviceUtils().updateUsbSlots(oldTemplate, oldCluster, getVmTemplate(), newCluster);
         }
         getVmDeviceUtils().updateVirtioScsiController(getVmTemplate(), getParameters().isVirtioScsiEnabled());
         if (getParameters().isBalloonEnabled() != null) {

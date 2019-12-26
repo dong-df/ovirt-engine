@@ -18,6 +18,7 @@ import org.ovirt.engine.core.common.businessentities.storage.DiskStorageType;
 import org.ovirt.engine.core.common.businessentities.storage.ImageTransfer;
 import org.ovirt.engine.core.common.businessentities.storage.ImageTransferPhase;
 import org.ovirt.engine.core.common.businessentities.storage.TransferType;
+import org.ovirt.engine.core.common.businessentities.storage.VolumeFormat;
 import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.compat.StringHelper;
@@ -316,7 +317,8 @@ public class UploadImageModel extends Model implements ICommandTarget {
             DiskImage diskImage = (DiskImage) getDiskModel().getDisk();
             diskImage.setSize(getVirtualSize());
             diskImage.setActualSizeInBytes(imageInfoModel.getActualSize());
-            diskImage.setVolumeFormat(getImageInfoModel().getFormat());
+            diskImage.setVolumeFormat(diskModel.getIsIncrementalBackup().getEntity() ?
+                    VolumeFormat.COW : getImageInfoModel().getFormat());
             diskImage.setVolumeType(AsyncDataProvider.getInstance().getVolumeType(
                     diskImage.getVolumeFormat(),
                     getDiskModel().getStorageDomain().getSelectedItem().getStorageType(), null, null));
@@ -369,6 +371,7 @@ public class UploadImageModel extends Model implements ICommandTarget {
     private void initiateResumeUpload() {
         TransferImageStatusParameters parameters = new TransferImageStatusParameters();
         parameters.setDiskId(getDiskModel().getDisk().getId());
+        parameters.setStorageDomainId(getDiskModel().getStorageDomain().getSelectedItem().getId());
         startProgress();
         final UploadImageModel model = this;
         UploadImageManager.getInstance().resumeUpload(getImageFileUploadElement(), parameters, getProxyLocation(),
@@ -386,6 +389,7 @@ public class UploadImageModel extends Model implements ICommandTarget {
     private void initiateSilentResumeUpload() {
         TransferImageStatusParameters parameters = new TransferImageStatusParameters();
         parameters.setDiskId(getDiskModel().getDisk().getId());
+        parameters.setStorageDomainId(getDiskModel().getStorageDomain().getSelectedItem().getId());
         UploadImageManager.getInstance().resumeUpload(null, parameters, getProxyLocation(),
                 new AsyncQuery<>(errorMessage -> {
                     if (errorMessage != null) {
@@ -407,7 +411,9 @@ public class UploadImageModel extends Model implements ICommandTarget {
                 diskParameters.getStorageDomainId(),
                 diskParameters);
         parameters.setTransferSize(imageInfoModel.getActualSize());
+        parameters.setVolumeFormat(imageInfoModel.getFormat());
         parameters.setVdsId(getDiskModel().getHost().getSelectedItem().getId());
+        parameters.setTransferringViaBrowser(true);
 
         return parameters;
     }
@@ -494,7 +500,7 @@ public class UploadImageModel extends Model implements ICommandTarget {
         ArrayList<ActionParametersBase> list = new ArrayList<>();
         for (Disk disk : disks) {
             ImageTransfer updates = new ImageTransfer();
-            updates.setPhase(ImageTransferPhase.CANCELLED);
+            updates.setPhase(ImageTransferPhase.CANCELLED_USER);
             TransferImageStatusParameters parameters = new TransferImageStatusParameters();
             parameters.setUpdates(updates);
             parameters.setDiskId(disk.getId());

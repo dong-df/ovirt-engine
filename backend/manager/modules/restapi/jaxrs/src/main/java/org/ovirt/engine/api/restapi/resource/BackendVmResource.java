@@ -1,17 +1,6 @@
 /*
-Copyright (c) 2015 Red Hat, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-  http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+ * Copyright oVirt Authors
+ * SPDX-License-Identifier: Apache-2.0
 */
 
 package org.ovirt.engine.api.restapi.resource;
@@ -210,6 +199,8 @@ public class BackendVmResource
                     localize(Messages.INVALID_ICON_PARAMETERS),
                     Response.Status.BAD_REQUEST);
         }
+        // validate that the provided cluster-compatibility-version is legal
+        parent.validateClusterCompatibilityVersion(incoming);
     }
 
     protected Guid lookupClusterId(Vm vm) {
@@ -331,8 +322,9 @@ public class BackendVmResource
     public Response shutdown(Action action) {
         // REVISIT add waitBeforeShutdown Action paramater
         // to api schema before next sub-milestone
+        String reason = action.getReason();
         return doAction(ActionType.ShutdownVm,
-                        new ShutdownVmParameters(guid, true),
+                        new ShutdownVmParameters(guid, true, reason),
                         action);
     }
 
@@ -362,7 +354,15 @@ public class BackendVmResource
                 new IdQueryParameters(guid), "VM: id=" + guid);
                 CloneVmParameters cloneVmParameters = new CloneVmParameters(vm, action.getVm().getName());
         cloneVmParameters.setMakeCreatorExplicitOwner(isFiltered());
-        Response response = doAction(ActionType.CloneVm,
+        if (action.isSetStorageDomain() && getStorageDomainId(action) != null) {
+            cloneVmParameters.setDestStorageDomainId(getStorageDomainId(action));
+        }
+
+        ActionType actionType = !action.isSetDiscardSnapshots() || action.isDiscardSnapshots() ?
+                ActionType.CloneVm:
+                ActionType.CloneVmNoCollapse;
+
+        Response response = doAction(actionType,
                 cloneVmParameters,
                 action);
 
@@ -496,8 +496,9 @@ public class BackendVmResource
 
     @Override
     public Response stop(Action action) {
+        String reason = action.getReason();
         return doAction(ActionType.StopVm,
-                        new StopVmParameters(guid, StopVmTypeEnum.NORMAL),
+                        new StopVmParameters(guid, StopVmTypeEnum.NORMAL, reason),
                         action);
     }
 

@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.ovirt.engine.core.common.action.VdsOperationActionParameters.AuthenticationMethod;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
@@ -24,12 +25,14 @@ import org.ovirt.engine.core.common.businessentities.VgpuPlacement;
 import org.ovirt.engine.core.common.businessentities.pm.FenceAgent;
 import org.ovirt.engine.core.common.businessentities.pm.FenceProxySourceType;
 import org.ovirt.engine.core.common.mode.ApplicationMode;
+import org.ovirt.engine.core.common.scheduling.AffinityGroup;
 import org.ovirt.engine.core.common.utils.CpuVendor;
 import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.common.utils.pm.PowerManagementUtils;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.compat.StringHelper;
 import org.ovirt.engine.core.compat.Version;
+import org.ovirt.engine.ui.frontend.AsyncCallback;
 import org.ovirt.engine.ui.uicommonweb.ICommandTarget;
 import org.ovirt.engine.ui.uicommonweb.Linq;
 import org.ovirt.engine.ui.uicommonweb.UICommand;
@@ -42,7 +45,6 @@ import org.ovirt.engine.ui.uicommonweb.models.ListModel;
 import org.ovirt.engine.ui.uicommonweb.models.Model;
 import org.ovirt.engine.ui.uicommonweb.models.TabName;
 import org.ovirt.engine.ui.uicommonweb.models.ValidationCompleteEvent;
-import org.ovirt.engine.ui.uicommonweb.models.providers.HostNetworkProviderModel;
 import org.ovirt.engine.ui.uicommonweb.validation.HostAddressValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.HostnameValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.IValidation;
@@ -671,16 +673,6 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
         privateProviders = value;
     }
 
-    private HostNetworkProviderModel networkProviderModel;
-
-    public HostNetworkProviderModel getNetworkProviderModel() {
-        return networkProviderModel;
-    }
-
-    private void setNetworkProviderModel(HostNetworkProviderModel value) {
-        networkProviderModel = value;
-    }
-
     private EntityModel<Boolean> isDiscoveredHosts;
 
     public EntityModel<Boolean> getIsDiscoveredHosts() {
@@ -691,15 +683,17 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
         isDiscoveredHosts = value;
     }
 
-    public ListModel<Provider<org.ovirt.engine.core.common.businessentities.OpenstackNetworkProviderProperties>> getNetworkProviders() {
-        return getNetworkProviderModel().getNetworkProviders();
-    }
-
-    public EntityModel<String> getInterfaceMappings() {
-        return getNetworkProviderModel().getInterfaceMappings();
-    }
-
     private HostedEngineHostModel hostedEngineHostModel;
+
+    private ListModel<AffinityGroup> affinityGroupList;
+
+    public ListModel<AffinityGroup> getAffinityGroupList() {
+        return affinityGroupList;
+    }
+
+    public void setAffinityGroupList(ListModel<AffinityGroup> affinityGroupList) {
+        this.affinityGroupList = affinityGroupList;
+    }
 
     private ListModel<Label> labelList;
 
@@ -845,7 +839,6 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
         initSpmPriorities();
         fetchEngineSshPublicKey();
 
-        setNetworkProviderModel(new HostNetworkProviderModel());
         setIsDiscoveredHosts(new EntityModel<Boolean>());
         setKernelCmdline(new EntityModel<String>());
         setKernelCmdlineBlacklistNouveau(new EntityModel<>(false));
@@ -858,8 +851,9 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
         kernelCmdlineListener = new EnableableEventListener<>(null);
         setCurrentKernelCmdLine(new EntityModel<>(""));
         setHostedEngineHostModel(new HostedEngineHostModel());
+        setAffinityGroupList(new ListModel<>());
         setLabelList(new ListModel<Label>());
-        updateLabelList();
+        updateAffinityLists();
 
         setPasswordSectionViewable(true);
 
@@ -1080,6 +1074,8 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
     }
 
     protected void cluster_SelectedItemChanged() {
+        updateAffinityLists();
+
         Cluster cluster = getCluster().getSelectedItem();
         if (cluster == null) {
             return;
@@ -1105,7 +1101,6 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
             cpuVendorChanged();
         }
 
-        getNetworkProviderModel().setDefaultProviderId(cluster.getDefaultNetworkProviderId());
         setVgpuPlacementChangeability(cluster.getCompatibilityVersion());
     }
 
@@ -1135,10 +1130,6 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
         } else {
             getExternalComputeResource().setIsValid(true);
             getExternalHostGroups().setIsValid(true);
-        }
-        if (getExternalHostProviderEnabled().getEntity() && getProviders().getSelectedItem() == null) {
-            getProviders().getInvalidityReasons().add(constants.validateSelectExternalProvider());
-            getProviders().setIsValid(false);
         }
 
         getAuthSshPort().validateEntity(new IValidation[] {new NotEmptyValidation(), new IntegerValidation(1, 65535)});
@@ -1175,11 +1166,9 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
 
         setValidTab(TabName.POWER_MANAGEMENT_TAB, fenceAgentsValid);
 
-        getNetworkProviderModel().validate();
-
         ValidationCompleteEvent.fire(getEventBus(), this);
         return isValidTab(TabName.GENERAL_TAB) && isValidTab(TabName.POWER_MANAGEMENT_TAB)
-                && getConsoleAddress().getIsValid() && getNetworkProviderModel().getIsValid()
+                && getConsoleAddress().getIsValid()
                 && isValidTab(TabName.KERNEL_TAB);
     }
 
@@ -1334,7 +1323,7 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
         addKernelCmdlineCheckboxesListeners();
         addKernelCmdlineListener();
         updateKernelCmdlineCheckboxesChangeability();
-        updateLabelList();
+        updateAffinityLists();
     }
 
     private void addKernelCmdlineListener() {
@@ -1354,10 +1343,10 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
             case INTEL:
             case AMD:
             case IBMS390:
-                setKernelCmdlineCheckboxesValue(false);
+                resetKernelCmdlineCheckboxesValue();
                 break;
             case IBM:
-                setKernelCmdlineCheckboxesValue(true);
+                resetKernelCmdlineCheckboxesValuePpc();
                 break;
             default:
                 throw new RuntimeException("Unknown CpuVendor type: " + cpuVendor); //$NON-NLS-1$
@@ -1382,6 +1371,9 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
                 setKernelCmdlineCheckboxesChangeability(
                         false,
                         constants.kernelCmdlineNotAvailableInClusterWithIbmCpu());
+                // FIPS and SMT kernel params should be available on POWER
+                getKernelCmdlineFips().setIsChangeable(isKernelCmdlineParsable());
+                getKernelCmdlineSmtDisabled().setIsChangeable(isKernelCmdlineParsable());
                 break;
             default:
                 throw new RuntimeException("Unknown CpuVendor type: " + cpuVendor); //$NON-NLS-1$
@@ -1398,14 +1390,28 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
         getKernelCmdlineSmtDisabled().setIsChangeable(changeable, reason);
     }
 
-    private void setKernelCmdlineCheckboxesValue(boolean checked) {
-        getKernelCmdlineBlacklistNouveau().setEntity(checked);
-        getKernelCmdlineIommu().setEntity(checked);
-        getKernelCmdlineKvmNested().setEntity(checked);
-        getKernelCmdlineUnsafeInterrupts().setEntity(checked);
-        getKernelCmdlinePciRealloc().setEntity(checked);
-        getKernelCmdlineFips().setEntity(checked);
-        getKernelCmdlineSmtDisabled().setEntity(checked);
+    private void resetKernelCmdlineCheckboxesValue() {
+        getKernelCmdlineBlacklistNouveau().setEntity(false);
+        getKernelCmdlineIommu().setEntity(false);
+        getKernelCmdlineKvmNested().setEntity(false);
+        getKernelCmdlineUnsafeInterrupts().setEntity(false);
+        getKernelCmdlinePciRealloc().setEntity(false);
+        getKernelCmdlineFips().setEntity(false);
+        getKernelCmdlineSmtDisabled().setEntity(false);
+    }
+
+    private void resetKernelCmdlineCheckboxesValuePpc() {
+        // PPC processors are specific:
+        // * they don't require flag to turn iommu on - flag needs to be true
+        // * FIPS and SMT are available to be set by users
+        // * nesting and other options are not available - flag needs to be false
+        getKernelCmdlineBlacklistNouveau().setEntity(false);
+        getKernelCmdlineIommu().setEntity(true);
+        getKernelCmdlineKvmNested().setEntity(false);
+        getKernelCmdlineUnsafeInterrupts().setEntity(false);
+        getKernelCmdlinePciRealloc().setEntity(false);
+        getKernelCmdlineFips().setEntity(false);
+        getKernelCmdlineSmtDisabled().setEntity(false);
     }
 
     /**
@@ -1465,18 +1471,49 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
         resetKernelCmdlineCheckboxes();
     }
 
-    private void updateLabelList() {
-        AsyncDataProvider.getInstance().getLabelList(new AsyncQuery<>(allLabels -> {
+    private void updateAffinityLists() {
+        AsyncCallback<List<AffinityGroup>> affinityGroupsCallback = groups -> {
+            affinityGroupList.setItems(groups);
             if (getIsNew()) {
-                labelList.setItems(allLabels);
+                affinityGroupList.setSelectedItems(new ArrayList<>());
+            } else {
+                Guid hostId = getHostId();
+                affinityGroupList.setSelectedItems(groups.stream()
+                        .filter(ag -> ag.getVdsIds().contains(hostId))
+                        .collect(Collectors.toList()));
+            }
+        };
+
+        if (getCluster().getSelectedItem() == null) {
+            // This must be a modifiable list, otherwise an exception is thrown.
+            // Once the selected cluster is not null anymore and this list is changed for another one,
+            // somewhere the code adds an element to this list, even if it is not used.
+            affinityGroupsCallback.onSuccess(new ArrayList<>());
+        } else {
+            AsyncDataProvider.getInstance().getAffinityGroupsByClusterId(new AsyncQuery<>(affinityGroupsCallback),
+                    getCluster().getSelectedItem().getId());
+        }
+
+        AsyncDataProvider.getInstance().getLabelList(new AsyncQuery<>(labels -> {
+            labelList.setItems(labels);
+            if (getIsNew()) {
                 labelList.setSelectedItems(new ArrayList<>());
             } else {
-                AsyncDataProvider.getInstance().getLabelListByEntityId(new AsyncQuery<>(hostLabelsList -> {
-                    labelList.setItems(allLabels);
-                    labelList.setSelectedItems(hostLabelsList);
-                }), getHostId());
+                Guid hostId = getHostId();
+                labelList.setSelectedItems(labels.stream()
+                        .filter(label -> label.getHosts().contains(hostId))
+                        .collect(Collectors.toList()));
             }
         }));
+    }
+
+    public void addAffinityGroup() {
+        AffinityGroup group = affinityGroupList.getSelectedItem();
+
+        if (!affinityGroupList.getSelectedItems().contains(group)) {
+            affinityGroupList.getSelectedItems().add(group);
+            affinityGroupList.getSelectedItemsChangedEvent().raise(affinityGroupList, EventArgs.EMPTY);
+        }
     }
 
     public void addAffinityLabel() {
@@ -1513,8 +1550,6 @@ public abstract class HostModel extends Model implements HasValidatedTabs {
     }
 
     protected abstract void setPort(VDS vds);
-
-    public abstract boolean showNetworkProviderTab();
 
     /**
      * {@code EntityModel.setEntity(..., false);} can't be used because this prevents

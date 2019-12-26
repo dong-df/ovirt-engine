@@ -244,6 +244,7 @@ public class AddVmTemplateCommand<T extends AddVmTemplateParameters> extends VmT
         } else if (getCluster() != null && masterVm != null) {
             VM vm = new VM(masterVm, new VmDynamic(), null);
             vm.setClusterCompatibilityVersion(getCluster().getCompatibilityVersion());
+            vm.setClusterBiosType(getCluster().getBiosType());
             setVm(vm);
             setStoragePoolId(getCluster().getStoragePoolId());
         }
@@ -432,6 +433,7 @@ public class AddVmTemplateCommand<T extends AddVmTemplateParameters> extends VmT
         parameters.setVmTemplateName(getVmTemplateName());
         parameters.setDiskInfoDestinationMap(diskInfoDestinationMap);
         parameters.setTargetDiskIds(targetDiskIds);
+        parameters.setEntityInfo(new EntityInfo(VdcObjectType.VmTemplate, getVmTemplateId()));
         if (getParameters().isSealTemplate()) {
             parameters.setCopyVolumeType(CopyVolumeType.LeafVol);
         }
@@ -941,6 +943,7 @@ public class AddVmTemplateCommand<T extends AddVmTemplateParameters> extends VmT
                         getParameters().getMasterVm().getNumaTuneMode(),
                         getParameters().getMasterVm().getAutoConverge(),
                         getParameters().getMasterVm().getMigrateCompressed(),
+                        getParameters().getMasterVm().getMigrateEncrypted(),
                         getParameters().getMasterVm().getUserDefinedProperties(),
                         getParameters().getMasterVm().getPredefinedProperties(),
                         getParameters().getMasterVm().getCustomProperties(),
@@ -956,7 +959,8 @@ public class AddVmTemplateCommand<T extends AddVmTemplateParameters> extends VmT
                         getParameters().getMasterVm().getMigrationPolicyId(),
                         getParameters().getMasterVm().getLeaseStorageDomainId(),
                         getParameters().getMasterVm().getResumeBehavior(),
-                        getParameters().getMasterVm().isMultiQueuesEnabled()));
+                        getParameters().getMasterVm().isMultiQueuesEnabled(),
+                        getParameters().getMasterVm().getUseTscFrequency()));
         updateVmIcons();
         vmTemplateDao.save(getVmTemplate());
         getCompensationContext().snapshotNewEntity(getVmTemplate());
@@ -980,7 +984,7 @@ public class AddVmTemplateCommand<T extends AddVmTemplateParameters> extends VmT
         for (VmNic iface : interfaces) {
             VmNic iDynamic = new VmNic();
             iDynamic.setId(Guid.newGuid());
-            iDynamic.setVmTemplateId(getVmTemplateId());
+            iDynamic.setVmId(getVmTemplateId());
             iDynamic.setName(iface.getName());
             iDynamic.setVnicProfileId(iface.getVnicProfileId());
             iDynamic.setSpeed(VmInterfaceType.forValue(iface.getType()).getSpeed());

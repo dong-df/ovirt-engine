@@ -491,6 +491,17 @@ public class VmSnapshotListModel extends SearchableListModel<VM, Snapshot> {
             }
 
             Snapshot snapshot = getSelectedItem();
+            if (snapshot == null) {
+                snapshot = getItems().stream()
+                        .filter(s -> s.getStatus() == SnapshotStatus.IN_PREVIEW)
+                        .findFirst()
+                        .orElse(null);
+            }
+
+            if (snapshot == null) {
+                return;
+            }
+
             ConfirmationModel model = new ConfirmationModel();
             setWindow(model);
             model.setTitle(ConstantsManager.getInstance().getConstants().commitSnapshotTitle());
@@ -729,6 +740,30 @@ public class VmSnapshotListModel extends SearchableListModel<VM, Snapshot> {
 
         VM vm = behavior.getVm();
 
+        String name = model.getName().getEntity();
+
+        // Check name uniqueness.
+        AsyncDataProvider.getInstance().isVmNameUnique(new AsyncQuery<>(
+                        isNameUnique -> {
+                            if (!isNameUnique) {
+                                model.getInvalidityReasons().clear();
+                                model.getName()
+                                        .getInvalidityReasons()
+                                        .add(ConstantsManager.getInstance()
+                                                .getConstants()
+                                                .nameMustBeUniqueInvalidReason());
+                                model.getName().setIsValid(false);
+                                model.setIsValid(false);
+                                model.fireValidationCompleteEvent();
+                            } else {
+                                postNameUniqueCheckVM(vm, snapshot, behavior, model);
+                            }
+                        }),
+                name, model.getSelectedDataCenter().getId());
+    }
+
+    private void postNameUniqueCheckVM(VM vm, Snapshot snapshot,
+                                       CloneVmFromSnapshotModelBehavior behavior, UnitVmModel model) {
         // Save changes.
         buildVmOnClone(model, vm);
 

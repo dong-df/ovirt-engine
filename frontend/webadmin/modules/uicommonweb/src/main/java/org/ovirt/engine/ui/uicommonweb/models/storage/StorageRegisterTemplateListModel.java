@@ -1,9 +1,17 @@
 package org.ovirt.engine.ui.uicommonweb.models.storage;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.ovirt.engine.core.common.action.ActionParametersBase;
+import org.ovirt.engine.core.common.action.ActionType;
+import org.ovirt.engine.core.common.action.RemoveUnregisteredEntityParameters;
 import org.ovirt.engine.core.common.businessentities.VmTemplate;
 import org.ovirt.engine.core.common.businessentities.comparators.LexoNumericNameableComparator;
 import org.ovirt.engine.core.common.queries.QueryType;
+import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.ui.uicommonweb.help.HelpTag;
+import org.ovirt.engine.ui.uicommonweb.models.ConfirmationModel;
 import org.ovirt.engine.ui.uicommonweb.models.vms.ImportTemplateData;
 import org.ovirt.engine.ui.uicompat.ConstantsManager;
 
@@ -38,5 +46,38 @@ public class StorageRegisterTemplateListModel extends StorageRegisterEntityListM
     @Override
     protected String getListName() {
         return "StorageRegisterTemplateListModel"; //$NON-NLS-1$
+    }
+
+    @Override
+    ConfirmationModel createRemoveEntityModel() {
+        ConfirmationModel confirmationModel = new ConfirmationModel();
+        confirmationModel.setTitle(ConstantsManager.getInstance().getConstants().removeUnregisteredTemplatesTitle());
+        confirmationModel.setHelpTag(HelpTag.remove_unregistered_template);
+        confirmationModel.setHashName("remove_unregistered_templates"); //$NON-NLS-1$
+        return confirmationModel;
+    }
+
+    @Override
+    List<String> getSelectedItemsNames() {
+        return getSelectedItems().stream()
+                .filter(vmTemplate -> !Guid.isNullOrEmpty(vmTemplate.getId()))
+                .map(VmTemplate::getName)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    List<ActionParametersBase> getRemoveUnregisteredEntityParams(Guid storagePoolId) {
+        return getSelectedItems()
+                .stream()
+                .map(item -> new RemoveUnregisteredEntityParameters(
+                        item.getId(),
+                        getEntity().getId(),
+                        storagePoolId))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    ActionType getRemoveActionType() {
+        return ActionType.RemoveUnregisteredVmTemplate;
     }
 }

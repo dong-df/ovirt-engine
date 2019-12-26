@@ -1,7 +1,6 @@
 package org.ovirt.engine.core.bll.network.host;
 
 import static org.ovirt.engine.core.common.vdscommands.TimeBoundPollVDSCommandParameters.PollTechnique.CONFIRM_CONNECTIVITY;
-import static org.ovirt.engine.core.common.vdscommands.TimeBoundPollVDSCommandParameters.PollTechnique.POLL;
 import static org.ovirt.engine.core.utils.NetworkUtils.areDifferentId;
 import static org.ovirt.engine.core.utils.NetworkUtils.hasIpv6StaticBootProto;
 import static org.ovirt.engine.core.utils.network.predicate.IsDefaultRouteOnInterfacePredicate.isDefaultRouteOnInterfacePredicate;
@@ -41,7 +40,6 @@ import org.ovirt.engine.core.bll.network.cluster.NetworkClusterHelper;
 import org.ovirt.engine.core.bll.validator.network.NetworkAttachmentIpConfigurationValidator;
 import org.ovirt.engine.core.bll.validator.network.NetworkExclusivenessValidatorResolver;
 import org.ovirt.engine.core.common.AuditLogType;
-import org.ovirt.engine.core.common.FeatureSupported;
 import org.ovirt.engine.core.common.action.CreateOrUpdateBond;
 import org.ovirt.engine.core.common.action.HostSetupNetworksParameters;
 import org.ovirt.engine.core.common.action.LockProperties;
@@ -81,7 +79,6 @@ import org.ovirt.engine.core.common.vdscommands.FutureVDSCommandType;
 import org.ovirt.engine.core.common.vdscommands.HostNetwork;
 import org.ovirt.engine.core.common.vdscommands.HostSetupNetworksVdsCommandParameters;
 import org.ovirt.engine.core.common.vdscommands.TimeBoundPollVDSCommandParameters;
-import org.ovirt.engine.core.common.vdscommands.TimeBoundPollVDSCommandParameters.PollTechnique;
 import org.ovirt.engine.core.common.vdscommands.UserConfiguredNetworkData;
 import org.ovirt.engine.core.common.vdscommands.UserOverriddenNicValues;
 import org.ovirt.engine.core.common.vdscommands.VDSCommandType;
@@ -491,9 +488,8 @@ public class HostSetupNetworksCommand<T extends HostSetupNetworksParameters> ext
                 vdsBroker.runFutureVdsCommand(FutureVDSCommandType.HostSetupNetworks, parameters);
 
         if (parameters.isRollbackOnFailure()) {
-            PollTechnique pollTechnique = FeatureSupported.isConfirmConnectivitySupportedByVdsm(
-                    getVds().getClusterCompatibilityVersion()) ? CONFIRM_CONNECTIVITY : POLL;
-            HostPoller poller = new HostPoller(new TimeBoundPollVDSCommandParameters(getVdsId(), pollTechnique));
+            HostPoller poller = new HostPoller(new TimeBoundPollVDSCommandParameters(getVdsId(),
+                    CONFIRM_CONNECTIVITY));
             while (!setupNetworksTask.isDone()) {
                 poller.poll();
             }
@@ -619,7 +615,7 @@ public class HostSetupNetworksCommand<T extends HostSetupNetworksParameters> ext
         BusinessEntityMap<VdsNetworkInterface> nics = getExistingNicsBusinessEntityMap();
 
         List<NetworkAttachment> attachments = getAttachmentsWithMissingUpdatedDefaultRoute();
-        removeIpv6GatewayFromPreviousDefaultRouteAttachment(findPreviousDefaultRouteNic(), attachments);
+        removeIpv6GatewayFromPreviousDefaultRouteAttachment(attachments);
         for (NetworkAttachment attachment : attachments) {
             Network network = existingNetworkRelatedToAttachment(attachment);
             NetworkCluster networkCluster = network.getCluster();
@@ -661,8 +657,7 @@ public class HostSetupNetworksCommand<T extends HostSetupNetworksParameters> ext
         VdsNetworkInterface previousDefaultRouteNic = findPreviousDefaultRouteNic();
         NetworkAttachment previousDefaultRouteNetworkAttachment = findNetworkAttachmentByNetworkName(previousDefaultRouteNic, getExistingAttachments());
 
-        if (currentDefaultRouteNetworkAttachment != null && previousDefaultRouteNetworkAttachment != null
-                && currentDefaultRouteNetworkAttachment.getId().equals(previousDefaultRouteNetworkAttachment.getId())) {
+        if (sameNetworkAttachment(currentDefaultRouteNetworkAttachment, previousDefaultRouteNetworkAttachment)) {
             return getParameters().getNetworkAttachments();
         }
 
@@ -675,15 +670,22 @@ public class HostSetupNetworksCommand<T extends HostSetupNetworksParameters> ext
         return extendedAttachments;
     }
 
-    private void removeIpv6GatewayFromPreviousDefaultRouteAttachment(
-            VdsNetworkInterface previousDefaultRouteNic, List<NetworkAttachment> extendedAttachments) {
+    private boolean sameNetworkAttachment(NetworkAttachment first, NetworkAttachment second) {
+        return first != null && second != null && first.getId().equals(second.getId());
+    }
+
+    private void removeIpv6GatewayFromPreviousDefaultRouteAttachment(List<NetworkAttachment> extendedAttachments) {
         NetworkAttachment previousDefaultRouteAttachment = findNetworkAttachmentByNetworkName(
-                previousDefaultRouteNic, extendedAttachments
+                findPreviousDefaultRouteNic(), extendedAttachments
         );
-        if (hasIpv6StaticBootProto(previousDefaultRouteAttachment)) {
-            previousDefaultRouteAttachment.getIpConfiguration().getIpv6PrimaryAddress().setGateway(null);
-            auditLog(auditEventRemoveIpv6Gateway(previousDefaultRouteAttachment),
-                AuditLogType.NETWORK_REMOVING_IPV6_GATEWAY_FROM_OLD_DEFAULT_ROUTE_ROLE_ATTACHMENT);
+
+        if (!sameNetworkAttachment(findAttachmentByNetworkClusterId(findCurrentDefaultRouteNetworkForCluster()),
+                previousDefaultRouteAttachment)) {
+            if (hasIpv6StaticBootProto(previousDefaultRouteAttachment)) {
+                previousDefaultRouteAttachment.getIpConfiguration().getIpv6PrimaryAddress().setGateway(null);
+                auditLog(auditEventRemoveIpv6Gateway(previousDefaultRouteAttachment),
+                        AuditLogType.NETWORK_REMOVING_IPV6_GATEWAY_FROM_OLD_DEFAULT_ROUTE_ROLE_ATTACHMENT);
+            }
         }
     }
 

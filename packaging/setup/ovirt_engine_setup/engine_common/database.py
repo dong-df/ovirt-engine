@@ -1,18 +1,9 @@
 #
 # ovirt-engine-setup -- ovirt engine setup
-# Copyright (C) 2013-2017 Red Hat, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Copyright oVirt Authors
+# SPDX-License-Identifier: Apache-2.0
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 #
 
 
@@ -205,6 +196,7 @@ class Statement(base.Base):
         database=None,
         ownConnection=False,
         transaction=True,
+        logResult=True,
     ):
         # autocommit member is available at >= 2.4.2
         def __backup_autocommit(connection):
@@ -289,7 +281,7 @@ class Statement(base.Base):
             if _connection is not None:
                 _connection.close()
 
-        self.logger.debug('Result: %s', ret)
+        self.logger.debug('Result: %s', ret if logResult else 'Not logged')
         return ret
 
 
@@ -1234,24 +1226,22 @@ class OvirtUtils(base.Base):
                 self.dialog.note(
                     text=_(
                         "\n"
-                        "ATTENTION\n"
+                        "Please create the database for the {name} to use.\n"
+                        "To create a user:\n"
+                        "postgres=# create role <user_name> with "
+                        "login encrypted password '<password>';\n"
+                        "To create a database:\n"
+                        "postgres=# create database <database_name> "
+                        "owner <user_name> template template0 "
+                        "encoding 'UTF8' lc_collate 'en_US.UTF-8' "
+                        "lc_ctype 'en_US.UTF-8';\n"
                         "\n"
-                        "Manual action required.\n"
-                        "Please create database for ovirt-engine use. "
-                        "Use the following commands as an example:\n"
-                        "\n"
-                        "create role {user} with login encrypted password "
-                        "'<password>';\n"
-                        "create database {database} owner {user}\n"
-                        " template template0\n"
-                        " encoding 'UTF8' lc_collate 'en_US.UTF-8'\n"
-                        " lc_ctype 'en_US.UTF-8';\n"
-                        "\n"
-                        "Make sure that database can be accessed remotely.\n"
+                        "If you plan for a remote application "
+                        "to use this database, "
+                        "make sure it can be accessed remotely.\n"
                         "\n"
                     ).format(
-                        user=defaultdbenvkeys[DEK.USER],
-                        database=defaultdbenvkeys[DEK.DATABASE],
+                        name=name,
                     ),
                 )
 

@@ -34,6 +34,7 @@ import org.ovirt.engine.core.common.businessentities.EngineSession;
 import org.ovirt.engine.core.common.businessentities.Provider;
 import org.ovirt.engine.core.common.businessentities.Queryable;
 import org.ovirt.engine.core.common.businessentities.Quota;
+import org.ovirt.engine.core.common.businessentities.ServerCpu;
 import org.ovirt.engine.core.common.businessentities.StorageDomain;
 import org.ovirt.engine.core.common.businessentities.StoragePool;
 import org.ovirt.engine.core.common.businessentities.UserSession;
@@ -51,6 +52,7 @@ import org.ovirt.engine.core.common.config.Config;
 import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.errors.SearchEngineIllegalCharacterException;
 import org.ovirt.engine.core.common.errors.SqlInjectionException;
+import org.ovirt.engine.core.common.queries.IdQueryParameters;
 import org.ovirt.engine.core.common.queries.QueryParametersBase;
 import org.ovirt.engine.core.common.queries.QueryType;
 import org.ovirt.engine.core.common.queries.SearchParameters;
@@ -258,6 +260,8 @@ public class SearchQuery<P extends SearchParameters> extends QueriesCommandBase<
             vmHandler.updateVmLock(vm);
             vmHandler.updateOperationProgress(vm);
             vmHandler.updateVmStatistics(vm);
+            vmHandler.updateNextRunChangedFields(vm, getUser(), getParameters().isFiltered());
+            vmHandler.updateConfiguredCpuVerb(vm);
         }
         return vms;
     }
@@ -265,8 +269,22 @@ public class SearchQuery<P extends SearchParameters> extends QueriesCommandBase<
     private List<VDS> searchVDSsByDb() {
         List<VDS> data = genericSearch(vdsDao, true);
         for (VDS vds : data) {
-            vds.setCpuName(cpuFlagsManagerHandler.findMaxServerCpuByFlags(vds.getCpuFlags(),
-                    vds.getClusterCompatibilityVersion()));
+            List<ServerCpu> supportedCpus = cpuFlagsManagerHandler.findServerCpusByFlags(
+                    vds.getCpuFlags(),
+                    vds.getClusterCompatibilityVersion());
+
+            vds.setSupportedCpus(supportedCpus.stream().map(cpu -> cpu.getCpuName()).collect(Collectors.toList()));
+            if (!supportedCpus.isEmpty()) {
+                vds.setCpuName(supportedCpus.get(0));
+            }
+
+            List<String> missingFlags = cpuFlagsManagerHandler.missingServerCpuFlags(
+                    vds.getClusterCpuName(),
+                    vds.getCpuFlags(),
+                    vds.getClusterCompatibilityVersion());
+            if (missingFlags != null) {
+                vds.setCpuFlagsMissing(missingFlags.stream().collect(Collectors.toSet()));
+            }
             setNetworkOperationInProgressOnVds(vds);
         }
         return data;
@@ -372,6 +390,14 @@ public class SearchQuery<P extends SearchParameters> extends QueriesCommandBase<
             clusters.forEach(cluster -> cluster.setClusterCompatibilityLevelUpgradeNeeded(
                             retVal.get().compareTo(cluster.getCompatibilityVersion()) > 0)
                     );
+        }
+        for(Cluster cluster: clusters) {
+            List<VDS> hostsWithMissingFlags = backend.runInternalQuery(QueryType.GetHostsWithMissingFlagsForCluster,
+                    new IdQueryParameters(cluster.getId())).getReturnValue();
+            cluster.setHasHostWithMissingCpuFlags(!hostsWithMissingFlags.isEmpty());
+
+            String verb = cpuFlagsManagerHandler.getCpuId(cluster.getCpuName(), cluster.getCompatibilityVersion());
+            cluster.setConfiguredCpuVerb(verb);
         }
         return clusters;
     }

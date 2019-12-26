@@ -296,6 +296,8 @@ public class VdsDaoImpl extends BaseDao implements VdsDao {
         entity.setVdsType(VDSType.forValue(rs.getInt("vds_type")));
         entity.setCpuFlags(rs.getString("cpu_flags"));
         entity.setClusterCpuName(rs.getString("cluster_cpu_name"));
+        entity.setClusterFlags(rs.getString("cluster_cpu_flags"));
+        entity.setClusterVerb(rs.getString("cluster_cpu_verb"));
         entity.setStoragePoolId(getGuidDefaultEmpty(rs, "storage_pool_id"));
         entity.setStoragePoolName(rs.getString("storage_pool_name"));
         entity.setPendingVcpusCount((Integer) rs.getObject("pending_vcpus_count"));
@@ -311,7 +313,6 @@ public class VdsDaoImpl extends BaseDao implements VdsDao {
         entity.setSpmStatus(VdsSpmStatus.forValue(rs.getInt("spm_status")));
         entity.setSupportedClusterLevels(rs.getString("supported_cluster_levels"));
 
-        entity.setReportedDnsResolverConfiguration(dnsResolverConfigurationDao.get(hostId));
 
         entity.setSupportedEngines(rs.getString("supported_engines"));
         entity.setClusterCompatibilityVersion(new VersionRowMapper("cluster_compatibility_version").mapRow(rs, rowNum));
@@ -377,6 +378,11 @@ public class VdsDaoImpl extends BaseDao implements VdsDao {
         entity.setBackupEnabled(rs.getBoolean("backup_enabled"));
         entity.setSupportedDomainVersionsAsString(rs.getString("supported_domain_versions"));
         entity.setClusterSmtDisabled(rs.getBoolean("cluster_smt_disabled"));
+        entity.setSupportedBlockSize(ObjectUtils.mapNullable(
+                rs.getString("supported_block_size"), JsonHelper::jsonToMapUnchecked));
+        entity.setTscFrequency(rs.getString("tsc_frequency"));
+        entity.setTscScalingEnabled(rs.getBoolean("tsc_scaling"));
+        entity.setFipsEnabled(rs.getBoolean("fips_enabled"));
         return entity;
     };
 }

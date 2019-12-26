@@ -10,6 +10,7 @@ import javax.inject.Singleton;
 
 import org.ovirt.engine.core.common.businessentities.ActionGroup;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
+import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.ClusterHostsAndVMs;
 import org.ovirt.engine.core.common.businessentities.LogMaxMemoryUsedThresholdType;
@@ -232,6 +233,8 @@ public class ClusterDaoImpl extends BaseDao implements ClusterDao {
                 .addValue("free_text_comment", cluster.getComment())
                 .addValue("cluster_id", cluster.getId())
                 .addValue("cpu_name", cluster.getCpuName())
+                .addValue("cpu_flags", cluster.getCpuFlags())
+                .addValue("cpu_verb", cluster.getCpuVerb())
                 .addValue("storage_pool_id", cluster.getStoragePoolId())
                 .addValue("max_vds_memory_over_commit",
                         cluster.getMaxVdsMemoryOverCommit())
@@ -252,6 +255,7 @@ public class ClusterDaoImpl extends BaseDao implements ClusterDao {
                 .addValue("additional_rng_sources", VmRngDevice.sourcesToCsv(cluster.getAdditionalRngSources()))
                 .addValue("emulated_machine", cluster.getEmulatedMachine())
                 .addValue("detect_emulated_machine", cluster.isDetectEmulatedMachine())
+                .addValue("bios_type", cluster.getBiosType())
                 .addValue("trusted_service", cluster.supportsTrustedService())
                 .addValue("ha_reservation", cluster.supportsHaReservation())
                 .addValue("cluster_policy_id", cluster.getClusterPolicyId())
@@ -270,6 +274,7 @@ public class ClusterDaoImpl extends BaseDao implements ClusterDao {
                 .addValue("fencing_enabled", cluster.getFencingPolicy().isFencingEnabled())
                 .addValue("is_auto_converge", cluster.getAutoConverge())
                 .addValue("is_migrate_compressed", cluster.getMigrateCompressed())
+                .addValue("is_migrate_encrypted", cluster.getMigrateEncrypted())
                 .addValue("gluster_tuned_profile", cluster.getGlusterTunedProfile())
                 .addValue("ksm_merge_across_nodes", cluster.isKsmMergeAcrossNumaNodes())
                 .addValue("migration_bandwidth_limit_type", cluster.getMigrationBandwidthLimitType().name())
@@ -301,6 +306,8 @@ public class ClusterDaoImpl extends BaseDao implements ClusterDao {
         entity.setId(getGuidDefaultEmpty(rs, "cluster_id"));
         entity.setComment(rs.getString("free_text_comment"));
         entity.setCpuName(rs.getString("cpu_name"));
+        entity.setCpuFlags(rs.getString("cpu_flags"));
+        entity.setCpuVerb(rs.getString("cpu_verb"));
         entity.setStoragePoolId(getGuid(rs, "storage_pool_id"));
         entity.setStoragePoolName(rs.getString("storage_pool_name"));
         entity.setMaxVdsMemoryOverCommit(rs.getInt("max_vds_memory_over_commit"));
@@ -317,6 +324,7 @@ public class ClusterDaoImpl extends BaseDao implements ClusterDao {
         entity.getAdditionalRngSources().addAll(VmRngDevice.csvToSourcesSet(rs.getString("additional_rng_sources")));
         entity.setEmulatedMachine(rs.getString("emulated_machine"));
         entity.setDetectEmulatedMachine(rs.getBoolean("detect_emulated_machine"));
+        entity.setBiosType(BiosType.forValue(rs.getInt("bios_type")));
         entity.setTrustedService(rs.getBoolean("trusted_service"));
         entity.setHaReservation(rs.getBoolean("ha_reservation"));
         entity.setClusterPolicyId(Guid.createGuidFromString(rs.getString("cluster_policy_id")));
@@ -338,6 +346,7 @@ public class ClusterDaoImpl extends BaseDao implements ClusterDao {
         entity.getFencingPolicy().setFencingEnabled(rs.getBoolean("fencing_enabled"));
         entity.setAutoConverge((Boolean) rs.getObject("is_auto_converge"));
         entity.setMigrateCompressed((Boolean) rs.getObject("is_migrate_compressed"));
+        entity.setMigrateEncrypted((Boolean) rs.getObject("is_migrate_encrypted"));
         entity.setGlusterTunedProfile(rs.getString("gluster_tuned_profile"));
         entity.setKsmMergeAcrossNumaNodes(rs.getBoolean("ksm_merge_across_nodes"));
         entity.setMigrationBandwidthLimitType(MigrationBandwidthLimitType.valueOf(rs.getString("migration_bandwidth_limit_type")));

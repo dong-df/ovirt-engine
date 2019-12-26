@@ -67,7 +67,6 @@ public enum VDSCommandType {
     DownloadImage("org.ovirt.engine.core.vdsbroker.irsbroker"),
     UploadImage("org.ovirt.engine.core.vdsbroker.irsbroker"),
     CreateVolume("org.ovirt.engine.core.vdsbroker.irsbroker"),
-    MergeSnapshots("org.ovirt.engine.core.vdsbroker.irsbroker"),
     Merge("org.ovirt.engine.core.vdsbroker.vdsbroker"),
     ReconcileVolumeChain("org.ovirt.engine.core.vdsbroker.irsbroker"),
     RefreshVolume("org.ovirt.engine.core.vdsbroker.vdsbroker"),
@@ -225,9 +224,6 @@ public enum VDSCommandType {
     GetVmsNamesFromExternalProvider("org.ovirt.engine.core.vdsbroker.vdsbroker"),        // get a list of VMs from external provider with name only
     GetOvaInfo("org.ovirt.engine.core.vdsbroker.vdsbroker"),
     DumpXmls("org.ovirt.engine.core.vdsbroker.vdsbroker"),
-    List("org.ovirt.engine.core.vdsbroker.vdsbroker"),           // get a list of VMs with status only
-    FullList("org.ovirt.engine.core.vdsbroker.vdsbroker"),       // get a list of VMs with full data and statistics and devices
-    GetVmStats("org.ovirt.engine.core.vdsbroker.vdsbroker"),     // get a VM with full data and statistics
     GetAllVmStats("org.ovirt.engine.core.vdsbroker.vdsbroker"),  // get a list of VMs with full data and statistics
     HostDevListByCaps("org.ovirt.engine.core.vdsbroker"),        // get all host devices with passthrough information
     Destroy("org.ovirt.engine.core.vdsbroker.vdsbroker"),        // Clean a DOWN VM from the vms list

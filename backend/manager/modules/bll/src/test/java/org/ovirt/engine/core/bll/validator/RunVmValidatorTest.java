@@ -69,10 +69,10 @@ public class RunVmValidatorTest {
 
     public static Stream<MockConfigDescriptor<?>> mockConfiguration() {
         return Stream.of(
-                MockConfigDescriptor.of(ConfigValues.PredefinedVMProperties, Version.v4_1, "0"),
-                MockConfigDescriptor.of(ConfigValues.UserDefinedVMProperties, Version.v4_1, "0"),
-                MockConfigDescriptor.of(ConfigValues.VM32BitMaxMemorySizeInMB, Version.v4_2, MEMORY_LIMIT_32_BIT),
-                MockConfigDescriptor.of(ConfigValues.VM64BitMaxMemorySizeInMB, Version.v4_2, MEMORY_LIMIT_64_BIT)
+                MockConfigDescriptor.of(ConfigValues.PredefinedVMProperties, Version.v4_2, "0"),
+                MockConfigDescriptor.of(ConfigValues.UserDefinedVMProperties, Version.v4_2, "0"),
+                MockConfigDescriptor.of(ConfigValues.VM32BitMaxMemorySizeInMB, Version.v4_3, MEMORY_LIMIT_32_BIT),
+                MockConfigDescriptor.of(ConfigValues.VM64BitMaxMemorySizeInMB, Version.v4_3, MEMORY_LIMIT_64_BIT)
         );
     }
 
@@ -102,7 +102,7 @@ public class RunVmValidatorTest {
     @Test
     public void testValidEmptyCustomProerties() {
         VM vm = new VM();
-        vm.setClusterCompatibilityVersion(Version.v4_1);
+        vm.setClusterCompatibilityVersion(Version.v4_2);
         vm.setCustomProperties("");
         List<String> messages = new ArrayList<>();
         assertTrue(runVmValidator.validateVmProperties(vm, messages));
@@ -112,7 +112,7 @@ public class RunVmValidatorTest {
     @Test
     public void testWrongFormatCustomProerties() {
         VM vm = new VM();
-        vm.setClusterCompatibilityVersion(Version.v4_1);
+        vm.setClusterCompatibilityVersion(Version.v4_2);
         vm.setCustomProperties("sap_agent;"); // missing '= true'
         List<String> messages = new ArrayList<>();
         assertFalse(runVmValidator.validateVmProperties(vm, messages));
@@ -122,7 +122,7 @@ public class RunVmValidatorTest {
     @Test
     public void testNotValidCustomProerties() {
         VM vm = new VM();
-        vm.setClusterCompatibilityVersion(Version.v4_1);
+        vm.setClusterCompatibilityVersion(Version.v4_2);
         vm.setCustomProperties("property=value;");
         List<String> messages = new ArrayList<>();
         assertFalse(runVmValidator.validateVmProperties(vm, messages));
@@ -132,7 +132,7 @@ public class RunVmValidatorTest {
     @Test
     public void testValidCustomProerties() {
         VM vm = new VM();
-        vm.setClusterCompatibilityVersion(Version.v4_1);
+        vm.setClusterCompatibilityVersion(Version.v4_2);
         vm.setCustomProperties("sap_agent=true;");
         List<String> messages = new ArrayList<>();
         assertTrue(runVmValidator.validateVmProperties(vm, messages));
@@ -327,7 +327,7 @@ public class RunVmValidatorTest {
     @Test
     public void test32BitMemoryExceedsLimit() {
         VM vm = new VM();
-        vm.setClusterCompatibilityVersion(Version.v4_2);
+        vm.setClusterCompatibilityVersion(Version.v4_3);
         vm.setVmMemSizeMb(MEMORY_LIMIT_32_BIT + 1);
 
         validateResult(runVmValidator.validateMemorySize(vm), false, EngineMessage.ACTION_TYPE_FAILED_MEMORY_EXCEEDS_SUPPORTED_LIMIT);
@@ -336,7 +336,7 @@ public class RunVmValidatorTest {
     @Test
     public void test64BitMemoryExceedsLimit() {
         VM vm = new VM();
-        vm.setClusterCompatibilityVersion(Version.v4_2);
+        vm.setClusterCompatibilityVersion(Version.v4_3);
         vm.setVmMemSizeMb(MEMORY_LIMIT_64_BIT + 1);
         vm.setVmOs(_64_BIT_OS);
         validateResult(runVmValidator.validateMemorySize(vm), false, EngineMessage.ACTION_TYPE_FAILED_MEMORY_EXCEEDS_SUPPORTED_LIMIT);
@@ -392,13 +392,14 @@ public class RunVmValidatorTest {
         doReturn("sap_agent=^(true|false)$;sndbuf=^[0-9]+$;" +
                 "vhost=^(([a-zA-Z0-9_]*):(true|false))(,(([a-zA-Z0-9_]*):(true|false)))*$;" +
                 "viodiskcache=^(none|writeback|writethrough)$;" +
-                "mdev_type=^[^,](,?[0-9A-Za-z-]+)+$;hugepages=^[0-9]+$").
+                "mdev_type=^[^,](,?[0-9A-Za-z-]+)+$;hugepages=^[0-9]+$;" +
+                "scsi_hostdev=^(scsi_generic|scsi_block|scsi_hd|virtio_blk_pci)$").
                 when(utils)
                 .getPredefinedVMProperties(any());
         doReturn("").
                 when(utils)
                 .getUserDefinedVMProperties(any());
-        doReturn(new HashSet<>(Arrays.asList(Version.v4_1, Version.v4_2))).
+        doReturn(new HashSet<>(Arrays.asList(Version.v4_2, Version.v4_3))).
                 when(utils)
                 .getSupportedClusterLevels();
         doReturn(utils).when(runVmValidator).getVmPropertiesUtils();

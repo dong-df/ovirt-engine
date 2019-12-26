@@ -46,6 +46,7 @@ import org.ovirt.engine.ui.uicommonweb.models.vms.AbstractDiskModel;
 
 import com.google.gwt.core.client.GWT;
 import com.google.gwt.dom.client.Style.Unit;
+import com.google.gwt.safehtml.shared.SafeHtmlUtils;
 import com.google.gwt.uibinder.client.UiBinder;
 import com.google.gwt.uibinder.client.UiField;
 import com.google.gwt.user.client.ui.FlowPanel;
@@ -199,6 +200,10 @@ public class VmDiskPopupWidget extends AbstractModelBoundPopupWidget<AbstractDis
     @UiField
     Label message;
 
+    @UiField(provided = true)
+    @Ignore
+    InfoIcon hostInfoIcon;
+
     @Ignore
     IscsiStorageView iscsiStorageView;
 
@@ -258,6 +263,7 @@ public class VmDiskPopupWidget extends AbstractModelBoundPopupWidget<AbstractDis
         isSgIoUnfilteredEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
         isIncrementalBackupEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
 
+        hostInfoIcon = new InfoIcon(SafeHtmlUtils.fromString(constants.hostToUseToolTip()));
         interfaceInfoIcon = new InfoIcon(templates.italicText(constants.diskInterfaceInfo()));
         cinderVolumeTypeInfoIcon = new InfoIcon(templates.italicText(constants.cinderVolumeTypeInfoIcon()));
         scsiReservationInfoIcon = new InfoIcon(templates.italicText(constants.scsiReservationInfoIcon()));
@@ -326,7 +332,7 @@ public class VmDiskPopupWidget extends AbstractModelBoundPopupWidget<AbstractDis
 
         radioButtonPanel.addRadioButton(constants.imageDisk(),
                 disk.getDisk() == null || disk.getDisk().getDiskStorageType() == DiskStorageType.IMAGE,
-                disk.getIsNew(),
+                disk.getIsNew() || disk.getDisk().getDiskStorageType() == DiskStorageType.IMAGE,
                 event -> {
                     if (disk.getIsNew()) {
                         disk.getDiskStorageType().setEntity(DiskStorageType.IMAGE);
@@ -336,7 +342,7 @@ public class VmDiskPopupWidget extends AbstractModelBoundPopupWidget<AbstractDis
 
         radioButtonPanel.addRadioButton(constants.directLunDisk(),
                 disk.getDisk() != null && disk.getDisk().getDiskStorageType() == DiskStorageType.LUN,
-                disk.getIsNew(),
+                disk.getIsNew() || disk.getDisk().getDiskStorageType() == DiskStorageType.LUN,
                 event -> {
                     if (disk.getIsNew()) {
                         disk.getDiskStorageType().setEntity(DiskStorageType.LUN);
@@ -347,7 +353,7 @@ public class VmDiskPopupWidget extends AbstractModelBoundPopupWidget<AbstractDis
 
         radioButtonPanel.addRadioButton(constants.cinderDisk(),
                 disk.getDisk() != null && disk.getDisk().getDiskStorageType() == DiskStorageType.CINDER,
-                disk.getIsNew(),
+                disk.getIsNew() || disk.getDisk().getDiskStorageType() == DiskStorageType.CINDER,
                 event -> {
                     if (disk.getIsNew()) {
                         disk.getDiskStorageType().setEntity(DiskStorageType.CINDER);
@@ -357,7 +363,7 @@ public class VmDiskPopupWidget extends AbstractModelBoundPopupWidget<AbstractDis
 
         radioButtonPanel.addRadioButton(constants.managedBlockDisk(),
                 disk.getDisk() != null && disk.getDisk().getDiskStorageType() == DiskStorageType.MANAGED_BLOCK_STORAGE,
-                disk.getIsNew(),
+                disk.getIsNew() || disk.getDisk().getDiskStorageType() == DiskStorageType.MANAGED_BLOCK_STORAGE,
                 event -> {
                     if (disk.getIsNew()) {
                         disk.getDiskStorageType().setEntity(DiskStorageType.MANAGED_BLOCK_STORAGE);
@@ -398,7 +404,7 @@ public class VmDiskPopupWidget extends AbstractModelBoundPopupWidget<AbstractDis
             fcpStorageModel.getPropertyChangedEvent().clearListeners();
         }
 
-        iscsiStorageView = new IscsiStorageView(false, 196, 304, 244, 275, 142, 55, -67);
+        iscsiStorageView = new IscsiStorageView(false, 196, 204, 244, 100, 142, 55, -67);
         iscsiStorageView.setBarTop(0, Unit.PX);
         iscsiStorageView.edit(iscsiStorageModel);
 
@@ -491,6 +497,7 @@ public class VmDiskPopupWidget extends AbstractModelBoundPopupWidget<AbstractDis
         diskProfileEditor.setTabIndex(nextTabIndex++);
         quotaEditor.setTabIndex(nextTabIndex++);
         hostListEditor.setTabIndex(nextTabIndex++);
+        hostInfoIcon.setTabIndex(nextTabIndex++);
         storageTypeEditor.setTabIndex(nextTabIndex++);
         plugDiskToVmEditor.setTabIndex(nextTabIndex++);
         wipeAfterDeleteEditor.setTabIndex(nextTabIndex++);

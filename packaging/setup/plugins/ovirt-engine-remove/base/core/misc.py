@@ -1,18 +1,9 @@
 #
 # ovirt-engine-setup -- ovirt engine setup
-# Copyright (C) 2013-2015 Red Hat, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Copyright oVirt Authors
+# SPDX-License-Identifier: Apache-2.0
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 #
 
 
@@ -73,7 +64,7 @@ class Plugin(plugin.PluginBase):
         )
         self.environment.setdefault(
             osetupcons.RemoveEnv.REMOVE_ALL,
-            None
+            True
         )
         self.environment.setdefault(
             osetupcons.RemoveEnv.REMOVE_OPTIONS,
@@ -141,6 +132,15 @@ class Plugin(plugin.PluginBase):
         if self.environment[
             osetupcons.RemoveEnv.REMOVE_ALL
         ] is None:
+            self.logger.warn(_('Partial cleanup is not supported'))
+            self.dialog.note(_(
+                'Removing only some components is not supported. If you reply '
+                'No, you will be prompted for components to be removed, '
+                'but regardless of which ones you choose, the engine will '
+                'not be functional. Some parts of the configuration are '
+                'removed unconditionally. If unsure, stop this utility, e.g. '
+                'by pressing Ctrl-C.'
+            ))
             self.environment[
                 osetupcons.RemoveEnv.REMOVE_ALL
             ] = dialog.queryBoolean(
@@ -155,6 +155,15 @@ class Plugin(plugin.PluginBase):
                 false=_('No'),
                 default=True,
             )
+        if not self.environment[osetupcons.RemoveEnv.REMOVE_ALL]:
+            self.logger.warn(_('Partial cleanup is not supported'))
+            self.dialog.note(_(
+                'You will now be prompted for components to be removed, '
+                'but regardless of which ones you choose, the engine will '
+                'not be functional. Some parts of the configuration are '
+                'removed unconditionally. If unsure, stop this utility, e.g. '
+                'by pressing Ctrl-C.'
+            ))
 
     @plugin.event(
         stage=plugin.Stages.STAGE_VALIDATION,

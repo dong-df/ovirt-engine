@@ -21,6 +21,7 @@ import org.ovirt.engine.ui.common.editor.UiCommonEditorDriver;
 import org.ovirt.engine.ui.common.idhandler.ElementIdHandler;
 import org.ovirt.engine.ui.common.idhandler.WithElementId;
 import org.ovirt.engine.ui.common.view.popup.AbstractTabbedModelBoundPopupView;
+import org.ovirt.engine.ui.common.widget.AffinityGroupSelectionWithListWidget;
 import org.ovirt.engine.ui.common.widget.AffinityLabelSelectionWithListWidget;
 import org.ovirt.engine.ui.common.widget.Align;
 import org.ovirt.engine.ui.common.widget.dialog.AdvancedParametersExpander;
@@ -40,6 +41,7 @@ import org.ovirt.engine.ui.common.widget.editor.generic.StringEntityModelTextAre
 import org.ovirt.engine.ui.common.widget.editor.generic.StringEntityModelTextBoxEditor;
 import org.ovirt.engine.ui.common.widget.editor.generic.StringEntityModelTextBoxOnlyEditor;
 import org.ovirt.engine.ui.common.widget.label.EnableableFormLabel;
+import org.ovirt.engine.ui.common.widget.label.WarningNotificationLabel;
 import org.ovirt.engine.ui.common.widget.renderer.EnumRenderer;
 import org.ovirt.engine.ui.common.widget.renderer.NameRenderer;
 import org.ovirt.engine.ui.uicommonweb.UICommand;
@@ -57,7 +59,6 @@ import org.ovirt.engine.ui.webadmin.gin.AssetProvider;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.popup.host.HostPopupPresenterWidget;
 import org.ovirt.engine.ui.webadmin.widget.host.FenceAgentsEditor;
 import org.ovirt.engine.ui.webadmin.widget.host.HostProxySourceEditor;
-import org.ovirt.engine.ui.webadmin.widget.provider.HostNetworkProviderWidget;
 
 import com.google.gwt.core.client.GWT;
 import com.google.gwt.core.client.Scheduler;
@@ -105,7 +106,7 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
 
     @UiField
     @WithElementId
-    DialogTab affinityLabelsTab;
+    DialogTab affinityTab;
 
     @UiField
     @WithElementId
@@ -268,10 +269,6 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
 
     @UiField
     @Ignore
-    DialogTab networkProviderTab;
-
-    @UiField
-    @Ignore
     Container spmContainer;
 
     @UiField
@@ -386,10 +383,6 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
 
     @UiField
     @Ignore
-    HostNetworkProviderWidget networkProviderWidget;
-
-    @UiField
-    @Ignore
     AdvancedParametersExpander expander;
 
     @UiField
@@ -399,6 +392,12 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
     @UiField
     @Ignore
     DialogTab kernelTab;
+
+    @UiField
+    WarningNotificationLabel kernelModificationCmdlineWarning;
+
+    @UiField
+    WarningNotificationLabel kernelReinstallRequiredCmdlineWarning;
 
     @UiField
     @Path("currentKernelCmdLine.entity")
@@ -463,6 +462,11 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
     @UiField
     @Ignore
     Button kernelCmdlineResetButton;
+
+    @UiField
+    @Path(value = "affinityGroupList.selectedItem")
+    @WithElementId("affinityGroupList")
+    public AffinityGroupSelectionWithListWidget affinityGroupSelectionWidget;
 
     @UiField
     @Path(value = "labelList.selectedItem")
@@ -663,12 +667,13 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
         // Console and GPU tab
         consoleTab.setLabel(constants.consoleButtonLabel());
 
-        // Network Provider Tab
-        networkProviderTab.setLabel(constants.networkProviderButtonLabel());
-
         externalDiscoveredHostsEditor.setLabel(constants.discoveredHostsLabel());
         externalHostGroupsEditor.setLabel(constants.hostGroupsLabel());
         externalComputeResourceEditor.setLabel(constants.computeResourceLabel());
+
+        // Warnings
+        kernelModificationCmdlineWarning.setText(constants.modifyingkernelCmdlineWarning());
+        kernelReinstallRequiredCmdlineWarning.setText(constants.reinstallRequiredkernelCmdlineWarning());
 
         // Info icons
         kernelCmdlineUnsafeInterruptsInfoIcon.setText(
@@ -682,7 +687,7 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
         kernelCmdlineInfoIcon.setText(SafeHtmlUtils.fromString(constants.kernelCmdlineInfoIcon()));
 
         // Affinity Labels Tab
-        affinityLabelsTab.setLabel(constants.affinityLabels());
+        affinityTab.setLabel(constants.affinity());
     }
 
     private void applyModeCustomizations() {
@@ -690,7 +695,6 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
             spmTab.setVisible(false);
             powerManagementTab.setVisible(false);
             consoleTab.setVisible(false);
-            networkProviderTab.setVisible(false);
         }
 
     }
@@ -824,10 +828,6 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
         initExternalHostProviderWidgets(object.showExternalProviderPanel());
         // TODO: remove setIsChangeable when configured ssh username is enabled
         userNameEditor.setEnabled(false);
-
-        networkProviderTab.setVisible(object.showNetworkProviderTab());
-        networkProviderWidget.edit(object.getNetworkProviderModel());
-
         this.fenceAgentsEditor.edit(object.getFenceAgentListModel());
         this.proxySourceEditor.edit(object.getPmProxyPreferencesList());
         addTextAndLinkAlert(fetchPanel, constants.fetchingHostFingerprint(), object.getSSHFingerPrint());
@@ -836,6 +836,7 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
 
         hostedEngineTab.setVisible(object.getIsHeSystem() && object.getIsNew());
 
+        affinityGroupSelectionWidget.init(object.getAffinityGroupList());
         affinityLabelSelectionWidget.init(object.getLabelList());
 
         vgpuConsolidatedPlacementEditor.asRadioButton().addValueChangeHandler(event -> {
@@ -944,7 +945,6 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
 
     @Override
     public HostModel flush() {
-        networkProviderWidget.flush();
         fenceAgentsEditor.flush();
         proxySourceEditor.flush();
         return driver.flush();
@@ -1091,7 +1091,7 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
         hostedEngineDeployActionsEditor.setTabIndex(nextTabIndex++);
 
         // ==Affinity Labels Tab==
-        nextTabIndex = affinityLabelsTab.setTabIndexes(nextTabIndex);
+        nextTabIndex = affinityTab.setTabIndexes(nextTabIndex);
 
         return nextTabIndex;
     }
@@ -1105,7 +1105,6 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
     protected void populateTabMap() {
         getTabNameMapping().put(TabName.GENERAL_TAB, this.generalTab.getTabListItem());
         getTabNameMapping().put(TabName.POWER_MANAGEMENT_TAB, this.powerManagementTab.getTabListItem());
-        getTabNameMapping().put(TabName.NETWORK_PROVIDER_TAB, this.networkProviderTab.getTabListItem());
         getTabNameMapping().put(TabName.CONSOLE_TAB, this.consoleTab.getTabListItem());
         getTabNameMapping().put(TabName.SPM_TAB, this.spmTab.getTabListItem());
         getTabNameMapping().put(TabName.KERNEL_TAB, this.kernelTab.getTabListItem());
@@ -1120,6 +1119,11 @@ public class HostPopupView extends AbstractTabbedModelBoundPopupView<HostModel> 
     @Override
     public HasClickHandlers getKernelCmdlineResetButton() {
         return kernelCmdlineResetButton;
+    }
+
+    @Override
+    public HasClickHandlers getAddAffinityGroupButton() {
+        return affinityGroupSelectionWidget.getSelectionWidget().getAddSelectedItemButton();
     }
 
     @Override

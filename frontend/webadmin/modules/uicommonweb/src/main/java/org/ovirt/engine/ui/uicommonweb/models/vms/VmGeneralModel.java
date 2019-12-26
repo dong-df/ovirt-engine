@@ -33,6 +33,12 @@ import org.ovirt.engine.ui.uicompat.UIMessages;
 
 public class VmGeneralModel extends AbstractGeneralModel<VM> {
 
+    public static final String GUEST_CPU_TYPE_PROPERTY_CHANGE = "GuestCpuType";//$NON-NLS-1$
+
+    public static final String CONFIGURED_CPU_TYPE_PROPERTY_CHANGE = "ConfiguredCpuType";//$NON-NLS-1$
+
+    public static final String STATUS = "Status";//$NON-NLS-1$
+
     private static final VmTemplateNameRenderer vmTemplateNameRenderer = new VmTemplateNameRenderer();
 
     final UIConstants constants = ConstantsManager.getInstance().getConstants();
@@ -71,7 +77,20 @@ public class VmGeneralModel extends AbstractGeneralModel<VM> {
     public void setStatus(VMStatus value) {
         if (!Objects.equals(status, value)) {
             status = value;
-            onPropertyChanged(new PropertyChangedEventArgs("Status")); //$NON-NLS-1$
+            onPropertyChanged(new PropertyChangedEventArgs(STATUS)); //$NON-NLS-1$
+        }
+    }
+
+    private Double uptime;
+
+    public Double getUptime() {
+        return uptime;
+    }
+
+    public void setUptime(Double value) {
+        if (!Objects.equals(uptime, value)) {
+            uptime = value;
+            onPropertyChanged(new PropertyChangedEventArgs("Uptime")); //$NON-NLS-1$
         }
     }
 
@@ -523,7 +542,20 @@ public class VmGeneralModel extends AbstractGeneralModel<VM> {
     public void setGuestCpuType(String value) {
         if (!Objects.equals(guestCpuType, value)) {
             guestCpuType = value;
-            onPropertyChanged(new PropertyChangedEventArgs("GuestCpuType")); //$NON-NLS-1$
+            onPropertyChanged(new PropertyChangedEventArgs(GUEST_CPU_TYPE_PROPERTY_CHANGE));
+        }
+    }
+
+    private String configuredCpuType;
+
+    public String getConfiguredCpuType() {
+        return configuredCpuType;
+    }
+
+    public void setConfiguredCpuType(String value) {
+        if (!Objects.equals(configuredCpuType, value)) {
+            configuredCpuType = value;
+            onPropertyChanged(new PropertyChangedEventArgs(CONFIGURED_CPU_TYPE_PROPERTY_CHANGE));
         }
     }
 
@@ -562,6 +594,7 @@ public class VmGeneralModel extends AbstractGeneralModel<VM> {
 
         setName(vm.getName());
         setStatus(vm.getStatus());
+        setUptime(vm.getElapsedTime());
         setDescription(vm.getVmDescription());
         setQuotaName(vm.getQuotaName() != null ? vm.getQuotaName() : ""); //$NON-NLS-1$
         setQuotaAvailable(vm.getQuotaEnforcementType() != null
@@ -692,7 +725,11 @@ public class VmGeneralModel extends AbstractGeneralModel<VM> {
                 ? vm.getCpuName()
                 : (vm.getCustomCpuName() != null
                         ? vm.getCustomCpuName()
-                        : vm.getClusterCpuName());
+                        : vm.getClusterCpuVerb());
+
+        if (vm.getCpuName() == null && vm.isUseHostCpuFlags()) {
+            guestCpuType = constants.cpuPassthrough();
+        }
 
         // if cpu-pass through is enabled then guestCpuType includes a list of cpu flags and supported cpu models reported by the host.
         // Need to filter out all supported CPU models from of the list and leave only all cpu flags that the vm is running with
@@ -703,6 +740,7 @@ public class VmGeneralModel extends AbstractGeneralModel<VM> {
         }
 
         setGuestCpuType(guestCpuType);
+        setConfiguredCpuType(vm.getConfiguredCpuVerb());
     }
 
     @Override

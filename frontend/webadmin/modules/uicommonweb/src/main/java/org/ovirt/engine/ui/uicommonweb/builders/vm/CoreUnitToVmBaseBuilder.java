@@ -1,5 +1,6 @@
 package org.ovirt.engine.ui.uicommonweb.builders.vm;
 
+import org.ovirt.engine.core.common.businessentities.SerialNumberPolicy;
 import org.ovirt.engine.core.common.businessentities.VmBase;
 import org.ovirt.engine.core.common.businessentities.VmResumeBehavior;
 import org.ovirt.engine.core.compat.Guid;
@@ -39,13 +40,18 @@ public class CoreUnitToVmBaseBuilder extends HwOnlyCoreUnitToVmBaseBuilder {
                         ? null
                         : AsyncDataProvider.getInstance().getSmallByLargeOsDefaultIconId(largeIconId));
         vm.setVncKeyboardLayout(model.getVncKeyboardLayout().getSelectedItem());
-        vm.setSerialNumberPolicy(model.getSerialNumberPolicy().getSelectedSerialNumberPolicy());
-        vm.setCustomSerialNumber(model.getSerialNumberPolicy().getCustomSerialNumber().getEntity());
+        vm.setSerialNumberPolicy(model.getSerialNumberPolicy().getSelectedItem());
+        if (SerialNumberPolicy.CUSTOM.equals(model.getSerialNumberPolicy().getSelectedItem())) {
+            vm.setCustomSerialNumber(model.getCustomSerialNumber().getEntity());
+        } else {
+            vm.setCustomSerialNumber(null);
+        }
         vm.setBootMenuEnabled(model.getBootMenuEnabled().getEntity());
         vm.setSpiceFileTransferEnabled(Boolean.TRUE.equals(model.getSpiceFileTransferEnabled().getEntity()));
         vm.setSpiceCopyPasteEnabled(Boolean.TRUE.equals(model.getSpiceCopyPasteEnabled().getEntity()));
         vm.setAutoConverge(model.getAutoConverge().getSelectedItem());
         vm.setMigrateCompressed(model.getMigrateCompressed().getSelectedItem());
+        vm.setMigrateEncrypted(model.getMigrateEncrypted().getSelectedItem());
         vm.setCustomProperties(model.getCustomPropertySheet().serialize());
         vm.setConsoleDisconnectAction(model.getConsoleDisconnectAction().getSelectedItem());
         VmResumeBehavior selectedResumeBehavior = model.getResumeBehavior().getSelectedItem();
@@ -60,5 +66,6 @@ public class CoreUnitToVmBaseBuilder extends HwOnlyCoreUnitToVmBaseBuilder {
         }
         vm.setCustomCompatibilityVersion(model.getCustomCompatibilityVersion().getSelectedItem());
         vm.setUseHostCpuFlags(model.getHostCpu().getEntity());
+        vm.setUseTscFrequency(model.getTscFrequency().getEntity());
     }
 }

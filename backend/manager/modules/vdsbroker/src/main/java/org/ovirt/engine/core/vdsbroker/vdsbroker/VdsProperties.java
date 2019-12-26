@@ -1,5 +1,6 @@
 package org.ovirt.engine.core.vdsbroker.vdsbroker;
 
+@SuppressWarnings("WeakerAccess")
 public final class VdsProperties {
     // vds configuration (i.e. VdsStatic)
     // vds runtime (i.e. VdsDynamic req getVdsCapabilities)
@@ -147,6 +148,7 @@ public final class VdsProperties {
     public static final String supported_cluster_levels = "clusterLevels";
     public static final String domain_versions = "domain_versions";
     public static final String name_servers = "nameservers";
+    public static final String supported_block_size = "supported_block_size";
     public static final String supported_engines = "supportedENGINEs";
     public static final String emulatedMachine = "emulatedMachine";
     public static final String emulatedMachines = "emulatedMachines";
@@ -415,6 +417,7 @@ public final class VdsProperties {
     public static final String MIGRATION_DOWNTIME = "downtime";
     public static final String AUTO_CONVERGE = "autoConverge";
     public static final String MIGRATE_COMPRESSED = "compressed";
+    public static final String MIGRATE_ENCRYPTED = "encrypted";
     public static final String ADDITIONAL_FEATURES = "additionalFeatures";
     public static final String CONSOLE_ADDRESS = "consoleAddress";
     public static final String MIGRATION_CONVERGENCE_SCHEDULE = "convergenceSchedule";
@@ -467,6 +470,8 @@ public final class VdsProperties {
     public static final String CAPABILITY = "capability";
     public static final String IOMMU_GROUP = "iommu_group";
     public static final String MDEV = "mdev";
+    public static final String MDEV_AVAILABLE_INSTANCES = "available_instances";
+    public static final String MDEV_DESCRIPTION = "description";
     public static final String PRODUCT_NAME = "product";
     public static final String PRODUCT_ID = "product_id";
     public static final String VENDOR_NAME = "vendor";
@@ -540,4 +545,10 @@ public final class VdsProperties {
 
     // incremental backup
     public static final String BACKUP_ENABLED = "backupEnabled";
+
+    public static final String TSC_FREQUENCY = "tscFrequency";
+
+    public static final String FIPS_MODE = "fipsEnabled";
+
+    public static final String TSC_SCALING = "tscScaling";
 }

@@ -949,6 +949,7 @@ SELECT vm_templates.vm_guid AS vmt_guid,
     vm_templates.numatune_mode AS numatune_mode,
     vm_templates.is_auto_converge AS is_auto_converge,
     vm_templates.is_migrate_compressed AS is_migrate_compressed,
+    vm_templates.is_migrate_encrypted AS is_migrate_encrypted,
     vm_templates.predefined_properties AS predefined_properties,
     vm_templates.userdefined_properties AS userdefined_properties,
     vm_templates.custom_emulated_machine AS custom_emulated_machine,
@@ -960,7 +961,8 @@ SELECT vm_templates.vm_guid AS vmt_guid,
     vm_templates.console_disconnect_action AS console_disconnect_action,
     vm_templates.resume_behavior AS resume_behavior,
     vm_templates.custom_compatibility_version as custom_compatibility_version,
-    vm_templates.multi_queues_enabled AS multi_queues_enabled
+    vm_templates.multi_queues_enabled AS multi_queues_enabled,
+    vm_templates.use_tsc_frequency AS use_tsc_frequency
 FROM vm_static AS vm_templates
 LEFT JOIN cluster
     ON vm_templates.cluster_id = cluster.cluster_id
@@ -1047,6 +1049,7 @@ SELECT vm_templates.vm_guid AS vmt_guid,
     vm_templates.numatune_mode AS numatune_mode,
     vm_templates.is_auto_converge AS is_auto_converge,
     vm_templates.is_migrate_compressed AS is_migrate_compressed,
+    vm_templates.is_migrate_encrypted AS is_migrate_encrypted,
     vm_templates.predefined_properties AS predefined_properties,
     vm_templates.userdefined_properties AS userdefined_properties
 FROM vm_static AS vm_templates
@@ -1128,6 +1131,7 @@ SELECT vm_templates_1.vm_guid AS vmt_guid,
     vm_templates_1.numatune_mode AS numatune_mode,
     vm_templates_1.is_auto_converge AS is_auto_converge,
     vm_templates_1.is_migrate_compressed AS is_migrate_compressed,
+    vm_templates_1.is_migrate_encrypted AS is_migrate_encrypted,
     vm_templates_1.predefined_properties AS predefined_properties,
     vm_templates_1.userdefined_properties AS userdefined_properties
 FROM vm_static AS vm_templates_1
@@ -1332,6 +1336,8 @@ SELECT vm_static.vm_name AS vm_name,
     vm_statistics.usage_cpu_percent AS usage_cpu_percent,
     vds_static.vds_name AS run_on_vds_name,
     cluster.cpu_name AS cluster_cpu_name,
+    cluster.cpu_flags AS cluster_cpu_flags,
+    cluster.cpu_verb AS cluster_cpu_verb,
     vm_static.default_display_type AS default_display_type,
     vm_static.priority AS priority,
     vm_static.iso_path AS iso_path,
@@ -1385,8 +1391,10 @@ SELECT vm_static.vm_name AS vm_name,
     vm_static.cpu_profile_id AS cpu_profile_id,
     vm_static.is_auto_converge AS is_auto_converge,
     vm_static.is_migrate_compressed AS is_migrate_compressed,
+    vm_static.is_migrate_encrypted AS is_migrate_encrypted,
     vm_static.custom_emulated_machine AS custom_emulated_machine,
     vm_static.bios_type AS bios_type,
+    cluster.bios_type AS cluster_bios_type,
     vm_static.custom_cpu_name AS custom_cpu_name,
     vm_dynamic.spice_port AS spice_port,
     vm_dynamic.spice_tls_port AS spice_tls_port,
@@ -1414,7 +1422,8 @@ SELECT vm_static.vm_name AS vm_name,
     vm_static.custom_compatibility_version as custom_compatibility_version,
     vm_dynamic.guest_containers AS guest_containers,
     image_details.has_illegal_images,
-    vm_static.multi_queues_enabled AS multi_queues_enabled
+    vm_static.multi_queues_enabled AS multi_queues_enabled,
+    vm_static.use_tsc_frequency AS use_tsc_frequency
 FROM vm_static
 INNER JOIN vm_dynamic
     ON vm_static.vm_guid = vm_dynamic.vm_guid
@@ -1546,6 +1555,8 @@ SELECT DISTINCT vms.vm_name,
     vms.usage_cpu_percent,
     vms.run_on_vds_name,
     vms.cluster_cpu_name,
+    vms.cluster_cpu_flags,
+    vms.cluster_cpu_verb,
     tags_vm_map_view.tag_name,
     tags_vm_map_view.tag_id,
     vms.default_display_type,
@@ -1570,6 +1581,7 @@ SELECT DISTINCT vms.vm_name,
     vms.emulated_machine AS emulated_machine,
     vms.custom_emulated_machine AS custom_emulated_machine,
     vms.bios_type AS bios_type,
+    vms.cluster_bios_type AS cluster_bios_type,
     vms.custom_cpu_name AS custom_cpu_name,
     vms.vm_pool_spice_proxy AS vm_pool_spice_proxy,
     vms.cluster_spice_proxy AS cluster_spice_proxy,
@@ -1595,6 +1607,7 @@ SELECT DISTINCT vms.vm_name,
     vms.cpu_profile_id,
     vms.is_auto_converge,
     vms.is_migrate_compressed,
+    vms.is_migrate_encrypted,
     vms.spice_port,
     vms.spice_tls_port,
     vms.spice_ip,
@@ -1620,7 +1633,8 @@ SELECT DISTINCT vms.vm_name,
     vms.custom_compatibility_version as custom_compatibility_version,
     vms.guest_containers as guest_containers,
     vms.has_illegal_images,
-    vms.multi_queues_enabled
+    vms.multi_queues_enabled,
+    vms.use_tsc_frequency
 FROM vms
 LEFT JOIN tags_vm_map_view
     ON vms.vm_guid = tags_vm_map_view.vm_id
@@ -1724,6 +1738,8 @@ SELECT cluster.cluster_id AS cluster_id,
     vds_statistics.ksm_state AS ksm_state,
     vds_dynamic.cpu_flags AS cpu_flags,
     cluster.cpu_name AS cluster_cpu_name,
+    cluster.cpu_flags AS cluster_cpu_flags,
+    cluster.cpu_verb AS cluster_cpu_verb,
     vds_dynamic.cpu_sockets AS cpu_sockets,
     vds_spm_id_map.vds_spm_id AS vds_spm_id,
     vds_static.otp_validity AS otp_validity,
@@ -1810,7 +1826,11 @@ SELECT cluster.cluster_id AS cluster_id,
     vds_dynamic.connector_info AS connector_info,
     vds_dynamic.backup_enabled AS backup_enabled,
     vds_dynamic.supported_domain_versions AS supported_domain_versions,
-    cluster.smt_disabled AS cluster_smt_disabled
+    vds_dynamic.supported_block_size AS supported_block_size,
+    cluster.smt_disabled AS cluster_smt_disabled,
+    vds_dynamic.tsc_frequency AS tsc_frequency,
+    vds_dynamic.tsc_scaling AS tsc_scaling,
+    vds_dynamic.fips_enabled AS fips_enabled
 FROM cluster
 INNER JOIN vds_static
     ON cluster.cluster_id = vds_static.cluster_id
@@ -1901,6 +1921,8 @@ SELECT cluster.cluster_id,
     vds_statistics.ksm_state,
     vds_dynamic.cpu_flags,
     cluster.cpu_name AS cluster_cpu_name,
+    cluster.cpu_flags AS cluster_cpu_flags,
+    cluster.cpu_verb AS cluster_cpu_verb,
     vds_dynamic.cpu_sockets,
     vds_spm_id_map.vds_spm_id,
     vds_static.otp_validity AS otp_validity,
@@ -1958,7 +1980,11 @@ SELECT cluster.cluster_id,
     vds_dynamic.connector_info AS connector_info,
     vds_dynamic.backup_enabled AS backup_enabled,
     vds_dynamic.supported_domain_versions AS supported_domain_versions,
-    cluster.smt_disabled AS cluster_smt_disabled
+    vds_dynamic.supported_block_size AS supported_block_size,
+    cluster.smt_disabled AS cluster_smt_disabled,
+    vds_dynamic.tsc_frequency AS tsc_frequency,
+    vds_dynamic.tsc_scaling AS tsc_scaling,
+    vds_dynamic.fips_enabled AS fips_enabled
 FROM cluster
 INNER JOIN vds_static
     ON cluster.cluster_id = vds_static.cluster_id
@@ -1998,7 +2024,8 @@ SELECT 'user' AS user_group,
     0 AS vm_admin,
     users_1.last_admin_check_status AS last_admin_check_status,
     users_1.external_id AS external_id,
-    users_1.namespace AS namespace
+    users_1.namespace AS namespace,
+    users_1.options AS options
 FROM users AS users_1
 
 UNION
@@ -2015,7 +2042,8 @@ SELECT 'group' AS user_group,
     1 AS vm_admin,
     NULL AS last_admin_check_status,
     ad_groups.external_id AS external_id,
-    ad_groups.namespace AS namespace
+    ad_groups.namespace AS namespace,
+    '{}' AS options
 FROM ad_groups;
 
 -- create the new vdc_users_with_tags view with no use of the tag_permission_map
@@ -2036,7 +2064,8 @@ SELECT users_1.user_group AS user_group,
     tags_user_map_view_1.tag_name AS tag_name,
     tags_user_map_view_1.tag_id AS tag_id,
     users_1.last_admin_check_status AS last_admin_check_status,
-    pools.vm_pool_name AS vm_pool_name
+    pools.vm_pool_name AS vm_pool_name,
+    users_1.options AS options
 FROM vdc_users AS users_1
 LEFT JOIN users_and_groups_to_vm_pool_map_view AS pools
     ON users_1.user_id = pools.user_id
@@ -2067,7 +2096,8 @@ SELECT users_2.user_group AS user_group,
     tags_user_group_map_view.tag_name AS tag_name,
     tags_user_group_map_view.tag_id AS tag_id,
     users_2.last_admin_check_status AS last_admin_check_status,
-    pools1.vm_pool_name AS vm_pool_name
+    pools1.vm_pool_name AS vm_pool_name,
+    users_2.options AS options
 FROM vdc_users AS users_2
 LEFT JOIN users_and_groups_to_vm_pool_map_view AS pools1
     ON users_2.user_id = pools1.user_id
@@ -2261,7 +2291,6 @@ SELECT vm_interface_statistics.rx_rate,
     vm_interface.name,
     vm_interface.vnic_profile_id,
     vm_static.vm_guid,
-    vm_interface.vmt_guid,
     vm_static.vm_name,
     vm_interface.id,
     0 AS boot_protocol,
@@ -2290,6 +2319,7 @@ LEFT JOIN (
         ON vnic_profiles.network_qos_id = qos.id
     )
     ON vnic_profiles.id = vm_interface.vnic_profile_id
+WHERE entity_type = 'VM'
 
 UNION
 
@@ -2309,8 +2339,7 @@ SELECT vm_interface_statistics.rx_rate,
     network.name AS network_name,
     vm_interface.name,
     vm_interface.vnic_profile_id,
-    NULL::uuid AS vm_guid,
-    vm_interface.vmt_guid,
+    vm_templates.vm_guid,
     vm_templates.vm_name AS vm_name,
     vm_interface.id,
     0 AS boot_protocol,
@@ -2327,9 +2356,9 @@ FROM vm_interface_statistics
 RIGHT JOIN vm_interface
     ON vm_interface_statistics.id = vm_interface.id
 INNER JOIN vm_static AS vm_templates
-    ON vm_interface.vmt_guid = vm_templates.vm_guid
+    ON vm_interface.vm_guid = vm_templates.vm_guid
 INNER JOIN vm_device
-    ON vm_interface.vmt_guid = vm_device.vm_id
+    ON vm_interface.vm_guid = vm_device.vm_id
         AND vm_interface.id = vm_device.device_id
 LEFT JOIN (
     (
@@ -2338,8 +2367,8 @@ LEFT JOIN (
         ) LEFT JOIN qos
         ON vnic_profiles.network_qos_id = qos.id
     )
-    ON vnic_profiles.id = vm_interface.vnic_profile_id;
-
+    ON vnic_profiles.id = vm_interface.vnic_profile_id
+WHERE vm_templates.entity_type = 'TEMPLATE';
 
 CREATE OR REPLACE VIEW vm_interface_monitoring_view AS
 
@@ -2402,6 +2431,8 @@ SELECT cluster.cluster_id,
     cluster.description,
     cluster.free_text_comment,
     cluster.cpu_name,
+    cluster.cpu_flags,
+    cluster.cpu_verb,
     cluster._create_date,
     cluster._update_date,
     cluster.storage_pool_id,
@@ -3401,7 +3432,10 @@ SELECT DISTINCT vnic_profile_id,
 FROM vm_interface
 INNER JOIN internal_permissions_view
     ON object_id = vm_guid
-WHERE object_type_id = 2
+INNER JOIN vm_static
+    ON vm_interface.vm_guid = vm_static.vm_guid
+WHERE entity_type = 'TEMPLATE'
+    AND object_type_id = 2
     AND role_type = 2 -- Or the user has permissions on the Template with the profile
 
 UNION ALL
@@ -3410,8 +3444,11 @@ SELECT DISTINCT vnic_profile_id,
     ad_element_id
 FROM vm_interface
 INNER JOIN internal_permissions_view
-    ON object_id = vmt_guid
-WHERE object_type_id = 4
+    ON object_id = vm_guid
+INNER JOIN vm_static
+    ON vm_interface.vm_guid = vm_static.vm_guid
+WHERE entity_type = 'VM'
+    AND  object_type_id = 4
     AND role_type = 2 -- Or the user has permissions on system
 
 UNION ALL
@@ -3633,7 +3670,11 @@ SELECT affinity_groups.*,
     array_agg(affinity_group_members.vm_id::text) AS vm_ids,
     array_agg(vm_static.vm_name::text) AS vm_names,
     array_agg(affinity_group_members.vds_id::text) AS vds_ids,
-    array_agg(vds_static.vds_name::text) AS vds_names
+    array_agg(vds_static.vds_name::text) AS vds_names,
+    array_agg(affinity_group_members.vm_label_id::text) as vm_label_ids,
+    array_agg(vm_labels.label_name::text) AS vm_label_names,
+    array_agg(affinity_group_members.host_label_id::text) as host_label_ids,
+    array_agg(vds_labels.label_name::text) AS host_label_names
 FROM affinity_groups
 LEFT JOIN affinity_group_members
     ON affinity_group_members.affinity_group_id = affinity_groups.id
@@ -3641,6 +3682,72 @@ LEFT JOIN vm_static
     ON vm_static.vm_guid = affinity_group_members.vm_id -- postgres 8.X issue, need to group by all fields.
 LEFT JOIN vds_static
     ON vds_static.vds_id = affinity_group_members.vds_id
+LEFT JOIN labels AS vm_labels
+    ON vm_labels.label_id = affinity_group_members.vm_label_id
+LEFT JOIN labels AS vds_labels
+    ON vds_labels.label_id = affinity_group_members.host_label_id
+GROUP BY affinity_groups.id,
+    affinity_groups.name,
+    affinity_groups.description,
+    affinity_groups.cluster_id,
+    affinity_groups.vm_positive,
+    affinity_groups.vm_enforcing,
+    affinity_groups.vds_positive,
+    affinity_groups.vds_enforcing,
+    affinity_groups.vms_affinity_enabled,
+    affinity_groups.vds_affinity_enabled,
+    affinity_groups.priority,
+    affinity_groups._create_date,
+    affinity_groups._update_date;
+
+
+-- Affinity group members view, where labels are substituted by the VMs and hosts they contain
+CREATE OR REPLACE VIEW affinity_groups_members_flat_labels_view AS
+
+SELECT affinity_group_id as affinity_group_id,
+    vm_id as vm_id,
+    vds_id as vds_id
+FROM affinity_group_members
+WHERE vm_id IS NOT NULL OR vds_id IS NOT NULL
+
+UNION
+
+SELECT affinity_group_members.affinity_group_id as affinity_group_id,
+    labels_map.vm_id as vm_id,
+    null as vds_id
+FROM affinity_group_members
+JOIN labels_map ON affinity_group_members.vm_label_id = labels_map.label_id
+WHERE labels_map.vm_id IS NOT NULL
+
+UNION
+
+SELECT affinity_group_members.affinity_group_id as group_id,
+    null as vm_id,
+    labels_map.vds_id as vds_id
+FROM affinity_group_members
+JOIN labels_map ON affinity_group_members.host_label_id = labels_map.label_id
+WHERE labels_map.vds_id IS NOT NULL;
+
+
+-- Affinity Groups view, including members from labels
+CREATE OR REPLACE VIEW affinity_groups_with_members_from_labels_view AS
+
+SELECT affinity_groups.*,
+    array_agg(members.vm_id::text) AS vm_ids,
+    array_agg(vm_static.vm_name::text) AS vm_names,
+    array_agg(members.vds_id::text) AS vds_ids,
+    array_agg(vds_static.vds_name::text) AS vds_names,
+    '{}'::TEXT[] as vm_label_ids,
+    '{}'::TEXT[] as vm_label_names,
+    '{}'::TEXT[] as host_label_ids,
+    '{}'::TEXT[] as host_label_names
+FROM affinity_groups
+LEFT JOIN affinity_groups_members_flat_labels_view AS members
+    ON members.affinity_group_id = affinity_groups.id
+LEFT JOIN vm_static
+    ON vm_static.vm_guid = members.vm_id -- postgres 8.X issue, need to group by all fields.
+LEFT JOIN vds_static
+    ON vds_static.vds_id = members.vds_id
 GROUP BY affinity_groups.id,
     affinity_groups.name,
     affinity_groups.description,
@@ -3653,6 +3760,7 @@ GROUP BY affinity_groups.id,
     affinity_groups.vds_affinity_enabled,
     affinity_groups._create_date,
     affinity_groups._update_date;
+
 
 -- Numa node cpus view
 CREATE OR REPLACE VIEW numa_node_cpus_view AS
@@ -3823,6 +3931,7 @@ CREATE OR REPLACE VIEW labels_map_view AS
 SELECT labels.label_id,
     labels.label_name,
     labels.read_only,
+    labels.has_implicit_affinity_group,
     array_agg(labels_map.vm_id::text) as vm_ids,
     array_agg(labels_map.vds_id::text) as vds_ids
 FROM labels

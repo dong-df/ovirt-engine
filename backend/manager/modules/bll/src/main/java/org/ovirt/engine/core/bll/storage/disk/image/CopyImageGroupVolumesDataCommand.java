@@ -27,6 +27,7 @@ import org.ovirt.engine.core.common.businessentities.VdsmImageLocationInfo;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dao.DiskImageDao;
+import org.ovirt.engine.core.utils.CollectionUtils;
 
 @InternalCommandAttribute
 @NonTransactiveCommandAttribute
@@ -52,9 +53,20 @@ public class CopyImageGroupVolumesDataCommand<T extends CopyImageGroupVolumesDat
 
     @Override
     protected void executeCommand() {
-        List<DiskImage> images = diskImageDao
-                .getAllSnapshotsForImageGroup(getParameters().getImageGroupID());
+        // If we are copying a template we will get the same disk multiple times
+        List<DiskImage> images = diskImageDao.getAllSnapshotsForImageGroup(getParameters().getImageGroupID())
+                .stream()
+                .filter(CollectionUtils.distinctByKey(DiskImage::getImageId))
+                .collect(Collectors.toList());
+
         ImagesHandler.sortImageList(images);
+
+        // When perform LSM we do not want to copy the LEAF as it is the auto-generated
+        // snapshot and is synchronized separately
+        if (getParameters().getParentCommand() == ActionType.LiveMigrateDisk) {
+            images.remove(images.size() - 1);
+        }
+
         getParameters().setImageIds(ImagesHandler.getDiskImageIds(images));
 
         prepareWeights(images);
@@ -94,16 +106,27 @@ public class CopyImageGroupVolumesDataCommand<T extends CopyImageGroupVolumesDat
         log.info("Starting child command {} of {}, image '{}'",
                 completedChildren + 1, getParameters().getImageIds().size(), imageId);
 
-        copyVolumeData(imageId);
+        copyVolumeData(imageId, completedChildren);
         return true;
     }
 
-    private void copyVolumeData(Guid image) {
+    private void copyVolumeData(Guid image, int imageIndex) {
+        LocationInfo destLocationInfo;
+
+        if (getParameters().getDestImages().isEmpty()) {
+            destLocationInfo = buildImageLocationInfo(getParameters().getDestDomain(),
+                            getParameters().getImageGroupID(),
+                            image);
+        } else {
+            destLocationInfo = buildImageLocationInfo(getParameters().getDestDomain(),
+                    getParameters().getDestImageGroupId(),
+                    getParameters().getDestImages().get(imageIndex).getImageId());
+        }
+
         CopyDataCommandParameters parameters = new CopyDataCommandParameters(getParameters().getStoragePoolId(),
-                buildImageLocationInfo(getParameters().getSrcDomain(), getParameters().getImageGroupID(),
-                        image),
-                buildImageLocationInfo(getParameters().getDestDomain(), getParameters().getImageGroupID(),
-                        image), false);
+                buildImageLocationInfo(getParameters().getSrcDomain(), getParameters().getImageGroupID(), image),
+                destLocationInfo,
+                false);
 
         parameters.setEndProcedure(EndProcedure.COMMAND_MANAGED);
         parameters.setParentCommand(getActionType());

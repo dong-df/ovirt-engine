@@ -1,5 +1,6 @@
 package org.ovirt.engine.core.dao;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -7,10 +8,16 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
+
+import javax.inject.Inject;
 
 import org.junit.jupiter.api.Test;
+import org.ovirt.engine.core.common.businessentities.LabelBuilder;
 import org.ovirt.engine.core.common.scheduling.AffinityGroup;
 import org.ovirt.engine.core.common.scheduling.EntityAffinityRule;
 import org.ovirt.engine.core.compat.Guid;
@@ -22,6 +29,9 @@ public class AffinityGroupDaoTest extends BaseDaoTestCase<AffinityGroupDao> {
     private static final int NUM_OF_AFFINITY_GROUPS_IN_CLUSTER = 3;
     private static final int NUM_OF_AFFINITY_GROUPS_FOR_VM = 2;
     private static final int NUM_OF_VMS_IN_EXISTING_AFFINITY_GROUP = 2;
+
+    @Inject
+    private LabelDao labelDao;
 
     @Test
     public void testGetById() {
@@ -147,13 +157,6 @@ public class AffinityGroupDaoTest extends BaseDaoTestCase<AffinityGroupDao> {
     }
 
     @Test
-    public void testRemoveVmFromAffinityGroups() {
-        assertFalse(dao.getAllAffinityGroupsByVmId(FixturesTool.VM_RHEL5_POOL_50).isEmpty());
-        dao.removeVmFromAffinityGroups(FixturesTool.VM_RHEL5_POOL_50);
-        assertTrue(dao.getAllAffinityGroupsByVmId(FixturesTool.VM_RHEL5_POOL_50).isEmpty());
-    }
-
-    @Test
     public void testEmptyGetAffinityGroupByVdsId() {
         getAffinityGroupByVdsIdHelper(Guid.Empty, 0);
     }
@@ -172,11 +175,115 @@ public class AffinityGroupDaoTest extends BaseDaoTestCase<AffinityGroupDao> {
     }
 
     @Test
-    public void testRemoveVdsFromAffinityGroups() {
-        AffinityGroup existing = dao.get(FixturesTool.EXISTING_AFFINITY_GROUP_ID);
-        assertFalse(existing.getVdsIds().isEmpty());
-        dao.removeVdsFromAffinityGroups(FixturesTool.VDS_RHEL6_NFS_SPM);
-        assertTrue(dao.get(FixturesTool.EXISTING_AFFINITY_GROUP_ID).getVdsIds().isEmpty());
+    public void testSetAffinityGroupsForVm() {
+        assertThat(dao.getAllAffinityGroupsByVmId(FixturesTool.VM_RHEL5_POOL_50))
+                .extracting("id")
+                .hasSize(2)
+                .containsOnly(FixturesTool.EXISTING_AFFINITY_GROUP_ID, FixturesTool.AFFINITY_GROUP_2);
+
+        dao.setAffinityGroupsForVm(FixturesTool.VM_RHEL5_POOL_50, Collections.singletonList(FixturesTool.AFFINITY_GROUP_3));
+
+        assertThat(dao.getAllAffinityGroupsByVmId(FixturesTool.VM_RHEL5_POOL_50))
+                .extracting("id")
+                .hasSize(1)
+                .containsOnly(FixturesTool.AFFINITY_GROUP_3);
+    }
+
+    @Test
+    public void testSetAffinityGroupsForHost() {
+        Guid hostId = FixturesTool.VDS_RHEL6_NFS_SPM;
+
+        List<Guid> groups = dao.getAllAffinityGroupsByClusterId(FixturesTool.CLUSTER_RHEL6_ISCSI).stream()
+                .filter(ag -> ag.getVdsIds().contains(hostId))
+                .map(AffinityGroup::getId)
+                .collect(Collectors.toList());
+
+        assertThat(groups)
+                .hasSize(1)
+                .containsOnly(FixturesTool.EXISTING_AFFINITY_GROUP_ID);
+
+        dao.setAffinityGroupsForHost(hostId, Arrays.asList(FixturesTool.AFFINITY_GROUP_2, FixturesTool.AFFINITY_GROUP_3));
+
+        groups = dao.getAllAffinityGroupsByClusterId(FixturesTool.CLUSTER_RHEL6_ISCSI).stream()
+                .filter(ag -> ag.getVdsIds().contains(hostId))
+                .map(AffinityGroup::getId)
+                .collect(Collectors.toList());
+
+        assertThat(groups)
+                .hasSize(2)
+                .containsOnly(FixturesTool.AFFINITY_GROUP_2, FixturesTool.AFFINITY_GROUP_3);
+    }
+
+    @Test
+    public void testGetWithFlatLabelsByClusterId() {
+        Guid labelId1= Guid.newGuid();
+        Guid labelId2 = Guid.newGuid();
+
+        labelDao.save(new LabelBuilder()
+                .id(labelId1)
+                .name("label1")
+                .vm(FixturesTool.VM_RHEL5_POOL_50)
+                .vm(FixturesTool.VM_RHEL5_POOL_57)
+                .build());
+
+        labelDao.save(new LabelBuilder()
+                .id(labelId2)
+                .name("label2")
+                .vm(FixturesTool.VM_RHEL5_POOL_50)
+                .build());
+
+        AffinityGroup group = dao.get(FixturesTool.AFFINITY_GROUP_3);
+        group.setVmLabels(Arrays.asList(labelId1, labelId2));
+        dao.update(group);
+
+        List<AffinityGroup> groups = dao.getAllAffinityGroupsWithFlatLabelsByClusterId(FixturesTool.CLUSTER_RHEL6_ISCSI);
+
+        assertThat(groups).hasSize(3);
+
+        group = groups.stream()
+                .filter(ag -> ag.getId().equals(FixturesTool.AFFINITY_GROUP_3))
+                .findFirst()
+                .get();
+
+        assertThat(group.getVmIds())
+                .hasSize(2)
+                .containsOnly(FixturesTool.VM_RHEL5_POOL_50, FixturesTool.VM_RHEL5_POOL_57);
+    }
+
+    @Test
+    public void testGetWithFlatLabelsByVmId() {
+        Guid labelId1= Guid.newGuid();
+        Guid labelId2 = Guid.newGuid();
+
+        labelDao.save(new LabelBuilder()
+                .id(labelId1)
+                .name("label1")
+                .vm(FixturesTool.VM_RHEL5_POOL_50)
+                .vm(FixturesTool.VM_RHEL5_POOL_57)
+                .build());
+
+        labelDao.save(new LabelBuilder()
+                .id(labelId2)
+                .name("label2")
+                .vm(FixturesTool.VM_RHEL5_POOL_50)
+                .build());
+
+        AffinityGroup group = dao.get(FixturesTool.AFFINITY_GROUP_3);
+        group.setVmLabels(Arrays.asList(labelId1, labelId2));
+        dao.update(group);
+
+        List<AffinityGroup> groups = dao.getAllAffinityGroupsWithFlatLabelsByVmId(FixturesTool.VM_RHEL5_POOL_50);
+
+        assertThat(groups).hasSize(3);
+
+        group = groups.stream()
+                .filter(ag -> ag.getId().equals(FixturesTool.AFFINITY_GROUP_3))
+                .findFirst()
+                .get();
+
+        assertThat(group.getVmIds())
+                .hasSize(2)
+                .containsOnly(FixturesTool.VM_RHEL5_POOL_50, FixturesTool.VM_RHEL5_POOL_57);
     }
 
     private boolean equals(AffinityGroup affinityGroup, AffinityGroup other) {

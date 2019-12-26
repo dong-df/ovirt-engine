@@ -14,6 +14,10 @@
 
   <dependencies>
     <dependency>
+      <groupId>javax.annotation</groupId>
+      <artifactId>javax.annotation-api</artifactId>
+    </dependency>
+    <dependency>
       <groupId>${engine.groupId}</groupId>
       <artifactId>compat</artifactId>
       <version>${engine.version}</version>
@@ -96,6 +100,12 @@
       <groupId>com.woorea</groupId>
       <artifactId>resteasy-connector</artifactId>
       <version>${openstack-client.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>commons-httpclient</groupId>
+          <artifactId>commons-httpclient</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.jboss.spec.javax.ejb</groupId>

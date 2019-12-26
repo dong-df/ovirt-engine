@@ -479,6 +479,14 @@ public abstract class AbstractDiskModel extends DiskModel {
                 }
 
                 getDataCenter().setItems(filteredDataCenters);
+                if (!getIsNew()) {
+                    if (getDiskStorageType().getEntity() != DiskStorageType.LUN) {
+                        getDataCenter().setSelectedItem(Linq.firstOrNull(dataCenters,
+                                new Linq.IdPredicate<>(getDiskImage().getStoragePoolId())));
+                    } else {
+                        getDataCenter().setIsAvailable(false);
+                    }
+                }
 
                 if (filteredDataCenters.isEmpty()) {
                     setMessage(constants.noActiveDataCenters());
@@ -562,7 +570,7 @@ public abstract class AbstractDiskModel extends DiskModel {
 
     public void updateInterfaceList(final Version clusterVersion) {
         AsyncDataProvider.getInstance().getDiskInterfaceList(getVm().getOs(), clusterVersion,
-                    getVm().getBiosType().getChipsetType(), new AsyncQuery<>(
+                    getVm().getEffectiveBiosType().getChipsetType(), new AsyncQuery<>(
                 diskInterfaces -> {
                     if (Boolean.FALSE.equals(getIsVirtioScsiEnabled().getEntity())) {
                         diskInterfaces.remove(DiskInterface.VirtIO_SCSI);

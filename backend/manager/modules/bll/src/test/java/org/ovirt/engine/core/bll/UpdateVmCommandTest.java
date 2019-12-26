@@ -32,6 +32,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.ovirt.engine.core.bll.numa.vm.NumaValidator;
 import org.ovirt.engine.core.bll.utils.VmDeviceUtils;
+import org.ovirt.engine.core.bll.validator.AffinityValidator;
 import org.ovirt.engine.core.bll.validator.InClusterUpgradeValidator;
 import org.ovirt.engine.core.bll.validator.QuotaValidator;
 import org.ovirt.engine.core.bll.validator.VmValidationUtils;
@@ -39,6 +40,7 @@ import org.ovirt.engine.core.bll.validator.VmValidator;
 import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.VmManagementParametersBase;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
+import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.DisplayType;
 import org.ovirt.engine.core.common.businessentities.GraphicsDevice;
@@ -97,7 +99,7 @@ public class UpdateVmCommandTest extends BaseCommandTest {
     };
 
     private static final String CPU_ID = "0";
-    private static final Version version = Version.v4_1;
+    private static final Version version = Version.v4_2;
     private static final Guid clusterId = Guid.newGuid();
     protected static final int MAX_MEMORY_SIZE = 4096;
     protected static final int MEMORY_SIZE = 1024;
@@ -138,6 +140,8 @@ public class UpdateVmCommandTest extends BaseCommandTest {
 
     @Mock
     private CloudInitHandler cloudInitHandler;
+    @Mock
+    private AffinityValidator affinityValidator;
 
     private static Map<String, String> createMigrationMap() {
         Map<String, String> migrationMap = new HashMap<>();
@@ -206,6 +210,9 @@ public class UpdateVmCommandTest extends BaseCommandTest {
 
         when(vmHandler.isUpdateValid(any(), any(), any())).thenReturn(true);
 
+        when(affinityValidator.validateAffinityUpdateForVm(any(), any(), any(), any()))
+                .thenReturn(AffinityValidator.Result.VALID);
+
         vm = new VM();
         vmStatic = command.getParameters().getVmStaticData();
         group = new Cluster();
@@ -213,6 +220,7 @@ public class UpdateVmCommandTest extends BaseCommandTest {
         group.setId(clusterId);
         group.setCompatibilityVersion(version);
         group.setArchitecture(ArchitectureType.x86_64);
+        group.setBiosType(BiosType.I440FX_SEA_BIOS);
         vm.setClusterId(clusterId);
         vm.setClusterArch(ArchitectureType.x86_64);
         vm.setVmMemSizeMb(MEMORY_SIZE);
@@ -220,6 +228,7 @@ public class UpdateVmCommandTest extends BaseCommandTest {
         vm.setOrigin(OriginType.OVIRT);
 
         doReturn(group).when(command).getCluster();
+        doReturn(group).when(command).getNewCluster();
         doReturn(vm).when(command).getVm();
         doReturn(ActionType.UpdateVm).when(command).getActionType();
         doReturn(false).when(command).isVirtioScsiEnabledForVm(any());
@@ -360,7 +369,7 @@ public class UpdateVmCommandTest extends BaseCommandTest {
         prepareVmToPassValidate();
         Cluster newGroup = new Cluster();
         newGroup.setId(Guid.newGuid());
-        newGroup.setCompatibilityVersion(Version.v4_1);
+        newGroup.setCompatibilityVersion(Version.v4_2);
         vmStatic.setClusterId(newGroup.getId());
 
         ValidateTestUtils.runAndAssertValidateFailure(command, EngineMessage.VM_CANNOT_UPDATE_CLUSTER);

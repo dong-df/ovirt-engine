@@ -33,7 +33,7 @@ export EXTRA_BUILD_FLAGS="-gs $MAVEN_SETTINGS"
 export BUILD_JAVA_OPTS_GWT="$JVM_MEM_OPTS"
 
 # Set the location of the JDK that will be used for compilation:
-export JAVA_HOME="${JAVA_HOME:=/usr/lib/jvm/java-1.8.0}"
+export JAVA_HOME="${JAVA_HOME:=/usr/lib/jvm/java-11}"
 
 # Use ovirt mirror if able, fall back to central maven
 mkdir -p "${MAVEN_SETTINGS%/*}"
@@ -72,11 +72,14 @@ rm -f ./*tar.gz
 make clean \
     "EXTRA_BUILD_FLAGS=$EXTRA_BUILD_FLAGS"
 
-# Since findbugs is a pure java task, there's no reason to run it on multiple
+# Since spotbugs is a pure java task, there's no reason to run it on multiple
 # platforms.
-# It seems to be stabler on EL7 for some reason, so we'll run it there:
-if [[ "$STD_CI_DISTRO" = "el7" ]]; then
-    source automation/findbugs.sh
+# Spotbugs currently has false negatives using mvn 3.5.0, which is the current
+# CentOS version from SCL (rh-maven35).
+# We will work with the Fedora version meanwhile which has maven 3.5.4 and is
+# known to work.
+if [[ "$STD_CI_DISTRO" =~ "fc" ]]; then
+    source automation/spotbugs.sh
 fi
 
 # Get the tarball
@@ -104,13 +107,14 @@ rpmbuild \
     -D "ovirt_build_draft 1" \
     --rebuild output/*.src.rpm
 
-if [[ "$STD_CI_DISTRO" = "el7" ]]; then
-    # Store any relevant artifacts in exported-artifacts for the ci system to
-    # archive
-    [[ -d exported-artifacts ]] || mkdir -p exported-artifacts
+# Store any relevant artifacts in exported-artifacts for the ci system to
+# archive
+[[ -d exported-artifacts ]] || mkdir -p exported-artifacts
+
+if [[ "$STD_CI_DISTRO" =~ "fc" ]]; then
     # Move find bugs to a dedicated directory under exported-artifacts
     mkdir -p exported-artifacts/find-bugs
-    find * -name "*findbugs.xml" -o -name "findbugsXml.xml" | \
+    find * -name "*spotbugs.xml" -o -name "spotbugsXml.xml" | \
         while read source_file; do
             destination_file=$(
                 sed -e 's#/#-#g' -e 's#\(.*\)-#\1.#' <<< "$source_file"

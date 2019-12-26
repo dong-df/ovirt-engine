@@ -51,6 +51,7 @@ import org.ovirt.engine.core.common.businessentities.storage.ImageStatus;
 import org.ovirt.engine.core.common.businessentities.storage.ImageStorageDomainMap;
 import org.ovirt.engine.core.common.utils.VmDeviceType;
 import org.ovirt.engine.core.compat.Guid;
+import org.ovirt.engine.core.compat.Version;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
 import org.ovirt.engine.core.dao.BaseDiskDao;
 import org.ovirt.engine.core.dao.ClusterDao;
@@ -277,7 +278,7 @@ public class SnapshotsManager {
      *            The VM to generate configuration from.
      * @return A String containing the VM configuration.
      */
-    protected String generateVmConfiguration(VM vm, List<DiskImage> disks, Map<Guid, VmDevice> vmDevices) {
+    private String generateVmConfiguration(VM vm, List<DiskImage> disks, Map<Guid, VmDevice> vmDevices) {
         if (vm.getInterfaces() == null || vm.getInterfaces().isEmpty()) {
             vm.setInterfaces(vmNetworkInterfaceDao.getAllForVm(vm.getId()));
         }
@@ -302,6 +303,10 @@ public class SnapshotsManager {
         disks.forEach(image -> image.setStorageIds(null));
         FullEntityOvfData fullEntityOvfData = new FullEntityOvfData(vm);
         fullEntityOvfData.setDiskImages(disks);
+
+        if (vm.getStaticData().getVmInit() == null) {
+            vmHandler.updateVmInitFromDB(vm.getStaticData(), true);
+        }
         return ovfManager.exportVm(vm,
                 fullEntityOvfData,
                 clusterUtils.getCompatibilityVersion(vm));
@@ -387,7 +392,7 @@ public class SnapshotsManager {
      *            The user that performs the action
      * @param vmInterfaceManager vmInterfaceManager instance
      */
-    public void attempToRestoreVmConfigurationFromSnapshot(VM vm,
+    public void attemptToRestoreVmConfigurationFromSnapshot(VM vm,
             Snapshot snapshot,
             Guid activeSnapshotId,
             List<DiskImage> images,
@@ -524,14 +529,23 @@ public class SnapshotsManager {
                     vm.setClusterCompatibilityVersion(cluster.getCompatibilityVersion());
                     vm.setClusterName(cluster.getName());
                     vm.setClusterCpuName(cluster.getCpuName());
+                    vm.setClusterBiosType(cluster.getBiosType());
                 }
             }
             // if the required dedicated host is invalid -> use current VM dedicated host
             if (!vmHandler.validateDedicatedVdsExistOnSameCluster(vm.getStaticData()).isValid()) {
                 vm.setDedicatedVmForVdsList(oldVmStatic.getDedicatedVmForVdsList());
             }
-            vmHandler.updateMaxMemorySize(vm.getStaticData(), vm.getCompatibilityVersion());
-            vmHandler.autoSelectResumeBehavior(vm.getStaticData(), vm.getCompatibilityVersion());
+            // The snapshot may have unsupported compatibility version.
+            // In that case, using the lowest supported version,
+            // otherwise the line below would try to access non-existing
+            // config value and throw an exception.
+            Version supportedVersion = Version.getLowest().greater(vm.getCompatibilityVersion()) ?
+                    Version.getLowest() :
+                    vm.getCompatibilityVersion();
+
+            vmHandler.updateMaxMemorySize(vm.getStaticData(), supportedVersion);
+
             validateQuota(vm);
             return true;
         } catch (OvfReaderException e) {
@@ -573,7 +587,7 @@ public class SnapshotsManager {
         }
     }
 
-    public boolean canSynchronizeNics(VM snapshotedVm,
+    private boolean canSynchronizeNics(VM snapshotedVm,
            VmInterfaceManager vmInterfaceManager,
            List<VmNetworkInterface> interfaces,
            boolean macsInSnapshotAreExpectedToBeAlreadyAllocated) {
@@ -651,7 +665,7 @@ public class SnapshotsManager {
      * @param disksFromSnapshot
      *            The disks that existed in the snapshot.
      */
-    protected void synchronizeDisksFromSnapshot(Guid vmId,
+    private void synchronizeDisksFromSnapshot(Guid vmId,
             Guid snapshotId,
             Guid activeSnapshotId,
             List<DiskImage> disksFromSnapshot,

@@ -15,7 +15,11 @@ import org.ovirt.engine.core.compat.Version;
 public class FeatureSupported {
 
     public static boolean supportedInConfig(ConfigValues feature, Version version) {
-        return Config.<Boolean> getValue(feature, version.getValue());
+        Boolean value = Config.<Boolean> getValue(feature, version.getValue());
+        if (value == null) {
+            throw new IllegalArgumentException(feature.toString() + " has no value for version: " + version);
+        }
+        return value;
     }
 
     public static boolean supportedInConfig(ConfigValues feature, Version version, ArchitectureType arch) {
@@ -56,13 +60,12 @@ public class FeatureSupported {
     }
 
     /**
-     * Checks if High Performance VM type is supported by cluster version
-     *
-     * @param version
-     *            Compatibility version to check for.
+     * Check if the migrate encrypted is supported for the given version
+     * @param version Compatibility version to check for.
+     * @return
      */
-    public static boolean isHighPerformanceTypeSupported(Version version) {
-        return supportedInConfig(ConfigValues.IsHighPerformanceTypeSupported, version);
+    public static boolean isMigrateEncryptedSupported(Version version) {
+        return version.greaterOrEquals(Version.v4_4);
     }
 
     /**
@@ -112,14 +115,6 @@ public class FeatureSupported {
         return supportedInConfig(ConfigValues.LibgfApiSupported, version);
     }
 
-    public static boolean isQemuimgCommitSupported(Version version) {
-        return supportedInConfig(ConfigValues.QemuimgCommitSupported, version);
-    }
-
-    public static boolean isIpv6MigrationProperlyHandled(Version version) {
-        return supportedInConfig(ConfigValues.Ipv6MigrationProperlyHandled, version);
-    }
-
     /**
      * @param version Compatibility version to check for.
      * @return {@code true} if Managed block domain storage domain is supported for this version.
@@ -138,26 +133,6 @@ public class FeatureSupported {
         return supportedInConfig(ConfigValues.IsDeferringFileVolumePreallocationSupported, version);
     }
 
-    public static boolean isAgentChannelNamingSupported(Version version) {
-        return supportedInConfig(ConfigValues.AgentChannelNamingSupported, version);
-    }
-
-    /**
-     * @param version Compatibility version to check for.
-     * @return {@code true} if VDSM trapping of guest reboot is supported.
-     */
-    public static boolean isDestroyOnRebootSupported(Version version) {
-        return supportedInConfig(ConfigValues.DestroyOnRebootSupported, version);
-    }
-
-    /**
-     * @param version Compatibility version to check for.
-     * @return {@code true} if configuration of the resume behavior is supported.
-     */
-    public static boolean isResumeBehaviorSupported(Version version) {
-        return supportedInConfig(ConfigValues.ResumeBehaviorSupported, version);
-    }
-
     /**
      * Firewalld is supported for host if it supports cluster version 4.2.
      *
@@ -168,81 +143,12 @@ public class FeatureSupported {
         return vds.getSupportedClusterVersionsSet().contains(Version.v4_2);
     }
 
-    public static boolean isReduceVolumeSupported(Version version) {
-        return supportedInConfig(ConfigValues.ReduceVolumeSupported, version);
-    }
-
-    public static boolean isContentTypeSupported(Version version) {
-        return supportedInConfig(ConfigValues.ContentType, version);
-    }
-
-    public static boolean isIsoOnDataDomainSupported(Version version) {
-        return supportedInConfig(ConfigValues.IsoOnDataDomain, version);
-    }
-
-    public static boolean isDefaultRouteReportedByVdsm(Version version) {
-        return supportedInConfig(ConfigValues.DefaultRouteReportedByVdsm, version);
-    }
-
-    /**
-     * The use of libvirt's domain XML on the engine side.
-     * Important: this is determined by the compatibility level of the cluster!
-     * (rather than that of the VM)
-     *
-     * @param version Compatibility version <B>of the cluster</B> to check for.
-     * @return {@code true} if the use of libvirt's domain XML is supported.
-     */
-    public static boolean isDomainXMLSupported(Version version) {
-        return supportedInConfig(ConfigValues.DomainXML, version);
-    }
-
-    /**
-     * @param version Compatibility version to check for.
-     * @return {@code true} if getting an image ticket from vdsm is supported for this version.
-     */
-    public static boolean getImageTicketSupported(Version version) {
-        return supportedInConfig(ConfigValues.GetImageTicketSupported, version);
-    }
-
-    /**
-     * @param version Compatibility version to check for.
-     * @return {@code true} if getting an LLDP information from vdsm is supported for this version.
-     */
-    public static boolean isLlldpInformationSupported(Version version) {
-        return supportedInConfig(ConfigValues.LldpInformationSupported, version);
-    }
-
     /**
      * @param version Compatibility version to check for.
      * @return {@code true} if getting an custom bond name is supported for this version.
      */
     public static boolean isCustomBondNameSupported(Version version) {
         return supportedInConfig(ConfigValues.CustomBondNameSupported, version);
-    }
-
-    /**
-     * @param version Compatibility version to check for.
-     * @return {@code true} if verb Host.ping2 is supported for this version.
-     */
-    public static boolean isPing2SupportedByVdsm(Version version) {
-        return supportedInConfig(ConfigValues.Ping2SupportedByVdsm, version);
-    }
-
-    /**
-     * @param version Compatibility version to check for.
-     * @return {@code true} if verb Host.confirmConnectivity is supported for this version.
-     */
-    public static boolean isConfirmConnectivitySupportedByVdsm(Version version) {
-        return supportedInConfig(ConfigValues.ConfirmConnectivitySupportedByVdsm, version);
-    }
-
-    /**
-     * Checks if memory disks on different domains supported
-     *
-     * @param version Compatibility version to check for.
-     */
-    public static boolean isMemoryDisksOnDifferentDomainsSupported(Version version) {
-        return supportedInConfig(ConfigValues.MemoryDisksOnDifferentDomainsSupported, version);
     }
 
     /**
@@ -281,5 +187,15 @@ public class FeatureSupported {
     public static boolean isVgpuPlacementSupported(Version version) {
         return supportedInConfig(ConfigValues.VgpuPlacementSupported, version);
     }
-
+    /**
+     * Skip commit network changes is supported for
+     * - host supporting commitOnSuccess (>= 4.3)
+     * - engine has at least version 4.4
+     *
+     * @param vds the host
+     * @return true if skipping the commit is allowed
+     */
+    public static boolean isSkipCommitNetworkChangesSupported(VDS vds) {
+        return vds != null && Version.v4_3.lessOrEquals(vds.getSupportedClusterVersionsSet());
+    }
 }

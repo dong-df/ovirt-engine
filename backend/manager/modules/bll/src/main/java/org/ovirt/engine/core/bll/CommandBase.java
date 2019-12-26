@@ -10,7 +10,6 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -22,6 +21,7 @@ import javax.transaction.Status;
 import javax.transaction.SystemException;
 import javax.transaction.Transaction;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.exception.ExceptionUtils;
 import org.ovirt.engine.core.bll.NonTransactiveCommandAttribute.CommandCompensationPhase;
@@ -100,6 +100,7 @@ import org.ovirt.engine.core.utils.ReplacementUtils;
 import org.ovirt.engine.core.utils.SerializationFactory;
 import org.ovirt.engine.core.utils.lock.EngineLock;
 import org.ovirt.engine.core.utils.lock.LockManager;
+import org.ovirt.engine.core.utils.lock.LockingResult;
 import org.ovirt.engine.core.utils.transaction.TransactionCompletionListener;
 import org.ovirt.engine.core.utils.transaction.TransactionMethod;
 import org.ovirt.engine.core.utils.transaction.TransactionRollbackListener;
@@ -977,7 +978,7 @@ public abstract class CommandBase<T extends ActionParametersBase>
         // checked:
         final List<PermissionSubject> permSubjects = getPermissionCheckSubjects();
 
-        if (permSubjects == null || permSubjects.isEmpty()) {
+        if (CollectionUtils.isEmpty(permSubjects) && objectsRequiringPermissionExist()) {
             if (log.isDebugEnabled()) {
                 log.debug("The set of objects to check is null or empty for action '{}'.", getActionType());
             }
@@ -1000,6 +1001,16 @@ public abstract class CommandBase<T extends ActionParametersBase>
 
         // If we are here then we should grant the permission:
         return checkPermissions(permSubjects);
+    }
+
+    /**
+     * Override this method with false if there are no objects that require permission checking, not because
+     * the user does not have the permissions for these objects, but because none currently exist in engine.
+     * For example, a cluster to which no hosts have yet been added.
+     * @return there are objects requiring permissions that need to be verified against permission subjects
+     */
+    protected boolean objectsRequiringPermissionExist() {
+        return true;
     }
 
     protected boolean checkPermissions(final List<PermissionSubject> permSubjects) {
@@ -1838,14 +1849,14 @@ public abstract class CommandBase<T extends ActionParametersBase>
         if (context.getLock() == null) {
             EngineLock lock = buildLock();
             if (lock != null) {
-                Pair<Boolean, Set<String>> lockAcquireResult = lockManager.acquireLock(lock);
-                if (lockAcquireResult.getFirst()) {
+                var lockAcquireResult = lockManager.acquireLock(lock);
+                if (lockAcquireResult.isAcquired()) {
                     log.info("Lock Acquired to object '{}'", lock);
                     context.withLock(lock);
                 } else {
                     log.info("Failed to Acquire Lock to object '{}'", lock);
                     getReturnValue().getValidationMessages()
-                    .addAll(extractVariableDeclarations(lockAcquireResult.getSecond()));
+                    .addAll(extractVariableDeclarations(lockAcquireResult.getMessages()));
                     return false;
                 }
             }
@@ -1881,6 +1892,11 @@ public abstract class CommandBase<T extends ActionParametersBase>
         return lock;
     }
 
+    private EngineLock buildLockFromExclusives() {
+        Map<String, Pair<String, String>> exclusiveLocks = getExclusiveLocks();
+        return exclusiveLocks != null ? new EngineLock(exclusiveLocks, null) : null;
+    }
+
     private void acquireLockAndWait() {
         // if commandLock is null then we acquire new lock, otherwise probably we got lock from caller command.
         if (context.getLock() == null) {
@@ -1898,20 +1914,19 @@ public abstract class CommandBase<T extends ActionParametersBase>
     private boolean acquireLockOrTimeout() {
         // if commandLock is null then we acquire new lock, otherwise probably we got lock from caller command.
         if (context.getLock() == null) {
-            Map<String, Pair<String, String>> exclusiveLocks = getExclusiveLocks();
-            if (exclusiveLocks != null) {
-                EngineLock lock = new EngineLock(exclusiveLocks, null);
+            EngineLock lock = buildLockFromExclusives();
+            if (lock != null) {
                 log.info("Before acquiring lock-timeout '{}'", lock);
-                Pair<Boolean, Set<String>> lockAcquireResult = lockManager.acquireLockWait(
+                LockingResult lockAcquireResult = lockManager.acquireLockWait(
                     lock, getLockProperties().getTimeoutMillis()
                 );
-                if (lockAcquireResult.getFirst()) {
+                if (lockAcquireResult.isAcquired()) {
                     log.info("Lock-timeout acquired to object '{}'", lock);
                     context.withLock(lock);
                 } else {
                     log.info("Failed to acquire lock-timeout to object '{}'", lock);
                     getReturnValue().getValidationMessages()
-                        .addAll(extractVariableDeclarations(lockAcquireResult.getSecond()));
+                        .addAll(extractVariableDeclarations(lockAcquireResult.getMessages()));
                     return false;
                 }
             }

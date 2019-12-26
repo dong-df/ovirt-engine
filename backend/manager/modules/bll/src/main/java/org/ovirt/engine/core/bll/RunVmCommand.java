@@ -23,7 +23,6 @@ import org.ovirt.engine.core.bll.context.CommandContext;
 import org.ovirt.engine.core.bll.hostdev.HostDeviceManager;
 import org.ovirt.engine.core.bll.job.ExecutionContext;
 import org.ovirt.engine.core.bll.job.ExecutionHandler;
-import org.ovirt.engine.core.bll.memory.MemoryUtils;
 import org.ovirt.engine.core.bll.quota.QuotaClusterConsumptionParameter;
 import org.ovirt.engine.core.bll.quota.QuotaConsumptionParameter;
 import org.ovirt.engine.core.bll.quota.QuotaVdsDependent;
@@ -47,6 +46,7 @@ import org.ovirt.engine.core.common.action.LockProperties.Scope;
 import org.ovirt.engine.core.common.action.ProcessDownVmParameters;
 import org.ovirt.engine.core.common.action.RunVmParams;
 import org.ovirt.engine.core.common.action.RunVmParams.RunVmFlow;
+import org.ovirt.engine.core.common.action.VmLeaseParameters;
 import org.ovirt.engine.core.common.asynctasks.EntityInfo;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
 import org.ovirt.engine.core.common.businessentities.BiosType;
@@ -89,6 +89,7 @@ import org.ovirt.engine.core.compat.Version;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
 import org.ovirt.engine.core.dal.job.ExecutionMessageDirector;
 import org.ovirt.engine.core.dao.DiskDao;
+import org.ovirt.engine.core.dao.DiskImageDao;
 import org.ovirt.engine.core.dao.SnapshotDao;
 import org.ovirt.engine.core.dao.StorageDomainDao;
 import org.ovirt.engine.core.dao.VdsNumaNodeDao;
@@ -149,6 +150,8 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
     private Instance<ConcurrentChildCommandsExecutionCallback> callbackProvider;
     @Inject
     private DiskDao diskDao;
+    @Inject
+    private DiskImageDao diskImageDao;
     @Inject
     private VmNumaNodeDao vmNumaNodeDao;
     @Inject
@@ -252,6 +255,26 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
         }
     }
 
+    private void addMissingLeaseInfoToVmIfNeeded() {
+        // This API checks if the lease information is missing when a lease Storage
+        // Domain has been specified and resets the lease information during the launching
+        // of the VM. This may occur during upgrading from Version 4.1 to higher versions
+        // due to a change that moved the lease information data from the VM Static to VM
+        // Dynamic DB Tables.
+        if (getVm().getLeaseStorageDomainId() != null && getVm().getLeaseInfo() == null) {
+            ActionReturnValue retVal = runInternalAction(ActionType.GetVmLeaseInfo,
+                    new VmLeaseParameters(getVm().getStoragePoolId(),
+                            getVm().getLeaseStorageDomainId(),
+                            getParameters().getVmId()));
+            if (retVal == null || !retVal.getSucceeded()) {
+                throw new EngineException(EngineError.INVALID_HA_VM_LEASE);
+            }
+            getVm().setLeaseInfo(retVal.getActionReturnValue());
+            vmDynamicDao.updateVmLeaseInfo(getParameters().getVmId(), getVm().getLeaseInfo());
+        }
+        return;
+    }
+
     protected void runVm() {
         setActionReturnValue(VMStatus.Down);
         if (getVdsToRunOn()) {
@@ -259,6 +282,7 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
             VMStatus status = null;
             try {
                 acquireHostDevicesLock();
+                addMissingLeaseInfoToVmIfNeeded();
                 if (connectLunDisks(getVdsId()) && updateCinderDisksConnections() &&
                         managedBlockStorageCommandUtil.attachManagedBlockStorageDisks(getVm(),
                                 vmHandler, getVds())) {
@@ -284,6 +308,7 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
                 case VDS_NETWORK_ERROR: // probably wrong xml format sent.
                 case PROVIDER_FAILURE:
                 case HOST_DEVICES_TAKEN_BY_OTHER_VM:
+                case INVALID_HA_VM_LEASE:
                     runningFailed();
                     throw e;
                 default:
@@ -598,12 +623,8 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
         if (shouldRestoreMemory()) {
             DiskImage memoryDump = (DiskImage) diskDao.get(getActiveSnapshot().getMemoryDiskId());
             DiskImage memoryConf = (DiskImage) diskDao.get(getActiveSnapshot().getMetadataDiskId());
-            if (FeatureSupported.isMemoryDisksOnDifferentDomainsSupported(getVm().getCompatibilityVersion())) {
-                parameters.setMemoryDumpImage(memoryDump);
-                parameters.setMemoryConfImage(memoryConf);
-            } else {
-                parameters.setHibernationVolHandle(MemoryUtils.createHibernationVolumeString(memoryDump, memoryConf));
-            }
+            parameters.setMemoryDumpImage(memoryDump);
+            parameters.setMemoryConfImage(memoryConf);
 
             parameters.setDownSince(getVm().getStatus() == VMStatus.Suspended ?
                     getVm().getLastStopTime()
@@ -726,25 +747,33 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
 
         // update dynamic cluster-parameters
 
-        // Record the used CPU name, but
-        // - wait when cpu flags passthrough is used as we need
-        //   to select the host first in that case
-        // - keep run-once selection if present
-        if (!getVm().isUsingCpuPassthrough()
-                && getVm().getCpuName() == null) {
-            if (getVm().getCustomCpuName() != null) {
-                getVm().setCpuName(getVm().getCustomCpuName());
+        updateCpuName();
+
+        if (getVm().getEmulatedMachine() == null) {
+            getVm().setEmulatedMachine(getEffectiveEmulatedMachine());
+        }
+    }
+
+    private void updateCpuName() {
+        // do not set cpuName if using passthrough or it has already been set (e.g from run once command)
+        if (getVm().isUsingCpuPassthrough()
+                || getVm().getCpuName() != null) {
+            return;
+        }
+
+        // use custom cpu name if set
+        if (getVm().getCustomCpuName() != null) {
+            getVm().setCpuName(getVm().getCustomCpuName());
+        } else {
+            // use cluster value if the compatibility versions of vm and cluster are the same
+            if (getCluster().getCompatibilityVersion().equals(getVm().getCompatibilityVersion())) {
+                getVm().setCpuName(getCluster().getCpuVerb());
             } else {
-                // get what cpu flags should be passed to vdsm according to the cluster
+                // use configured value if the compatibility versions of vm and cluster are different
                 getVm().setCpuName(getCpuFlagsManagerHandler().getCpuId(
                         getVm().getClusterCpuName(),
                         getVm().getCompatibilityVersion()));
             }
-        }
-
-
-        if (getVm().getEmulatedMachine() == null) {
-            getVm().setEmulatedMachine(getEffectiveEmulatedMachine());
         }
     }
 
@@ -896,13 +925,14 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
      */
     private String guestToolsVersionTreatment() {
         boolean attachCd = false;
-        String selectedToolsVersion = "";
-        String selectedToolsClusterVersion = "";
+        String selectedCd = "";
+        List<RepoImage> repoFilesData = diskImageDao.getIsoDisksForStoragePoolAsRepoImages(getVm().getStoragePoolId());
         Guid isoDomainId = getActiveIsoDomainId();
-        if (osRepository.isWindows(getVm().getVmOsId()) && null != isoDomainId) {
+        if (osRepository.isWindows(getVm().getVmOsId())) {
 
             // get cluster version of the vm tools
             Version vmToolsClusterVersion = null;
+            Version guestTools = null;
             if (getVm().getHasAgent()) {
                 Version clusterVer = getVm().getPartialVersion();
                 if (new Version("4.4").equals(clusterVer)) {
@@ -910,17 +940,24 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
                 } else {
                     vmToolsClusterVersion = clusterVer;
                 }
+            } else {
+                guestTools = new Version(vmHandler.currentOvirtGuestAgentVersion(getVm()));
+                if (!guestTools.isNotValid()) {
+                    vmToolsClusterVersion = new Version(guestTools.getMajor(), guestTools.getMinor());
+                }
             }
 
             // Fetch cached Iso files from active Iso domain.
-            List<RepoImage> repoFilesMap =
+            List<RepoImage> repoFiles =
                     getIsoDomainListSynchronizer().getCachedIsoListByDomainId(isoDomainId, ImageFileType.ISO);
+            repoFiles.addAll(repoFilesData);
             Version bestClusterVer = null;
             int bestToolVer = 0;
-            for (RepoImage map : repoFilesMap) {
-                String fileName = StringUtils.defaultString(map.getRepoImageId(), "");
+            for (RepoImage repo : repoFiles) {
+                String fileName = repo.getRepoImageName() == null ?
+                        StringUtils.defaultString(repo.getRepoImageId(), "") : repo.getRepoImageName();
                 Matcher matchToolPattern =
-                        Pattern.compile(isoDomainListSynchronizer.getRegexToolPattern()).matcher(fileName);
+                        Pattern.compile(isoDomainListSynchronizer.getRegexToolPattern()).matcher(fileName.toLowerCase());
                 if (matchToolPattern.find()) {
                     // Get cluster version and tool version of Iso tool.
                     Version clusterVer = new Version(matchToolPattern.group(IsoDomainListSynchronizer.TOOL_CLUSTER_LEVEL));
@@ -928,39 +965,43 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
 
                     if (clusterVer.compareTo(getVm().getCompatibilityVersion()) <= 0) {
                         if ((bestClusterVer == null)
-                                || (clusterVer.compareTo(bestClusterVer) > 0)) {
+                                || (clusterVer.compareTo(bestClusterVer) > 0)
+                                || (clusterVer.equals(bestClusterVer) && toolVersion > bestToolVer)) {
                             bestToolVer = toolVersion;
                             bestClusterVer = clusterVer;
-                        } else if (clusterVer.equals(bestClusterVer) && toolVersion > bestToolVer) {
-                            bestToolVer = toolVersion;
-                            bestClusterVer = clusterVer;
+                            selectedCd = fileName;
                         }
                     }
                 }
             }
 
             if (bestClusterVer != null
-                    && (vmToolsClusterVersion == null
-                            || vmToolsClusterVersion.compareTo(bestClusterVer) < 0 || (vmToolsClusterVersion.equals(bestClusterVer)
-                            && getVm().getHasAgent() &&
-                    getVm().getGuestAgentVersion().getBuild() < bestToolVer))) {
+                && (vmToolsClusterVersion == null
+                    || vmToolsClusterVersion.compareTo(bestClusterVer) < 0
+                    || (vmToolsClusterVersion.equals(bestClusterVer) && getVm().getHasAgent()
+                        && getVm().getGuestAgentVersion().getBuild() < bestToolVer)
+                    || (guestTools != null
+                        && vmToolsClusterVersion.equals(bestClusterVer) && guestTools.getBuild() < bestToolVer))) {
                 // Vm has no tools or there are new tools
-                selectedToolsVersion = Integer.toString(bestToolVer);
-                selectedToolsClusterVersion = bestClusterVer.toString();
                 attachCd = true;
             }
         }
 
         if (attachCd) {
-            String rhevToolsPath =
-                    String.format("%1$s%2$s_%3$s.iso", isoDomainListSynchronizer.getGuestToolsSetupIsoPrefix(),
-                            selectedToolsClusterVersion, selectedToolsVersion);
-
+            String toolsName = selectedCd;
+            // See if the disk comes from a data domain
+            RepoImage dataDisk = repoFilesData.stream()
+                    .filter(m -> m.getRepoImageName().equals(toolsName))
+                    .findFirst()
+                    .orElse(null);
+            if (dataDisk != null){
+                return dataDisk.getRepoImageId();
+            }
             String isoDir = (String) runVdsCommand(VDSCommandType.IsoDirectory,
                     new IrsBaseVDSCommandParameters(getVm().getStoragePoolId())).getReturnValue();
-            rhevToolsPath = isoDir + File.separator + rhevToolsPath;
+            selectedCd = isoDir + File.separator + selectedCd;
 
-            return rhevToolsPath;
+            return selectedCd;
         }
         return null;
     }
@@ -1005,10 +1046,6 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
             return false;
         }
 
-        if (!validate(runVmValidator.validateVmLease())) {
-            return false;
-        }
-
         checkVmLeaseStorageDomain();
 
         if (!checkRngDeviceClusterCompatibility()) {
@@ -1049,6 +1086,7 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
         }
 
         if (FeatureSupported.isBiosTypeSupported(getCluster().getCompatibilityVersion())
+                && getVm().getBiosType() != BiosType.CLUSTER_DEFAULT
                 && getVm().getBiosType() != BiosType.I440FX_SEA_BIOS
                 && getCluster().getArchitecture().getFamily() != ArchitectureType.x86) {
             return failValidation(EngineMessage.NON_DEFAULT_BIOS_TYPE_FOR_X86_ONLY);

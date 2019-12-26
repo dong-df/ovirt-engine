@@ -1,7 +1,6 @@
 package org.ovirt.engine.core.bll.storage.disk;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -34,7 +33,6 @@ import org.ovirt.engine.core.bll.validator.storage.MultipleDiskVmElementValidato
 import org.ovirt.engine.core.bll.validator.storage.MultipleStorageDomainsValidator;
 import org.ovirt.engine.core.bll.validator.storage.StorageDomainValidator;
 import org.ovirt.engine.core.common.AuditLogType;
-import org.ovirt.engine.core.common.FeatureSupported;
 import org.ovirt.engine.core.common.VdcObjectType;
 import org.ovirt.engine.core.common.action.ActionParametersBase;
 import org.ovirt.engine.core.common.action.ActionReturnValue;
@@ -204,13 +202,6 @@ public class MoveOrCopyDiskCommand<T extends MoveOrCopyImageGroupParameters> ext
     }
 
     protected boolean checkOperationAllowedOnDiskContentType() {
-        if (getImage().getContentType() == DiskContentType.MEMORY_DUMP_VOLUME ||
-                getImage().getContentType() == DiskContentType.MEMORY_METADATA_VOLUME) {
-            if (!FeatureSupported.isMemoryDisksOnDifferentDomainsSupported(getStoragePool().getCompatibilityVersion())) {
-                return  failValidation(EngineMessage.ACTION_TYPE_FAILED_DISK_CONTENT_TYPE_NOT_SUPPORTED_FOR_OPERATION,
-                        String.format("$diskContentType %s", getImage().getContentType()));
-            }
-        }
         return validate(new DiskOperationsValidator(getImage()).isOperationAllowedOnDisk(getActionType()));
     }
 
@@ -268,8 +259,15 @@ public class MoveOrCopyDiskCommand<T extends MoveOrCopyImageGroupParameters> ext
             return true;
         }
 
+        List<Guid> sdsToValidate = new ArrayList<>();
+        sdsToValidate.add(getStorageDomainId());
+
+        if (getActionType() == ActionType.LiveMigrateDisk) {
+            sdsToValidate.add(getParameters().getSourceDomainId());
+        }
+
         MultipleStorageDomainsValidator storageDomainsValidator =
-                createMultipleStorageDomainsValidator();
+                createMultipleStorageDomainsValidator(sdsToValidate);
 
         if (validate(storageDomainsValidator.allDomainsWithinThresholds())) {
             // If we are copying a template's disk we do not want all its copies
@@ -507,9 +505,11 @@ public class MoveOrCopyDiskCommand<T extends MoveOrCopyImageGroupParameters> ext
     private MoveOrCopyImageGroupParameters prepareChildParameters() {
         MoveOrCopyImageGroupParameters parameters = new MoveOrCopyImageGroupParameters(getParameters());
         if (parameters.getOperation() == ImageOperation.Copy) {
-            parameters.setUseCopyCollapse(true);
-            parameters.setAddImageDomainMapping(true);
+            parameters.setUseCopyCollapse(getParameters().getUseCopyCollapse());
+            parameters.setAddImageDomainMapping(isTemplate() ? true : getParameters().getAddImageDomainMapping());
             parameters.setShouldLockImageOnRevert(false);
+            parameters.setDestImages(getParameters().getDestImages());
+            parameters.setDestImageGroupId(getParameters().getDestImageGroupId());
 
             if (!isTemplate()) {
                 prepareCopyNotTemplate(parameters);
@@ -565,6 +565,11 @@ public class MoveOrCopyDiskCommand<T extends MoveOrCopyImageGroupParameters> ext
 
         parameters.setDestinationImageId(newImageId);
         parameters.setDestImageGroupId(newId);
+
+        // we call copy directly via UI/REST
+        if (getParameters().getParentCommand() == ActionType.Unknown) {
+            parameters.setDestImages(List.of(image));
+        }
     }
 
     private boolean isTemplate() {
@@ -705,9 +710,8 @@ public class MoveOrCopyDiskCommand<T extends MoveOrCopyImageGroupParameters> ext
                 diskVmElementDao.getAllDiskVmElementsByDiskId(getParameters().getImageGroupID()));
     }
 
-    public MultipleStorageDomainsValidator createMultipleStorageDomainsValidator() {
-        return new MultipleStorageDomainsValidator(getStoragePoolId(),
-                Arrays.asList(getStorageDomainId(), getParameters().getSourceDomainId()));
+    public MultipleStorageDomainsValidator createMultipleStorageDomainsValidator(List<Guid> sdsToValidate) {
+        return new MultipleStorageDomainsValidator(getStoragePoolId(), sdsToValidate);
     }
 
     private boolean isMoveOperation() {

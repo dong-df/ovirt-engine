@@ -9,14 +9,15 @@ import java.util.Map;
 import org.ovirt.engine.core.common.action.ActionParametersBase;
 import org.ovirt.engine.core.common.action.ActionReturnValue;
 import org.ovirt.engine.core.common.action.ActionType;
+import org.ovirt.engine.core.common.action.ClusterOperationParameters;
 import org.ovirt.engine.core.common.action.ClusterParametersBase;
-import org.ovirt.engine.core.common.action.ManagementNetworkOnClusterOperationParameters;
 import org.ovirt.engine.core.common.action.hostdeploy.AddVdsActionParameters;
 import org.ovirt.engine.core.common.businessentities.AdditionalFeature;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.LogMaxMemoryUsedThresholdType;
 import org.ovirt.engine.core.common.businessentities.MacPool;
 import org.ovirt.engine.core.common.businessentities.MigrationBandwidthLimitType;
+import org.ovirt.engine.core.common.businessentities.SerialNumberPolicy;
 import org.ovirt.engine.core.common.businessentities.SupportedAdditionalClusterFeature;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VDSStatus;
@@ -25,6 +26,7 @@ import org.ovirt.engine.core.common.businessentities.network.Network;
 import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.interfaces.SearchType;
 import org.ovirt.engine.core.common.queries.IdQueryParameters;
+import org.ovirt.engine.core.common.queries.QueryParametersBase;
 import org.ovirt.engine.core.common.queries.QueryReturnValue;
 import org.ovirt.engine.core.common.queries.QueryType;
 import org.ovirt.engine.core.common.queries.SearchParameters;
@@ -319,7 +321,35 @@ public class ClusterListModel<E> extends ListWithSimpleDetailsModel<E, Cluster> 
         SearchParameters tempVar = new SearchParameters(applySortOptions(getSearchString()), SearchType.Cluster,
                 isCaseSensitiveSearch());
         tempVar.setMaxCount(getSearchPageSize());
-        super.syncSearch(QueryType.Search, tempVar);
+
+        AsyncQuery<QueryReturnValue> asyncCallback = new AsyncQuery<>(
+                returnValue -> {
+                    Collection<Cluster> clusters = returnValue.getReturnValue();
+                    queryHostNamesOutOfSync(clusters);
+                }
+        );
+
+        super.syncSearch(QueryType.Search, tempVar, asyncCallback);
+    }
+
+    private void queryHostNamesOutOfSync(Collection<Cluster> clustersCollection) {
+        ArrayList<Cluster> clusters = new ArrayList<>(clustersCollection);
+        ArrayList<QueryParametersBase> parameters = new ArrayList<>();
+        ArrayList<QueryType> queryTypes = new ArrayList<>();
+
+        for (Cluster cluster : clusters) {
+            parameters.add(new IdQueryParameters(cluster.getId()));
+            queryTypes.add(QueryType.GetOutOfSyncHostNamesForCluster);
+        }
+
+        Frontend.getInstance().runMultipleQueries(queryTypes, parameters, result -> {
+            int index = 0;
+            for (QueryReturnValue returnValue : result.getReturnValues()) {
+                clusters.get(index).setHostNamesOutOfSync(returnValue.getReturnValue());
+                index++;
+            }
+            setItems(clusters);
+        });
     }
 
     @Override
@@ -391,11 +421,15 @@ public class ClusterListModel<E> extends ListWithSimpleDetailsModel<E, Cluster> 
         clusterModel.getEnableKsm().setEntity(cluster.isEnableKsm());
         clusterModel.setKsmPolicyForNuma(cluster.isKsmMergeAcrossNumaNodes());
         clusterModel.getEnableBallooning().setEntity(cluster.isEnableBallooning());
+        clusterModel.getBiosType().setSelectedItem(cluster.getBiosType());
         clusterModel.getArchitecture().setSelectedItem(cluster.getArchitecture());
-        clusterModel.getSerialNumberPolicy().setSelectedSerialNumberPolicy(cluster.getSerialNumberPolicy());
-        clusterModel.getSerialNumberPolicy().getCustomSerialNumber().setEntity(cluster.getCustomSerialNumber());
+        clusterModel.getSerialNumberPolicy().setSelectedItem(cluster.getSerialNumberPolicy());
+        if (SerialNumberPolicy.CUSTOM.equals(cluster.getSerialNumberPolicy())) {
+            clusterModel.getCustomSerialNumber().setEntity(cluster.getCustomSerialNumber());
+        }
         clusterModel.getAutoConverge().setSelectedItem(cluster.getAutoConverge());
         clusterModel.getMigrateCompressed().setSelectedItem(cluster.getMigrateCompressed());
+        clusterModel.getMigrateEncrypted().setSelectedItem(cluster.getMigrateEncrypted());
         clusterModel.getGlusterTunedProfile().setSelectedItem(cluster.getGlusterTunedProfile());
         clusterModel.getGlusterTunedProfile().setIsChangeable(cluster.getClusterHostsAndVms().getHosts() == 0);
         clusterModel.getMigrationBandwidthLimitType().setItems(Arrays.asList(MigrationBandwidthLimitType.values()));
@@ -523,7 +557,7 @@ public class ClusterListModel<E> extends ListWithSimpleDetailsModel<E, Cluster> 
 
         ArrayList<ActionParametersBase> prms = new ArrayList<>();
         for (Cluster cluster : getSelectedItems()) {
-            ManagementNetworkOnClusterOperationParameters currentParam = new ManagementNetworkOnClusterOperationParameters(cluster);
+            ClusterOperationParameters currentParam = new ClusterOperationParameters(cluster);
             currentParam.setForceResetEmulatedMachine(true);
             prms.add(currentParam);
         }
@@ -685,6 +719,7 @@ public class ClusterListModel<E> extends ListWithSimpleDetailsModel<E, Cluster> 
         if (model.getCPU().getSelectedItem() != null) {
             cluster.setCpuName(model.getCPU().getSelectedItem().getCpuName());
         }
+        cluster.setBiosType(model.getBiosType().getSelectedItem());
         cluster.setMaxVdsMemoryOverCommit(model.getMemoryOverCommit());
         cluster.setSmtDisabled(Boolean.TRUE.equals(model.getSmtDisabled().getEntity()));
         cluster.setCountThreadsAsCores(Boolean.TRUE.equals(model.getVersionSupportsCpuThreads().getEntity())
@@ -745,11 +780,16 @@ public class ClusterListModel<E> extends ListWithSimpleDetailsModel<E, Cluster> 
         cluster.getFencingPolicy().setSkipFencingIfGlusterBricksUp(model.getSkipFencingIfGlusterBricksUp().getEntity());
         cluster.getFencingPolicy().setSkipFencingIfGlusterQuorumNotMet(model.getSkipFencingIfGlusterQuorumNotMet().getEntity());
 
-        cluster.setSerialNumberPolicy(model.getSerialNumberPolicy().getSelectedSerialNumberPolicy());
-        cluster.setCustomSerialNumber(model.getSerialNumberPolicy().getCustomSerialNumber().getEntity());
+        cluster.setSerialNumberPolicy(model.getSerialNumberPolicy().getSelectedItem());
+        if (SerialNumberPolicy.CUSTOM.equals(model.getSerialNumberPolicy().getSelectedItem())) {
+            cluster.setCustomSerialNumber(model.getCustomSerialNumber().getEntity());
+        } else {
+            cluster.setCustomSerialNumber(null);
+        }
 
         cluster.setAutoConverge(model.getAutoConverge().getSelectedItem());
         cluster.setMigrateCompressed(model.getMigrateCompressed().getSelectedItem());
+        cluster.setMigrateEncrypted(model.getMigrateEncrypted().getSelectedItem());
         if (model.getEnableGlusterService().getEntity()) {
             cluster.setGlusterTunedProfile(model.getGlusterTunedProfile().getSelectedItem());
         }
@@ -775,8 +815,8 @@ public class ClusterListModel<E> extends ListWithSimpleDetailsModel<E, Cluster> 
         model.startProgress();
 
         final Network managementNetwork = model.getManagementNetwork().getSelectedItem();
-        final ManagementNetworkOnClusterOperationParameters clusterOperationParameters =
-                new ManagementNetworkOnClusterOperationParameters(cluster, managementNetwork.getId());
+        final ClusterOperationParameters clusterOperationParameters =
+                new ClusterOperationParameters(cluster, managementNetwork.getId());
         final ActionType actionType = model.getIsNew() ? ActionType.AddCluster : ActionType.UpdateCluster;
         Frontend.getInstance().runAction(
                 actionType,

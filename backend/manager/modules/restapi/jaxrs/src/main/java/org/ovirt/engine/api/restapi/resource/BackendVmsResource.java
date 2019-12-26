@@ -1,17 +1,6 @@
 /*
-Copyright (c) 2015 Red Hat, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-  http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+ * Copyright oVirt Authors
+ * SPDX-License-Identifier: Apache-2.0
 */
 
 package org.ovirt.engine.api.restapi.resource;
@@ -103,6 +92,8 @@ public class BackendVmsResource extends
 
     public static final String CLONE = "clone";
     public static final String CLONE_PERMISSIONS = "clone_permissions";
+    private static final String LEGAL_CLUSTER_COMPATIBILITY_VERSIONS =
+            Version.ALL.stream().map(Version::toString).collect(Collectors.joining(", "));
 
     public BackendVmsResource() {
         super(Vm.class, org.ovirt.engine.core.common.businessentities.VM.class);
@@ -168,6 +159,8 @@ public class BackendVmsResource extends
     public Response add(Vm vm) {
         validateParameters(vm, "cluster.id|name");
         validateIconParameters(vm);
+        // validate that the provided cluster-compatibility-version is legal
+        validateClusterCompatibilityVersion(vm);
         Response response = null;
         if (vm.isSetInitialization() && vm.getInitialization().isSetConfiguration()) {
             validateParameters(vm, "initialization.configuration.type", "initialization.configuration.data");
@@ -248,6 +241,25 @@ public class BackendVmsResource extends
         }
 
         return response;
+    }
+
+    void validateClusterCompatibilityVersion(Vm vm) {
+        if (vm.isSetCustomCompatibilityVersion()
+                && vm.getCustomCompatibilityVersion().isSetMajor()
+                && vm.getCustomCompatibilityVersion().isSetMinor()) {
+            int major = vm.getCustomCompatibilityVersion().getMajor();
+            int minor = vm.getCustomCompatibilityVersion().getMinor();
+            if (!isLegalClusterCompatibilityVersion(major, minor)) {
+                throw new WebFaultException(null,
+                        localize(Messages.INVALID_VERSION_REASON),
+                        localize(Messages.INVALID_VERSION_DETAIL, LEGAL_CLUSTER_COMPATIBILITY_VERSIONS),
+                        Response.Status.BAD_REQUEST);
+            }
+        }
+    }
+
+    private boolean isLegalClusterCompatibilityVersion(int major, int minor) {
+        return Version.ALL.contains(new Version(major, minor));
     }
 
     private void updateMaxMemoryIfUnspecified(Vm vm, VmStatic vmStatic) {

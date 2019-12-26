@@ -1,18 +1,9 @@
 #
 # ovirt-engine-setup -- ovirt engine setup
-# Copyright (C) 2013-2015 Red Hat, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Copyright oVirt Authors
+# SPDX-License-Identifier: Apache-2.0
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 #
 
 
@@ -21,11 +12,18 @@ SELinux configuration plugin.
 """
 
 import gettext
+import re
+
+
+from os import listdir
+from os.path import isfile
+from os.path import join
 
 from otopi import plugin
 from otopi import util
 
 from ovirt_engine_setup import constants as osetupcons
+from ovirt_engine_setup.engine import constants as oenginecons
 
 
 def _(m):
@@ -49,6 +47,7 @@ class Plugin(plugin.PluginBase):
         self.environment[osetupcons.SystemEnv.SELINUX_CONTEXTS] = []
         self.environment[osetupcons.SystemEnv.SELINUX_RESTORE_PATHS] = []
         self.environment[osetupcons.SystemEnv.SELINUX_BOOLEANS] = []
+        self.environment[osetupcons.SystemEnv.SELINUX_PORTS] = []
 
     @plugin.event(
         stage=plugin.Stages.STAGE_SETUP,
@@ -57,6 +56,7 @@ class Plugin(plugin.PluginBase):
     def _setup(self):
         self.command.detect('selinuxenabled')
         self.command.detect('semanage')
+        self.command.detect('semodule')
         self.command.detect('restorecon')
 
     @plugin.event(
@@ -85,20 +85,57 @@ class Plugin(plugin.PluginBase):
         priority=plugin.Stages.PRIORITY_LOW,
     )
     def _misc(self):
+        selinux_dir = oenginecons.FileLocations.ANSIBLE_RUNNER_SERVICE_SELINUX
+        for f in listdir(selinux_dir):
+            file_path = join(selinux_dir, f)
+            if isfile(file_path):
+                rc, stdout, stderr = self.execute(
+                    (
+                        self.command.get('semodule'),
+                        '-i', file_path
+                    )
+                )
+                if rc != 0:
+                    self.logger.info(
+                        _('Failed to apply SELINUX file {f}'.format(f=f))
+                    )
+        for entry in self.environment[osetupcons.SystemEnv.SELINUX_PORTS]:
+            rc, stdout, stderr = self.execute(
+                (self.command.get('semanage'), 'port', '-l')
+            )
+            if not any(
+                re.match(
+                    '{t}.*{p}'.format(t=entry['type'], p=entry['port']),
+                    line
+                ) for line in stdout
+            ):
+                rc, stdout, stderr = self.execute(
+                    (
+                        self.command.get('semanage'),
+                        'port',
+                        '-a',
+                        '-t', entry['type'],
+                        '-p', entry['protocol'],
+                        entry['port']
+                    ),
+                )
         for entry in self.environment[osetupcons.SystemEnv.SELINUX_CONTEXTS]:
             rc, stdout, stderr = self.execute(
-                (
-                    self.command.get('semanage'),
-                    'fcontext',
-                    '-a',
-                    '-t', entry['type'],
-                    entry['pattern']
-                )
+                (self.command.get('semanage'), 'fcontext', '-C', '-l')
             )
-            if rc != 0:
-                self.logger.error(
-                    _('Failed to set SELINUX policy for {pattern}').format(
-                        pattern=entry['pattern']
+            if not any(
+                re.match(
+                    '{p}.*{t}'.format(p=entry['pattern'], t=entry['type']),
+                    line
+                ) for line in stdout
+            ):
+                rc, stdout, stderr = self.execute(
+                    (
+                        self.command.get('semanage'),
+                        'fcontext',
+                        '-a',
+                        '-t', entry['type'],
+                        entry['pattern']
                     )
                 )
         for path in self.environment[

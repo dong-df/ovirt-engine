@@ -50,6 +50,7 @@ import org.ovirt.engine.core.common.businessentities.ProviderType;
 import org.ovirt.engine.core.common.businessentities.Quota;
 import org.ovirt.engine.core.common.businessentities.QuotaEnforcementTypeEnum;
 import org.ovirt.engine.core.common.businessentities.Role;
+import org.ovirt.engine.core.common.businessentities.SerialNumberPolicy;
 import org.ovirt.engine.core.common.businessentities.ServerCpu;
 import org.ovirt.engine.core.common.businessentities.Snapshot;
 import org.ovirt.engine.core.common.businessentities.StorageDomain;
@@ -126,6 +127,7 @@ import org.ovirt.engine.core.common.queries.GetAllServerCpuListParameters;
 import org.ovirt.engine.core.common.queries.GetClusterFeaturesByVersionAndCategoryParameters;
 import org.ovirt.engine.core.common.queries.GetConfigurationValueParameters;
 import org.ovirt.engine.core.common.queries.GetConnectionsByDataCenterAndStorageTypeParameters;
+import org.ovirt.engine.core.common.queries.GetCpuByFlagsParameters;
 import org.ovirt.engine.core.common.queries.GetDataCentersWithPermittedActionOnClustersParameters;
 import org.ovirt.engine.core.common.queries.GetEntitiesWithPermittedActionParameters;
 import org.ovirt.engine.core.common.queries.GetExistingStorageDomainListParameters;
@@ -176,6 +178,7 @@ import org.ovirt.engine.core.common.queries.gluster.GlusterVolumeAdvancedDetails
 import org.ovirt.engine.core.common.queries.gluster.GlusterVolumeGeoRepEligibilityParameters;
 import org.ovirt.engine.core.common.queries.gluster.GlusterVolumeProfileParameters;
 import org.ovirt.engine.core.common.queries.gluster.GlusterVolumeQueriesParameters;
+import org.ovirt.engine.core.common.scheduling.AffinityGroup;
 import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.common.utils.PairQueryable;
 import org.ovirt.engine.core.common.utils.SimpleDependencyInjector;
@@ -184,7 +187,6 @@ import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.compat.IntegerCompat;
 import org.ovirt.engine.core.compat.KeyValuePairCompat;
 import org.ovirt.engine.core.compat.RefObject;
-import org.ovirt.engine.core.compat.RpmVersion;
 import org.ovirt.engine.core.compat.StringHelper;
 import org.ovirt.engine.core.compat.Version;
 import org.ovirt.engine.core.searchbackend.OsValueAutoCompleter;
@@ -742,7 +744,7 @@ public class AsyncDataProvider {
 
     public List<MigrationPolicy> getMigrationPolicies(Version compatibilityVersion) {
         List<MigrationPolicy> migrationPolicies = migrationPoliciesByVersion.get(compatibilityVersion);
-        return migrationPolicies != null ? migrationPolicies
+        return migrationPolicies != null ? new ArrayList<MigrationPolicy>(migrationPolicies)
                 : Collections.singletonList((MigrationPolicy) new NoMigrationPolicy());
     }
 
@@ -955,6 +957,10 @@ public class AsyncDataProvider {
         Frontend.getInstance().runQuery(QueryType.IsOvirtCockpitSSOStarted, new QueryParametersBase(), aQuery);
     }
 
+    public void getAffinityGroupsByClusterId(AsyncQuery<List<AffinityGroup>> aQuery, Guid clusterId) {
+        aQuery.converterCallback = new SortListByNameConverter<>();
+        Frontend.getInstance().runQuery(QueryType.GetAffinityGroupsByClusterId, new IdQueryParameters(clusterId), aQuery);
+    }
 
     public void getLabelList(AsyncQuery<List<Label>> aQuery) {
         aQuery.converterCallback = new SortListByNameConverter<>();
@@ -1711,6 +1717,13 @@ public class AsyncDataProvider {
                 aQuery);
     }
 
+    public void getCpuByFlags(AsyncQuery<ServerCpu> aQuery, String cpuFlags, Version newVersion) {
+        aQuery.converterCallback = new DefaultConverter<>();
+        Frontend.getInstance().runQuery(QueryType.GetCpuByFlags,
+                new GetCpuByFlagsParameters(cpuFlags, newVersion),
+                aQuery);
+    }
+
     public void getPmTypeList(AsyncQuery<List<String>> aQuery, Version version) {
         aQuery.converterCallback = source -> {
             ArrayList<String> list = new ArrayList<>();
@@ -1944,11 +1957,6 @@ public class AsyncDataProvider {
         setAttachedTagsConverter(aQuery);
 
         Frontend.getInstance().runQuery(QueryType.GetTagsByVdsId, new GetTagsByVdsIdParameters(id.toString()), aQuery);
-    }
-
-    public void getoVirtISOsList(AsyncQuery<List<RpmVersion>> aQuery, Guid id) {
-        aQuery.converterCallback = new ListConverter<>();
-        Frontend.getInstance().runQuery(QueryType.GetoVirtISOs, new IdQueryParameters(id), aQuery);
     }
 
     public void getLunsByVgId(AsyncQuery<List<LUNs>> aQuery, String vgId, Guid vdsId) {
@@ -2275,11 +2283,6 @@ public class AsyncDataProvider {
                 QuotaEnforcementTypeEnum.DISABLED,
                 QuotaEnforcementTypeEnum.SOFT_ENFORCEMENT,
                 QuotaEnforcementTypeEnum.HARD_ENFORCEMENT }));
-    }
-
-    public boolean isDestroyRebootSupported(Version compatibilityVersion) {
-        return (Boolean) getConfigValuePreConverted(ConfigValues.DestroyOnRebootSupported,
-                compatibilityVersion.getValue());
     }
 
     public Version multiFirewallSupportSince() {
@@ -2865,6 +2868,36 @@ public class AsyncDataProvider {
         return maxVmNameLengthSysprep;
     }
 
+    public SerialNumberPolicy getSerialNumberPolicy() {
+        return (SerialNumberPolicy) getConfigValuePreConverted(ConfigValues.DefaultSerialNumberPolicy,
+                getDefaultConfigurationVersion());
+    }
+
+    public String getCustomSerialNumber() {
+        return (String) getConfigValuePreConverted(ConfigValues.DefaultCustomSerialNumber,
+                getDefaultConfigurationVersion());
+    }
+
+    public boolean getAutoConverge() {
+        return (Boolean) getConfigValuePreConverted(ConfigValues.DefaultAutoConvergence,
+                getDefaultConfigurationVersion());
+    }
+
+    public boolean getMigrateCompressed() {
+        return (Boolean) getConfigValuePreConverted(ConfigValues.DefaultMigrationCompression,
+                getDefaultConfigurationVersion());
+    }
+
+    public boolean getMigrateEncrypted() {
+        return (Boolean) getConfigValuePreConverted(ConfigValues.DefaultMigrationEncryption,
+                getDefaultConfigurationVersion());
+    }
+
+    public Integer getMigrationDowntime() {
+        return (Integer) getConfigValuePreConverted(ConfigValues.DefaultMaximumMigrationDowntime,
+                getDefaultConfigurationVersion());
+    }
+
     public int getOptimizeSchedulerForSpeedPendingRequests() {
         return (Integer) getConfigValuePreConverted(ConfigValues.SpeedOptimizationSchedulingThreshold,
                 getDefaultConfigurationVersion());
@@ -3086,6 +3119,13 @@ public class AsyncDataProvider {
     public void getClusterEditWarnings(AsyncQuery<ClusterEditWarnings> aQuery, Guid clusterId, Cluster cluster) {
         aQuery.converterCallback = new CastingConverter<>();
         Frontend.getInstance().runQuery(QueryType.GetClusterEditWarnings, new ClusterEditParameters(cluster), aQuery);
+    }
+
+    private static class DefaultConverter<T> implements Converter<T, T> {
+        @Override
+        public T convert(T source) {
+            return (T) source;
+        }
     }
 
     private static class CastingConverter<T extends S, S> implements Converter<T, S> {
@@ -3320,10 +3360,6 @@ public class AsyncDataProvider {
     public void getAllFenceAgentsByHostId(AsyncQuery<List<FenceAgent>> aQuery, Guid hostId) {
         aQuery.converterCallback = new ListConverter<>();
         Frontend.getInstance().runQuery(QueryType.GetFenceAgentsByVdsId, new IdQueryParameters(hostId), aQuery);
-    }
-
-    public boolean isGetImageTicketSupported(Version clusterVersion) {
-        return (Boolean) getConfigValuePreConverted(ConfigValues.GetImageTicketSupported, clusterVersion.getValue());
     }
 
     public ArrayList<BiosType> getBiosTypeList() {

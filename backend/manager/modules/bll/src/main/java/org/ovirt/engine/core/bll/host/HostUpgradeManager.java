@@ -1,6 +1,6 @@
 package org.ovirt.engine.core.bll.host;
 
-import java.io.IOException;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -18,19 +18,19 @@ import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VDSType;
 import org.ovirt.engine.core.common.config.Config;
 import org.ovirt.engine.core.common.config.ConfigValues;
-import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandBuilder;
+import org.ovirt.engine.core.common.utils.CertificateUtils;
+import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandConfig;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleConstants;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleExecutor;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleReturnCode;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleReturnValue;
-import org.ovirt.engine.core.common.utils.ansible.AnsibleVerbosity;
+import org.ovirt.engine.core.common.utils.ansible.AnsibleRunnerHTTPClient;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogable;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogableImpl;
 import org.ovirt.engine.core.dao.ClusterDao;
 import org.ovirt.engine.core.utils.CorrelationIdTracker;
 import org.ovirt.engine.core.utils.EngineLocalConfig;
-import org.ovirt.engine.core.utils.JsonHelper;
 import org.ovirt.engine.core.utils.PKIResources;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,21 +51,31 @@ public class HostUpgradeManager implements UpdateAvailable, Updateable {
     private AnsibleExecutor ansibleExecutor;
 
     @Inject
+    private AnsibleRunnerHTTPClient runnerClient;
+
+    @Inject
     private ClusterDao clusterDao;
 
     @Override
     public HostUpgradeManagerResult checkForUpdates(final VDS host) {
         AnsibleReturnValue ansibleReturnValue = null;
         try {
-            AnsibleCommandBuilder command = new AnsibleCommandBuilder()
-                .hostnames(host.getHostName())
+            AnsibleCommandConfig command = new AnsibleCommandConfig()
+                .hosts(host)
                 .checkMode(true)
-                .enableLogging(false)
-                .verboseLevel(AnsibleVerbosity.LEVEL0)
-                .stdoutCallback(AnsibleConstants.HOST_UPGRADE_CALLBACK_PLUGIN)
-                .playbook(AnsibleConstants.HOST_UPGRADE_PLAYBOOK);
+                // /var/log/ovirt-engine/host-deploy/ovirt-host-mgmt-ansible-check-{hostname}-{correlationid}-{timestamp}.log
+                .logFileDirectory(VdsDeployBase.HOST_DEPLOY_LOG_DIRECTORY)
+                .logFilePrefix("ovirt-host-mgmt-ansible-check")
+                .logFileName(host.getHostName())
+                .logFileSuffix(CorrelationIdTracker.getCorrelationId())
+                .playbook(AnsibleConstants.HOST_UPGRADE_PLAYBOOK)
+                .playAction(String.format("Check for update of host %1$s", host.getName()));
 
-            ansibleReturnValue = ansibleExecutor.runCommand(command);
+            List<String> availablePackages = new ArrayList<>();
+            ansibleReturnValue = ansibleExecutor.runCommand(command,
+                    log,
+                    (eventName, eventUrl) -> availablePackages.addAll(runnerClient.getYumPackages(eventUrl)));
+
             if (ansibleReturnValue.getAnsibleReturnCode() != AnsibleReturnCode.OK) {
                 String error = String.format(
                     "Failed to run check-update of host '%1$s'. Error: %2$s",
@@ -76,7 +86,6 @@ public class HostUpgradeManager implements UpdateAvailable, Updateable {
                 throw new RuntimeException(error);
             }
 
-            List<String> availablePackages = JsonHelper.jsonToList(ansibleReturnValue.getStdout());
             boolean updatesAvailable = !availablePackages.isEmpty();
             HostUpgradeManagerResult hostUpgradeManagerResult = new HostUpgradeManagerResult();
             hostUpgradeManagerResult.setUpdatesAvailable(updatesAvailable);
@@ -107,13 +116,11 @@ public class HostUpgradeManager implements UpdateAvailable, Updateable {
                 }
             }
             return hostUpgradeManagerResult;
-        } catch (final IOException e) {
+        } catch (final Exception e) {
             log.error("Failed to read host packages: {}", e.getMessage());
             if (ansibleReturnValue != null) {
                 log.debug("Ansible packages output: {}", ansibleReturnValue.getStdout());
             }
-            throw new RuntimeException(e.getMessage(), e);
-        } catch (final Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
     }
@@ -124,7 +131,7 @@ public class HostUpgradeManager implements UpdateAvailable, Updateable {
     }
 
     @Override
-    public void update(final VDS host) {
+    public void update(final VDS host, int timeout) {
         Cluster cluster = clusterDao.get(host.getClusterId());
         //The number of days allowed before certificate expiration.
         //(less time left than this requires enrolling for new certificate).
@@ -134,18 +141,14 @@ public class HostUpgradeManager implements UpdateAvailable, Updateable {
         //variable will contain a seconds-since-1/1/1970 representation 7 days from the current moment.
         long allowedExpirationDateInSeconds = TimeUnit.MILLISECONDS.toSeconds(
                 CertificationValidityChecker.computeFutureExpirationDate(daysAllowedUntilExpiration).getTimeInMillis());
-        AnsibleCommandBuilder command = new AnsibleCommandBuilder()
-                .hostnames(host.getHostName())
-                // /var/log/ovirt-engine/host-deploy/ovirt-host-mgmt-ansible-{hostname}-{correlationid}-{timestamp}.log
-                .logFileDirectory(VdsDeployBase.HOST_DEPLOY_LOG_DIRECTORY)
-                .logFilePrefix("ovirt-host-mgmt-ansible")
-                .logFileName(host.getHostName())
-                .logFileSuffix(CorrelationIdTracker.getCorrelationId())
+        AnsibleCommandConfig commandConfig = new AnsibleCommandConfig()
+                .hosts(host)
                 .variable("host_deploy_vnc_restart_services", host.getVdsType() == VDSType.VDS)
                 .variable("host_deploy_vnc_tls", String.valueOf(cluster.isVncEncryptionEnabled()))
                 // PKI variables:
                 .variable("ovirt_pki_dir", config.getPKIDir())
                 .variable("ovirt_vds_hostname", host.getHostName())
+                .variable("ovirt_san", CertificateUtils.getSan(host.getHostName()))
                 .variable("ovirt_engine_usr", config.getUsrDir())
                 .variable("ovirt_organizationname", Config.getValue(ConfigValues.OrganizationName))
                 .variable("ovirt_vdscertificatevalidityinyears",
@@ -158,8 +161,20 @@ public class HostUpgradeManager implements UpdateAvailable, Updateable {
                         PKIResources.getCaCertificate()
                                 .toString(PKIResources.Format.OPENSSH_PUBKEY)
                                 .replace("\n", ""))
-                .playbook(AnsibleConstants.HOST_UPGRADE_PLAYBOOK);
-        if (ansibleExecutor.runCommand(command).getAnsibleReturnCode() != AnsibleReturnCode.OK) {
+                .variable("ovirt_qemu_ca_cert", PKIResources.getQemuCaCertificate().toString(PKIResources.Format.X509_PEM))
+                .variable("ovirt_qemu_ca_key",
+                        PKIResources.getQemuCaCertificate()
+                                .toString(PKIResources.Format.OPENSSH_PUBKEY)
+                                .replace("\n", ""))
+                // /var/log/ovirt-engine/host-deploy/ovirt-host-mgmt-ansible-{hostname}-{correlationid}-{timestamp}.log
+                .logFileDirectory(VdsDeployBase.HOST_DEPLOY_LOG_DIRECTORY)
+                .logFilePrefix("ovirt-host-mgmt-ansible")
+                .logFileName(host.getHostName())
+                .logFileSuffix(CorrelationIdTracker.getCorrelationId())
+                .playbook(AnsibleConstants.HOST_UPGRADE_PLAYBOOK)
+                .playAction(String.format("Update of host %1$s", host.getName()));
+
+        if (ansibleExecutor.runCommand(commandConfig, timeout).getAnsibleReturnCode() != AnsibleReturnCode.OK) {
             String error = String.format("Failed to update host '%1$s'.", host.getHostName());
             log.error(error);
             throw new RuntimeException(error);

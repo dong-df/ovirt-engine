@@ -10,10 +10,12 @@ import org.ovirt.engine.core.common.action.VdsActionParameters;
 import org.ovirt.engine.core.common.businessentities.VDSStatus;
 import org.ovirt.engine.core.common.config.Config;
 import org.ovirt.engine.core.common.config.ConfigValues;
-import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandBuilder;
+import org.ovirt.engine.core.common.utils.CertificateUtils;
+import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandConfig;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleConstants;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleExecutor;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleReturnCode;
+import org.ovirt.engine.core.common.utils.ansible.AnsibleReturnValue;
 import org.ovirt.engine.core.utils.CorrelationIdTracker;
 import org.ovirt.engine.core.utils.EngineLocalConfig;
 import org.ovirt.engine.core.utils.PKIResources;
@@ -34,15 +36,11 @@ public class HostEnrollCertificateInternalCommand extends VdsCommand<VdsActionPa
     @Override
     protected void executeCommand() {
         setVdsStatus(VDSStatus.Installing);
-        AnsibleCommandBuilder command = new AnsibleCommandBuilder()
-                .hostnames(getVds().getHostName())
-                // /var/log/ovirt-engine/host-deploy/ovirt-enroll-certs-ansible-{hostname}-{correlationid}-{timestamp}.log
-                .logFileDirectory(VdsDeployBase.HOST_DEPLOY_LOG_DIRECTORY)
-                .logFilePrefix("ovirt-enroll-certs-ansible")
-                .logFileName(getVds().getHostName())
-                .logFileSuffix(CorrelationIdTracker.getCorrelationId())
+        AnsibleCommandConfig commandConfig = new AnsibleCommandConfig()
+                .hosts(getVds())
                 .variable("ovirt_pki_dir", config.getPKIDir())
                 .variable("ovirt_vds_hostname", getVds().getHostName())
+                .variable("ovirt_san", CertificateUtils.getSan(getVds().getHostName()))
                 .variable("ovirt_engine_usr", config.getUsrDir())
                 .variable("ovirt_organizationname", Config.getValue(ConfigValues.OrganizationName))
                 .variable("ovirt_vdscertificatevalidityinyears",
@@ -54,14 +52,25 @@ public class HostEnrollCertificateInternalCommand extends VdsCommand<VdsActionPa
                         PKIResources.getCaCertificate()
                                 .toString(PKIResources.Format.OPENSSH_PUBKEY)
                                 .replace("\n", ""))
+                .variable("ovirt_qemu_ca_cert", PKIResources.getQemuCaCertificate().toString(PKIResources.Format.X509_PEM))
+                .variable("ovirt_qemu_ca_key",
+                        PKIResources.getQemuCaCertificate()
+                                .toString(PKIResources.Format.OPENSSH_PUBKEY)
+                                .replace("\n", ""))
+                // /var/log/ovirt-engine/host-deploy/ovirt-enroll-certs-ansible-{hostname}-{correlationid}-{timestamp}.log
+                .logFileDirectory(VdsDeployBase.HOST_DEPLOY_LOG_DIRECTORY)
+                .logFilePrefix("ovirt-enroll-certs-ansible")
+                .logFileName(getVds().getHostName())
+                .logFileSuffix(CorrelationIdTracker.getCorrelationId())
                 .playbook(AnsibleConstants.HOST_ENROLL_CERTIFICATE);
         setVdsStatus(VDSStatus.Maintenance);
         setSucceeded(true);
-        if (ansibleExecutor.runCommand(command).getAnsibleReturnCode() != AnsibleReturnCode.OK) {
+        AnsibleReturnValue ansibleReturnValue = ansibleExecutor.runCommand(commandConfig);
+        if (ansibleReturnValue.getAnsibleReturnCode() != AnsibleReturnCode.OK) {
             log.error(
                     "Failed to enroll certificate for host '{}': please check log for more details: {}",
                     getVds().getName(),
-                    command.logFile());
+                    ansibleReturnValue.getLogFile());
             setVdsStatus(VDSStatus.InstallFailed);
         }
     }

@@ -87,9 +87,15 @@ public interface CommonApplicationMessages extends Messages {
 
     String migrationSelectInfo();
 
+    String leaseInfoIcon();
+
+    String resumeBehaviorInfoIcon();
+
     String migrationPolicyInfo();
 
     String hostCpuInfo();
+
+    String tscFrequencyInfo();
 
     String hotPlugUnplugCpuWarning();
 
@@ -185,5 +191,9 @@ public interface CommonApplicationMessages extends Messages {
 
     String memoryHotUnplugNotSupportedForCompatibilityVersionAndArchitecture(Version compatibilityVersion,
             ArchitectureType clusterArch);
+
+    String ovaPathInfo();
+
+    String vmGuestCpuTypeWarning(String cpuType);
 }
 

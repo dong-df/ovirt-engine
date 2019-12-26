@@ -30,6 +30,7 @@ import org.ovirt.engine.core.common.action.RemoveDiskParameters;
 import org.ovirt.engine.core.common.action.VmLeaseParameters;
 import org.ovirt.engine.core.common.action.VmOperationParameterBase;
 import org.ovirt.engine.core.common.asynctasks.AsyncTaskType;
+import org.ovirt.engine.core.common.asynctasks.EntityInfo;
 import org.ovirt.engine.core.common.businessentities.OriginType;
 import org.ovirt.engine.core.common.businessentities.Snapshot;
 import org.ovirt.engine.core.common.businessentities.Snapshot.SnapshotType;
@@ -37,6 +38,7 @@ import org.ovirt.engine.core.common.businessentities.StorageDomain;
 import org.ovirt.engine.core.common.businessentities.TagsVmMap;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VMStatus;
+import org.ovirt.engine.core.common.businessentities.VmBackup;
 import org.ovirt.engine.core.common.businessentities.VmPayload;
 import org.ovirt.engine.core.common.businessentities.VmStatic;
 import org.ovirt.engine.core.common.businessentities.network.VmNic;
@@ -57,6 +59,7 @@ import org.ovirt.engine.core.dao.DiskDao;
 import org.ovirt.engine.core.dao.SnapshotDao;
 import org.ovirt.engine.core.dao.StorageDomainDao;
 import org.ovirt.engine.core.dao.TagDao;
+import org.ovirt.engine.core.dao.VmBackupDao;
 import org.ovirt.engine.core.dao.VmStaticDao;
 import org.ovirt.engine.core.dao.network.VmNicDao;
 import org.ovirt.engine.core.utils.transaction.TransactionSuccessListener;
@@ -101,6 +104,8 @@ public abstract class VmCommand<T extends VmOperationParameterBase> extends Comm
     private VmInfoBuildUtils vmInfoBuildUtils;
     @Inject
     private OvfDataUpdater ovfDataUpdater;
+    @Inject
+    private VmBackupDao vmBackupDao;
 
     @Inject
     protected ImagesHandler imagesHandler;
@@ -352,9 +357,7 @@ public abstract class VmCommand<T extends VmOperationParameterBase> extends Comm
      */
     protected boolean isVmNameValidLength(VM vm) {
         int maxLength = Config.<Integer> getValue(ConfigValues.MaxVmNameLength);
-        boolean nameLengthValid = vm.getName().length() <= maxLength;
-
-        return nameLengthValid;
+        return vm.getName().length() <= maxLength;
     }
 
     /**
@@ -510,6 +513,9 @@ public abstract class VmCommand<T extends VmOperationParameterBase> extends Comm
         VmLeaseParameters params = new VmLeaseParameters(getStoragePoolId(), leaseStorageDomainId, vmId);
         params.setParentCommand(getActionType());
         params.setParentParameters(getParameters());
+        if (getParameters().getEntityInfo() == null) {
+            getParameters().setEntityInfo(new EntityInfo(VdcObjectType.VM, vmId));
+        }
         ActionReturnValue returnValue = runInternalActionWithTasksContext(ActionType.RemoveVmLease, params);
         if (returnValue.getSucceeded()) {
             getTaskIdList().addAll(returnValue.getInternalVdsmTaskIdList());
@@ -538,6 +544,9 @@ public abstract class VmCommand<T extends VmOperationParameterBase> extends Comm
         }
         params.setParentCommand(getActionType());
         params.setParentParameters(getParameters());
+        if (getParameters().getEntityInfo() == null) {
+            getParameters().setEntityInfo(new EntityInfo(VdcObjectType.VM, vmId));
+        }
         ActionReturnValue returnValue = runInternalActionWithTasksContext(ActionType.AddVmLease, params);
         if (returnValue.getSucceeded()) {
             getTaskIdList().addAll(returnValue.getInternalVdsmTaskIdList());
@@ -582,5 +591,10 @@ public abstract class VmCommand<T extends VmOperationParameterBase> extends Comm
             return validate(ManagedBlockStorageDomainValidator.isOperationSupportedByManagedBlockStorage(getActionType()));
         }
         return true;
+    }
+
+    public boolean isVmDuringBackup() {
+        List<VmBackup> vmBackups = vmBackupDao.getAllForVm(getVmId());
+        return vmBackups != null && !vmBackups.isEmpty();
     }
 }

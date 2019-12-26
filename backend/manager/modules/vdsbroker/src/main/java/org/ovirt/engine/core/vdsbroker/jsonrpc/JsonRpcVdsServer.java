@@ -11,7 +11,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.commons.httpclient.HttpClient;
+import org.apache.http.impl.client.CloseableHttpClient;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.utils.threadpool.ThreadPoolUtil;
 import org.ovirt.engine.core.vdsbroker.HttpUtils;
@@ -101,9 +101,9 @@ public class JsonRpcVdsServer implements IVdsServer {
 
     private static final Logger logger = LoggerFactory.getLogger(JsonRpcVdsServer.class);
     private final JsonRpcClient client;
-    private final HttpClient httpClient;
+    private final CloseableHttpClient httpClient;
 
-    public JsonRpcVdsServer(JsonRpcClient client, HttpClient httpClient) {
+    public JsonRpcVdsServer(JsonRpcClient client, CloseableHttpClient httpClient) {
         this.client = client;
         this.httpClient = httpClient;
     }
@@ -126,7 +126,7 @@ public class JsonRpcVdsServer implements IVdsServer {
     }
 
     @Override
-    public HttpClient getHttpClient() {
+    public CloseableHttpClient getHttpClient() {
         return this.httpClient;
     }
 
@@ -1648,7 +1648,7 @@ public class JsonRpcVdsServer implements IVdsServer {
                         .withParameter("hookLevel", stage)
                         .withParameter("hookName", hookName)
                         .withParameter("hookData", content)
-                        .withParameter("hookMd5Sum", checksum)
+                        .withParameter("hookChecksum", checksum)
                         .build();
         Map<String, Object> response = new FutureMap(this.client, request);
         return new StatusOnlyReturn(response);
@@ -1666,7 +1666,7 @@ public class JsonRpcVdsServer implements IVdsServer {
                         .withParameter("hookLevel", stage)
                         .withParameter("hookName", hookName)
                         .withParameter("hookData", content)
-                        .withParameter("hookMd5Sum", checksum)
+                        .withParameter("hookChecksum", checksum)
                         .withParameter("enable", enabled)
                         .build();
         Map<String, Object> response = new FutureMap(this.client, request);
@@ -2225,15 +2225,11 @@ public class JsonRpcVdsServer implements IVdsServer {
     }
 
     @Override
-    public GetDisksListReturn startVmBackup(String vmId, String backupId, Map<String, String>[] disks,
-                                            String fromCheckpointId, String toCheckpointId) {
+    public GetDisksListReturn startVmBackup(String vmId, Map<String, Object> backupConfig) {
         JsonRpcRequest request =
                 new RequestBuilder("VM.start_backup")
                         .withParameter("vmID", vmId)
-                        .withParameter("backup_id", backupId)
-                        .withParameter("disks", disks)
-                        .withParameter("from_checkpoint_id", fromCheckpointId)
-                        .withParameter("to_checkpoint_id", toCheckpointId)
+                        .withParameter("config", backupConfig)
                         .build();
         Map<String, Object> response = new FutureMap(this.client, request).withIgnoreResponseKey();
         return new GetDisksListReturn(response);
@@ -2466,6 +2462,7 @@ public class JsonRpcVdsServer implements IVdsServer {
         return new StatusOnlyReturn(response);
     }
 
+    @Override
     public StatusOnlyReturn glusterWebhookSync() {
         JsonRpcRequest request =
                 new RequestBuilder("GlusterEvent.webhookSync").build();

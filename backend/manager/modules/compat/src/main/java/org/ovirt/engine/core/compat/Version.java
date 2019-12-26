@@ -2,6 +2,7 @@ package org.ovirt.engine.core.compat;
 
 import java.io.Serializable;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -18,11 +19,10 @@ public class Version implements Comparable<Version>, Serializable {
     private int revision;
 
     // please note that versions must be in sync with dbscripts/common_sp.sql::fn_db_add_config_value_for_versions_up_to
-    public static final Version v4_1 = new Version(4, 1);
     public static final Version v4_2 = new Version(4, 2);
     public static final Version v4_3 = new Version(4, 3);
     public static final Version v4_4 = new Version(4, 4);
-    public static final List<Version> ALL = Collections.unmodifiableList(Arrays.asList(v4_1, v4_2, v4_3, v4_4));
+    public static final List<Version> ALL = Collections.unmodifiableList(Arrays.asList(v4_2, v4_3, v4_4));
     public static final int VERSION_NOT_SET = -1;
 
     public Version(String value) {
@@ -120,6 +120,13 @@ public class Version implements Comparable<Version>, Serializable {
      */
     public boolean lessOrEquals(Version candidate) {
         return this.compareTo(candidate) <= 0;
+    }
+
+    /**
+     * @return true if this version is within the range of the candidate versions or below it
+     */
+    public boolean lessOrEquals(Collection<Version> candidates) {
+        return candidates.stream().anyMatch(this::lessOrEquals);
     }
 
     public String toString(int i) {

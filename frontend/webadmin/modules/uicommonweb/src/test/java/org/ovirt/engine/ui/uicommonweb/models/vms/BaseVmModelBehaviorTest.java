@@ -16,7 +16,6 @@ import org.ovirt.engine.core.common.businessentities.SerialNumberPolicy;
 import org.ovirt.engine.core.common.businessentities.SsoMethod;
 import org.ovirt.engine.core.common.businessentities.VmBase;
 import org.ovirt.engine.core.common.businessentities.VmResumeBehavior;
-import org.ovirt.engine.ui.uicommonweb.models.EntityModel;
 
 public abstract class BaseVmModelBehaviorTest extends BaseVmTest {
 
@@ -38,9 +37,6 @@ public abstract class BaseVmModelBehaviorTest extends BaseVmTest {
         vm.setVncKeyboardLayout(VNC_KEYBOARD_LAYOUT);
         vm.setDeleteProtected(true);
         vm.setSsoMethod(SsoMethod.GUEST_AGENT);
-        vm.setKernelParams(KERNEL_PARAMS);
-        vm.setKernelUrl(KERNEL_PATH);
-        vm.setInitrdUrl(INITRD_PATH);
         vm.setSerialNumberPolicy(SerialNumberPolicy.CUSTOM);
         vm.setCustomSerialNumber(CUSTOM_SERIAL_NUMBER);
         vm.setSpiceCopyPasteEnabled(true);
@@ -51,6 +47,7 @@ public abstract class BaseVmModelBehaviorTest extends BaseVmTest {
         vm.setSingleQxlPci(true);
         vm.setAutoConverge(true);
         vm.setMigrateCompressed(true);
+        vm.setMigrateEncrypted(true);
         vm.setLargeIconId(LARGE_ICON_ID);
         vm.setSmallIconId(SMALL_ICON_ID);
         vm.setNumOfIoThreads(NUM_OF_IO_THREADS);
@@ -92,7 +89,7 @@ public abstract class BaseVmModelBehaviorTest extends BaseVmTest {
 
         UnitVmModel model = spy(createModel(behavior));
         doReturn(cluster).when(model).getSelectedCluster();
-        doReturn(new EntityModel<>(true)).when(model).getIsSingleQxlEnabled();
+        doReturn(true).when(model).isSingleQxlEnabled();
         model.initialize();
         model.getInstanceImages().setItems(new ArrayList<InstanceImageLineModel>());
 
@@ -127,7 +124,6 @@ public abstract class BaseVmModelBehaviorTest extends BaseVmTest {
 
     /** Verifies {@link org.ovirt.engine.ui.uicommonweb.builders.vm.CoreVmBaseToUnitBuilder} */
     protected void verifyBuiltCore(UnitVmModel model) {
-        verifyBuiltKernelParams(model);
         verifyBuiltSerialNumber(model);
 
         assertTrue(model.getBootMenuEnabled().getEntity());
@@ -138,6 +134,7 @@ public abstract class BaseVmModelBehaviorTest extends BaseVmTest {
         assertTrue(model.getSpiceCopyPasteEnabled().getEntity());
         assertTrue(model.getAutoConverge().getSelectedItem());
         assertTrue(model.getMigrateCompressed().getSelectedItem());
+        assertTrue(model.getMigrateEncrypted().getSelectedItem());
         assertEquals(LARGE_ICON_DATA, model.getIcon().getEntity().getIcon());
         assertEquals(LARGE_OS_DEFAULT_ICON_DATA, model.getIcon().getEntity().getOsDefaultIcon());
         assertEquals(ConsoleDisconnectAction.LOCK_SCREEN, model.getConsoleDisconnectAction().getSelectedItem());
@@ -146,15 +143,8 @@ public abstract class BaseVmModelBehaviorTest extends BaseVmTest {
 
     /** Verifies {@link org.ovirt.engine.ui.uicommonweb.builders.vm.SerialNumberPolicyVmBaseToUnitBuilder} */
     protected void verifyBuiltSerialNumber(UnitVmModel model) {
-        assertEquals(SERIAL_NUMBER_POLICY, model.getSerialNumberPolicy().getSelectedSerialNumberPolicy());
-        assertEquals(CUSTOM_SERIAL_NUMBER, model.getSerialNumberPolicy().getCustomSerialNumber().getEntity());
-    }
-
-    /** Verifies {@link org.ovirt.engine.ui.uicommonweb.builders.vm.KernelParamsVmBaseToUnitBuilder} */
-    protected void verifyBuiltKernelParams(UnitVmModel model) {
-        assertEquals(KERNEL_PARAMS, model.getKernel_parameters().getEntity());
-        assertEquals(KERNEL_PATH, model.getKernel_path().getEntity());
-        assertEquals(INITRD_PATH, model.getInitrd_path().getEntity());
+        assertEquals(SERIAL_NUMBER_POLICY, model.getSerialNumberPolicy().getSelectedItem());
+        assertEquals(CUSTOM_SERIAL_NUMBER, model.getCustomSerialNumber().getEntity());
     }
 
     /** Verifies {@link org.ovirt.engine.ui.uicommonweb.builders.vm.HwOnlyVmBaseToUnitBuilder} */
@@ -163,7 +153,7 @@ public abstract class BaseVmModelBehaviorTest extends BaseVmTest {
         assertEquals(MIN_MEM, (int) model.getMinAllocatedMemory().getEntity());
         assertEquals(USB_POLICY, model.getUsbPolicy().getSelectedItem());
         assertEquals(NUM_OF_MONITORS, (int) model.getNumOfMonitors().getSelectedItem());
-        assertTrue(model.getIsSingleQxlEnabled().getEntity());
+        assertTrue(model.isSingleQxlEnabled());
         assertEquals(BOOT_SEQUENCE, model.getBootSequence());
         assertEquals(Integer.toString(TOTAL_CPU), model.getTotalCPUCores().getEntity());
         assertEquals(NUM_OF_SOCKETS, (int) model.getNumOfSockets().getSelectedItem());

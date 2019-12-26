@@ -113,13 +113,13 @@ public abstract class StorageHandlingCommandBase<T extends StoragePoolParameters
     @Inject
     private  StorageDomainDao storageDomainDao;
     @Inject
-    private  VmTemplateDao vmTemplateDao;
+    protected VmTemplateDao vmTemplateDao;
     @Inject
     private  DiskImageDao diskImageDao;
     @Inject
     private  UnregisteredOVFDataDao unregisteredOVFDataDao;
     @Inject
-    private  VmNicDao vmNicDao;
+    protected VmNicDao vmNicDao;
     @Inject
     private  ClusterDao clusterDao;
     @Inject
@@ -558,11 +558,9 @@ public abstract class StorageHandlingCommandBase<T extends StoragePoolParameters
 
                         getReturnValue().getVdsmTaskIdList().addAll(actionReturnValueReturnValue.getInternalVdsmTaskIdList());
                         if (actionReturnValueReturnValue.getSucceeded()) {
-                            List<OvfEntityData> returnedMap =
-                                    ovfUtils.getOvfEntities(actionReturnValueReturnValue.getActionReturnValue(),
-                                            unregisteredDisks,
-                                            storageDomainId);
-                            return returnedMap;
+                            return ovfUtils.getOvfEntities(actionReturnValueReturnValue.getActionReturnValue(),
+                                    unregisteredDisks,
+                                    storageDomainId);
                         } else {
                             log.error("Image data could not be retrieved for disk id '{}' in storage domain id '{}'",
                                     ovfDisk.getId(),

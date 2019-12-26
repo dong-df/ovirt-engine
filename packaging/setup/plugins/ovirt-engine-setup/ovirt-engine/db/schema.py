@@ -1,18 +1,9 @@
 #
 # ovirt-engine-setup -- ovirt engine setup
-# Copyright (C) 2013-2015 Red Hat, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Copyright oVirt Authors
+# SPDX-License-Identifier: Apache-2.0
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 #
 
 
@@ -21,6 +12,8 @@
 
 import gettext
 import os
+
+import libxml2
 
 from otopi import constants as otopicons
 from otopi import plugin
@@ -31,6 +24,8 @@ from ovirt_engine_setup import constants as osetupcons
 from ovirt_engine_setup.engine import constants as oenginecons
 from ovirt_engine_setup.engine_common import constants as oengcommcons
 from ovirt_engine_setup.engine_common import database
+
+from ovirt_setup_lib import dialog
 
 
 def _(m):
@@ -144,6 +139,108 @@ class Plugin(plugin.PluginBase):
                         s=', '.join(sorted(supported)),
                     )
                 )
+
+    def _checkSnapshotCompatibilityVersion(self):
+        statement = database.Statement(
+            dbenvkeys=oenginecons.Const.ENGINE_DB_ENV_KEYS,
+            environment=self.environment,
+        )
+        supported = set([
+            x.strip()
+            for x in self.environment[
+                osetupcons.CoreEnv.UPGRADE_SUPPORTED_VERSIONS
+            ].split(',')
+            if x.strip()
+        ])
+        snapshots = statement.execute(
+            statement="""
+                select
+                    vms.vm_name,
+                    snapshots.description,
+                    snapshots.vm_configuration
+                from
+                    vms,
+                    snapshots
+                where
+                    snapshots.vm_id=vms.vm_guid
+                    and
+                    snapshot_type='REGULAR'
+            """,
+            ownConnection=True,
+            transaction=False,
+            logResult=False,
+        )
+        old_snapshots = []
+        if snapshots:
+            for snapshot in snapshots:
+                vm_configuration = snapshot['vm_configuration']
+                creation_date = 'UnknownDate'
+                snapshot_cl = 'UnknownLevel'
+                try:
+                    doc = libxml2.parseDoc(vm_configuration)
+                    ctx = doc.xpathNewContext()
+                    ctx.xpathRegisterNs(
+                        'ovf', 'http://schemas.dmtf.org/ovf/envelope/1/'
+                    )
+                    compat_level_nodes = ctx.xpathEval(
+                        "/ovf:Envelope/Content/ClusterCompatibilityVersion"
+                    )
+                    if not compat_level_nodes:
+                        # Didn't find them, probably because in <= 4.2 we
+                        # had a wrong namespace. Try also that one.
+                        ctx.xpathRegisterNs(
+                            'ovf', 'http://schemas.dmtf.org/ovf/envelope/1'
+                        )
+                        compat_level_nodes = ctx.xpathEval(
+                            "/ovf:Envelope/Content/ClusterCompatibilityVersion"
+                        )
+                    creation_date_nodes = ctx.xpathEval(
+                        "/ovf:Envelope/Content/CreationDate"
+                    )
+                    if creation_date_nodes:
+                        creation_date = creation_date_nodes[0].content
+                    if compat_level_nodes:
+                        snapshot_cl = compat_level_nodes[0].content
+                except Exception:
+                    creation_date = 'UnknownDate'
+                    snapshot_cl = 'UnknownLevel'
+                self.logger.debug(
+                    'Found snapshot: %(vm)s:%(snap)s '
+                    'created %(date)s version %(v)s',
+                    {
+                        'vm': snapshot['vm_name'],
+                        'snap': snapshot['description'],
+                        'date': creation_date,
+                        'v': snapshot_cl,
+                    },
+                )
+                if snapshot_cl not in supported:
+                    old_snapshots.append(
+                        '{vm}:{snap} level {v} (created {date})'.format(
+                            vm=snapshot['vm_name'],
+                            snap=snapshot['description'],
+                            date=creation_date,
+                            v=snapshot_cl,
+                        )
+                    )
+            if old_snapshots:
+                if not dialog.queryBoolean(
+                    dialog=self.dialog,
+                    name='OVESETUP_IGNORE_SNAPSHOTS_WITH_OLD_COMPAT_LEVEL',
+                    note=_(
+                        '\nThe following virtual machines have snapshots with '
+                        'older compatibility levels, which are not supported '
+                        'by the version you upgrade to, so you will not be '
+                        'able to use them:\n\n'
+                        '{old_snapshots}\n\n'
+                        'Proceed? (@VALUES@) [@DEFAULT@]: '
+                    ).format(
+                        old_snapshots='\n'.join(old_snapshots),
+                    ),
+                    default=False,
+                    prompt=True,
+                ):
+                    raise RuntimeError(_('Aborted by user'))
 
     def _checkInvalidImages(self):
         statement = database.Statement(
@@ -339,6 +436,7 @@ class Plugin(plugin.PluginBase):
         self._checkDatabaseOwnership()
         self._checkSupportedVersionsPresent()
         self._checkCompatibilityVersion()
+        self._checkSnapshotCompatibilityVersion()
         self._checkInvalidImages()
 
     @plugin.event(

@@ -47,6 +47,7 @@ import org.ovirt.engine.core.common.businessentities.storage.ImageStatus;
 import org.ovirt.engine.core.common.businessentities.storage.ManagedBlockStorageDisk;
 import org.ovirt.engine.core.common.errors.EngineError;
 import org.ovirt.engine.core.common.errors.EngineException;
+import org.ovirt.engine.core.common.job.Job;
 import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dao.DiskDao;
@@ -109,7 +110,11 @@ public abstract class AddVmAndCloneImageCommand<T extends AddVmParameters> exten
                 diskImage.getImageId(), parentCommandType);
         parameters.setRevertDbOperationScope(ImageDbOperationScope.IMAGE);
         ActionReturnValue result = executeChildCopyingCommand(parameters);
-        handleCopyResult(diskImage, newDiskImage, result);
+        if (parameters.getDestImages().isEmpty()) {
+            parameters.getDestImages().add(newDiskImage);
+        }
+
+        handleCopyResult(diskImage, parameters.getDestImages(), result);
     }
 
     @Override
@@ -156,6 +161,8 @@ public abstract class AddVmAndCloneImageCommand<T extends AddVmParameters> exten
         params.setEntityInfo(new EntityInfo(VdcObjectType.VM, getVmId()));
         params.setParentParameters(getParameters());
         params.setParentCommand(parentCommandType);
+        params.setJobWeight(Job.MAX_WEIGHT);
+
         return params;
     }
 
@@ -217,19 +224,19 @@ public abstract class AddVmAndCloneImageCommand<T extends AddVmParameters> exten
      * Handle the result of copying the image
      * @param srcDiskImage
      *            disk image that represents the source image
-     * @param copiedDiskImage
-     *            disk image that represents the copied image
+     * @param copiedDiskImages
+     *            list of disk images that represents the copied images
      * @param result
      *            result of execution of child command
      */
-    private void handleCopyResult(DiskImage srcDiskImage, DiskImage copiedDiskImage, ActionReturnValue result) {
+    private void handleCopyResult(DiskImage srcDiskImage, List<DiskImage> copiedDiskImages, ActionReturnValue result) {
         // If a copy cannot be made, abort
         if (!result.getSucceeded()) {
             throw new EngineException(EngineError.VolumeCreationError);
         } else {
-            imagesHandler.addDiskImageWithNoVmDevice(copiedDiskImage);
+            copiedDiskImages.forEach(diskImage -> imagesHandler.addDiskImageWithNoVmDevice(diskImage));
             getTaskIdList().addAll(result.getInternalVdsmTaskIdList());
-            getSrcDiskIdToTargetDiskIdMapping().put(srcDiskImage.getId(), copiedDiskImage.getId());
+            getSrcDiskIdToTargetDiskIdMapping().put(srcDiskImage.getId(), copiedDiskImages.get(0).getId());
         }
     }
 
@@ -315,7 +322,10 @@ public abstract class AddVmAndCloneImageCommand<T extends AddVmParameters> exten
     protected void executeVmCommand() {
         super.executeVmCommand();
         setVm(null);
-        getVm().setVmtGuid(VmTemplateHandler.BLANK_VM_TEMPLATE_ID);
+        if (getActionType() != ActionType.CloneVmNoCollapse) {
+            getVm().setVmtGuid(VmTemplateHandler.BLANK_VM_TEMPLATE_ID);
+        }
+
         vmStaticDao.update(getVm().getStaticData());
     }
 
@@ -372,7 +382,7 @@ public abstract class AddVmAndCloneImageCommand<T extends AddVmParameters> exten
     }
 
     @Override
-    protected boolean addVmImages() {
+    protected void addVmImages() {
         int numberOfStartedCopyTasks = 0;
         List<DiskImage> cinderDisks = new ArrayList<>();
         List<DiskImage> managedBlockDisks = new ArrayList<>();
@@ -425,7 +435,6 @@ public abstract class AddVmAndCloneImageCommand<T extends AddVmParameters> exten
                 unlockEntities();
             }
         }
-        return true;
     }
 
     private void saveIllegalDisk(final DiskImage diskImage) {

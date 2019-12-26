@@ -61,7 +61,7 @@ public class WidgetTooltip extends WidgetDecorator implements HasCleanup {
 
         // Apply tooltip if the widget is attached to live DOM.
         if (widgetAttached && tooltip != null) {
-            ElementTooltipUtils.setTooltipOnElement(getWidget().getElement(), tooltip, tooltipConfig);
+            ElementTooltipUtils.setOrReplaceTooltipOnElement(getWidget().getElement(), tooltip, tooltipConfig);
         } else if (!widgetAttached) {
             // Destroy tooltip if the widget is detached from live DOM.
             ElementTooltipUtils.destroyTooltip(getWidget().getElement());
@@ -94,6 +94,10 @@ public class WidgetTooltip extends WidgetDecorator implements HasCleanup {
 
     public void setMaxWidth(TooltipWidth width) {
         tooltipConfig.addTooltipClassName(width.getClassName());
+    }
+
+    public void setSanitizeContent(boolean sanitize) {
+        tooltipConfig.setSanitizeContent(sanitize);
     }
 
     public void hide() {

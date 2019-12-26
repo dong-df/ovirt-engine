@@ -33,6 +33,7 @@ import org.ovirt.engine.ui.uicommonweb.models.EntityModel;
 import org.ovirt.engine.ui.uicommonweb.models.ListModel;
 import org.ovirt.engine.ui.uicommonweb.models.Model;
 import org.ovirt.engine.ui.uicommonweb.models.SearchableListModel;
+import org.ovirt.engine.ui.uicommonweb.models.storage.StorageFormatUpgradeConfirmationModel;
 import org.ovirt.engine.ui.uicompat.ConstantsManager;
 import org.ovirt.engine.ui.uicompat.NotifyCollectionChangedEventArgs;
 import org.ovirt.engine.ui.uicompat.PropertyChangedEventArgs;
@@ -110,7 +111,7 @@ public class DataCenterStorageListModel extends SearchableListModel<StoragePool,
         return storageDomainType;
     }
 
-    public void setStorageDomainType(StorageDomainType value) {
+    private void setStorageDomainType(StorageDomainType value) {
         storageDomainType = value;
     }
 
@@ -175,7 +176,7 @@ public class DataCenterStorageListModel extends SearchableListModel<StoragePool,
         Frontend.getInstance().runQuery(QueryType.GetStorageDomainsByStoragePoolId, tempVar, new SetItemsAsyncQuery());
     }
 
-    public void onMaintenance() {
+    private void onMaintenance() {
         final ConfirmationModel confirmationModel = (ConfirmationModel) getWindow();
 
         List<ActionParametersBase> pb = getSelectedItems()
@@ -227,7 +228,7 @@ public class DataCenterStorageListModel extends SearchableListModel<StoragePool,
         Frontend.getInstance().runMultipleAction(ActionType.ActivateStorageDomain, pb);
     }
 
-    public void attachBackup() {
+    private void attachBackup() {
         ListModel listModel = new ListModel();
         listModel.setTitle(ConstantsManager.getInstance().getConstants().attachExportDomainTitle());
         listModel.setHelpTag(HelpTag.attach_export_domain);
@@ -235,7 +236,7 @@ public class DataCenterStorageListModel extends SearchableListModel<StoragePool,
         attachInternal(listModel, StorageDomainType.ImportExport);
     }
 
-    public void attachISO() {
+    private void attachISO() {
         ListModel listModel = new ListModel();
         listModel.setTitle(ConstantsManager.getInstance().getConstants().attachISOLibraryTitle());
         listModel.setHelpTag(HelpTag.attach_iso_library);
@@ -243,7 +244,7 @@ public class DataCenterStorageListModel extends SearchableListModel<StoragePool,
         attachInternal(listModel, StorageDomainType.ISO);
     }
 
-    public void attachStorage() {
+    private void attachStorage() {
         ListModel listModel = new ListModel();
         listModel.setTitle(ConstantsManager.getInstance().getConstants().attachStorageTitle());
         listModel.setHelpTag(HelpTag.attach_storage);
@@ -396,21 +397,41 @@ public class DataCenterStorageListModel extends SearchableListModel<StoragePool,
                         cancel.setIsCancel(true);
                         confirmationModel.getCommands().add(cancel);
                     } else {
-                        executeAttachStorageDomains();
+                        showFormatUpgradeConfirmIfRequired();
                     }
                 }), getEntity(), selectedDataStorageDomains);
     }
 
-    public void onAttachApprove() {
+    private void onAttachApprove() {
         ConfirmationModel model = (ConfirmationModel) getWindow();
         if (!model.validate()) {
             return;
         }
 
-        executeAttachStorageDomains();
+        showFormatUpgradeConfirmIfRequired();
     }
 
-    public void executeAttachStorageDomains() {
+    private void showFormatUpgradeConfirmIfRequired() {
+        StoragePool dc = getEntity();
+
+        StorageFormatUpgradeConfirmationModel model = new StorageFormatUpgradeConfirmationModel();
+        boolean shouldDisplay = model.initialize(
+                selectedStorageDomains, dc,
+                "OnShowFormatUpgrade", //$NON-NLS-1$
+                "Cancel", //$NON-NLS-1$
+                this);
+        if (shouldDisplay) {
+            setConfirmWindow(model);
+            model.setHelpTag(HelpTag.attach_storage_from_dc_confirmation);
+            model.setHashName("attach_storage_from_dc_confirmation"); //$NON-NLS-1$
+        } else {
+            UICommand okCommand = UICommand.createDefaultOkUiCommand(
+                    "OnShowFormatUpgrade", this); //$NON-NLS-1$
+            okCommand.execute();
+        }
+    }
+
+    private void executeAttachStorageDomains() {
         List<ActionParametersBase> pb = selectedStorageDomains
                 .stream()
                 .map(sd -> new AttachStorageDomainToPoolParameters(sd.getId(), getEntity().getId()))
@@ -472,7 +493,7 @@ public class DataCenterStorageListModel extends SearchableListModel<StoragePool,
         return getSelectedItems().stream().anyMatch(sd -> sd.getStorageType() == StorageType.LOCALFS);
     }
 
-    public void onDetach() {
+    private void onDetach() {
         final ConfirmationModel confirmModel = (ConfirmationModel) getWindow();
 
         if (confirmModel.getProgress() != null) {
@@ -514,7 +535,7 @@ public class DataCenterStorageListModel extends SearchableListModel<StoragePool,
         }
     }
 
-    public void postDetach(Model model) {
+    private void postDetach(Model model) {
         Frontend.getInstance().runMultipleAction(ActionType.RemoveStorageDomain, getRemoveParams(),
                 outerResult -> {
 
@@ -533,6 +554,7 @@ public class DataCenterStorageListModel extends SearchableListModel<StoragePool,
     }
 
     public void cancel() {
+        setConfirmWindow(null);
         setWindow(null);
     }
 
@@ -653,6 +675,8 @@ public class DataCenterStorageListModel extends SearchableListModel<StoragePool,
             onDetach();
         } else if ("OnMaintenance".equals(command.getName())) { //$NON-NLS-1$
             onMaintenance();
+        } else if ("OnShowFormatUpgrade".equals(command.getName())) { //$NON-NLS-1$
+            executeAttachStorageDomains();
         } else if ("Cancel".equals(command.getName())) { //$NON-NLS-1$
             cancel();
         }

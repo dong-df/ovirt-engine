@@ -31,7 +31,9 @@ import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.DiskProfileParameters;
 import org.ovirt.engine.core.common.action.StorageDomainParametersBase;
 import org.ovirt.engine.core.common.businessentities.StorageDomain;
+import org.ovirt.engine.core.common.businessentities.StorageDomainDynamic;
 import org.ovirt.engine.core.common.businessentities.StorageDomainSharedStatus;
+import org.ovirt.engine.core.common.businessentities.StorageDomainStatic;
 import org.ovirt.engine.core.common.businessentities.StorageDomainStatus;
 import org.ovirt.engine.core.common.businessentities.StorageDomainType;
 import org.ovirt.engine.core.common.businessentities.StoragePoolIsoMap;
@@ -49,11 +51,13 @@ import org.ovirt.engine.core.common.eventqueue.EventQueue;
 import org.ovirt.engine.core.common.eventqueue.EventType;
 import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.common.vdscommands.GetStorageDomainStatsVDSCommandParameters;
+import org.ovirt.engine.core.common.vdscommands.HSMGetStorageDomainInfoVDSCommandParameters;
 import org.ovirt.engine.core.common.vdscommands.VDSCommandType;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dao.LunDao;
 import org.ovirt.engine.core.dao.StorageDomainDao;
 import org.ovirt.engine.core.dao.StorageDomainDynamicDao;
+import org.ovirt.engine.core.dao.StorageDomainStaticDao;
 import org.ovirt.engine.core.dao.StoragePoolIsoMapDao;
 import org.ovirt.engine.core.dao.VmDao;
 import org.ovirt.engine.core.utils.threadpool.ThreadPoolUtil;
@@ -68,7 +72,7 @@ public abstract class StorageDomainCommandBase<T extends StorageDomainParameters
     @Inject
     private VmDeviceUtils vmDeviceUtils;
     @Inject
-    private DiskProfileHelper diskProfileHelper;
+    protected DiskProfileHelper diskProfileHelper;
     @Inject
     protected LunHelper lunHelper;
     @Inject
@@ -76,11 +80,13 @@ public abstract class StorageDomainCommandBase<T extends StorageDomainParameters
     @Inject
     private LunDao lunDao;
     @Inject
-    private StorageDomainDao storageDomainDao;
+    protected StorageDomainDao storageDomainDao;
     @Inject
     private StorageDomainDynamicDao storageDomainDynamicDao;
     @Inject
-    private VmDao vmDao;
+    protected StorageDomainStaticDao storageDomainStaticDao;
+    @Inject
+    protected VmDao vmDao;
 
     @Inject
     protected ImagesHandler imagesHandler;
@@ -457,17 +463,38 @@ public abstract class StorageDomainCommandBase<T extends StorageDomainParameters
         });
     }
 
-    protected void updateStorageDomainDynamicFromIrs() {
-        final StorageDomain sd =
-                (StorageDomain) runVdsCommand(VDSCommandType.GetStorageDomainStats,
-                        new GetStorageDomainStatsVDSCommandParameters(getVds().getId(),
-                                getStorageDomain().getId()))
-                        .getReturnValue();
+    protected void updateStorageDomainFromIrs() {
+        final StorageDomainDynamic sdDynamicFromIrs = getStorageDomainDynamic();
+        final StorageDomainStatic sdStaticFromIrs = getStorageDomainStatic();
         TransactionSupport.executeInNewTransaction(() -> {
             getCompensationContext().snapshotEntity(getStorageDomain().getStorageDynamicData());
-            storageDomainDynamicDao.update(sd.getStorageDynamicData());
+            // Update storage_domain_dynamic
+            storageDomainDynamicDao.update(sdDynamicFromIrs);
+            // Update storage_domain_static
+            StorageDomainStatic sdStatic = storageDomainStaticDao.get(getStorageDomain().getId());
+            sdStatic.setBlockSize(sdStaticFromIrs.getBlockSize());
+            storageDomainStaticDao.update(sdStatic);
             getCompensationContext().stateChanged();
             return null;
         });
+    }
+
+    private StorageDomainDynamic getStorageDomainDynamic() {
+        return ((StorageDomain) runVdsCommand(
+                VDSCommandType.GetStorageDomainStats,
+                new GetStorageDomainStatsVDSCommandParameters(
+                        getVds().getId(),
+                        getStorageDomain().getId()))
+                                .getReturnValue()).getStorageDynamicData();
+    }
+
+    @SuppressWarnings("unchecked")
+    private StorageDomainStatic getStorageDomainStatic() {
+        return ((Pair<StorageDomainStatic, Guid>) runVdsCommand(
+                VDSCommandType.HSMGetStorageDomainInfo,
+                new HSMGetStorageDomainInfoVDSCommandParameters(
+                        getVds().getId(),
+                        getStorageDomain().getId()))
+                                .getReturnValue()).getFirst();
     }
 }

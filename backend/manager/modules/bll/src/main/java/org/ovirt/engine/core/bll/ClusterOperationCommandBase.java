@@ -18,7 +18,7 @@ import org.ovirt.engine.core.bll.scheduling.SchedulingManager;
 import org.ovirt.engine.core.bll.validator.InClusterUpgradeValidator;
 import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.FeatureSupported;
-import org.ovirt.engine.core.common.action.ManagementNetworkOnClusterOperationParameters;
+import org.ovirt.engine.core.common.action.ClusterOperationParameters;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.LogMaxMemoryUsedThresholdType;
@@ -51,7 +51,7 @@ import org.ovirt.engine.core.dao.network.InterfaceDao;
 import org.ovirt.engine.core.dao.network.NetworkDao;
 import org.ovirt.engine.core.dao.provider.ProviderDao;
 
-public abstract class ClusterOperationCommandBase<T extends ManagementNetworkOnClusterOperationParameters> extends
+public abstract class ClusterOperationCommandBase<T extends ClusterOperationParameters> extends
         ClusterCommandBase<T> {
 
     // If the CPU thresholds are set to -1 then we should get the value from the configuration
@@ -138,11 +138,6 @@ public abstract class ClusterOperationCommandBase<T extends ManagementNetworkOnC
         if (getCluster().getMaxVdsMemoryOverCommit() <= 0) {
             getCluster().setMaxVdsMemoryOverCommit(100);
         }
-    }
-
-    protected boolean isAllowClusterWithVirtGluster() {
-        Boolean allowVirGluster = Config.<Boolean> getValue(ConfigValues.AllowClusterWithVirtGlusterEnabled);
-        return allowVirGluster;
     }
 
     protected boolean validateClusterPolicy(Cluster oldCluster) {

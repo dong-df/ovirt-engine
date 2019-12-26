@@ -41,7 +41,6 @@ import org.ovirt.engine.core.common.businessentities.storage.StorageType;
 import org.ovirt.engine.core.common.businessentities.storage.TransferType;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeFormat;
 import org.ovirt.engine.core.common.config.ConfigValues;
-import org.ovirt.engine.core.common.constants.StorageConstants;
 import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dao.DiskImageDao;
@@ -339,6 +338,7 @@ public class TransferDiskImageCommandTest extends BaseCommandTest {
 
         transferImageCommand.getParameters().setTransferType(TransferType.Upload);
         transferImageCommand.getParameters().setTransferSize(readyImage.getSize());
+        transferImageCommand.getParameters().setTransferringViaBrowser(true);
         transferImageCommand.handleImageIsReadyForTransfer();
 
         assertEquals(transferImageCommand.getParameters().getTransferSize(), readyImage.getSize());
@@ -372,12 +372,12 @@ public class TransferDiskImageCommandTest extends BaseCommandTest {
         DiskImage readyImage = initReadyImageForUpload();
         readyImage.setVolumeFormat(VolumeFormat.COW);
         readyImage.setStorageTypes(Collections.singletonList(StorageType.NFS));
+        readyImage.setSize(65536L);
 
         transferImageCommand.getParameters().setTransferType(TransferType.Upload);
         transferImageCommand.handleImageIsReadyForTransfer();
 
-        assertEquals(transferImageCommand.getParameters().getTransferSize(),
-                Math.ceil(readyImage.getSize() * StorageConstants.QCOW_OVERHEAD_FACTOR));
+        assertTrue(transferImageCommand.getParameters().getTransferSize() >= 327680);
     }
 
     /**********

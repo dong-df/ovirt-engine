@@ -30,9 +30,9 @@ import org.ovirt.engine.core.bll.scheduling.policyunits.HostedEngineMemoryReserv
 import org.ovirt.engine.core.bll.scheduling.policyunits.HugePagesFilterPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.InClusterUpgradeFilterPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.InClusterUpgradeWeightPolicyUnit;
-import org.ovirt.engine.core.bll.scheduling.policyunits.LabelFilterPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.MemoryPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.MigrationPolicyUnit;
+import org.ovirt.engine.core.bll.scheduling.policyunits.MigrationTscFrequencyPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.NetworkPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.NoneBalancePolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.NumaPolicyUnit;
@@ -94,12 +94,12 @@ public class InternalPolicyUnits {
         enabledUnits.add(CompatibilityVersionFilterPolicyUnit.class);
         enabledUnits.add(InClusterUpgradeFilterPolicyUnit.class);
         enabledUnits.add(InClusterUpgradeWeightPolicyUnit.class);
-        enabledUnits.add(LabelFilterPolicyUnit.class);
         enabledUnits.add(VmLeasesReadyFilterPolicyUnit.class);
         enabledUnits.add(BasicWeightSelectorPolicyUnit.class);
         enabledUnits.add(RankSelectorPolicyUnit.class);
         enabledUnits.add(HighPerformanceCpuPolicyUnit.class);
         enabledUnits.add(CpuAndNumaPinningWeightPolicyUnit.class);
+        enabledUnits.add(MigrationTscFrequencyPolicyUnit.class);
     }
 
     public static Collection<Class<? extends PolicyUnitImpl>> getList() {

@@ -438,6 +438,20 @@ public class ImportRepoImageCommand<T extends ImportRepoImageParameters> extends
         if (!validate(createDiskImagesValidator(diskImage).isQcowVersionSupportedForDcVersion())) {
             return false;
         }
+
+        Guid domainStoragePoolId = getStorageDomain().getStoragePoolId();
+        if (!getStoragePoolId().equals(domainStoragePoolId)) {
+            return failValidation(EngineMessage.ACTION_TYPE_FAILED_STORAGE_DOMAIN_BELONGS_TO_DIFFERENT_STORAGE_POOL,
+                    String.format("$datacenter %s", domainStoragePoolId));
+        }
+
+        if (getCluster() != null) {
+            Guid clusterStoragePoolId = getCluster().getStoragePoolId();
+            if (!domainStoragePoolId.equals(clusterStoragePoolId)) {
+                return failValidation(EngineMessage.ACTION_TYPE_FAILED_STORAGE_DOMAIN_AND_CLUSTER_IN_DIFFERENT_POOL);
+            }
+        }
+
         return validateSpaceRequirements(diskImage);
     }
 

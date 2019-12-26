@@ -11,6 +11,7 @@ import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VmwareVmProviderProperties;
 import org.ovirt.engine.core.common.businessentities.XENVmProviderProperties;
+import org.ovirt.engine.ui.common.CommonApplicationMessages;
 import org.ovirt.engine.ui.common.CommonApplicationTemplates;
 import org.ovirt.engine.ui.common.editor.UiCommonEditorDriver;
 import org.ovirt.engine.ui.common.idhandler.WithElementId;
@@ -19,6 +20,7 @@ import org.ovirt.engine.ui.common.widget.Align;
 import org.ovirt.engine.ui.common.widget.EntityModelWidgetWithInfo;
 import org.ovirt.engine.ui.common.widget.UiCommandButton;
 import org.ovirt.engine.ui.common.widget.VerticalSplitTable;
+import org.ovirt.engine.ui.common.widget.dialog.InfoIcon;
 import org.ovirt.engine.ui.common.widget.dialog.SimpleDialogPanel;
 import org.ovirt.engine.ui.common.widget.editor.EntityModelCellTable;
 import org.ovirt.engine.ui.common.widget.editor.ListModelListBoxEditor;
@@ -34,6 +36,7 @@ import org.ovirt.engine.ui.common.widget.renderer.NullSafeRenderer;
 import org.ovirt.engine.ui.common.widget.table.column.AbstractTextColumn;
 import org.ovirt.engine.ui.uicommonweb.models.EntityModel;
 import org.ovirt.engine.ui.uicommonweb.models.ListModel;
+import org.ovirt.engine.ui.uicommonweb.models.OvaVmModel;
 import org.ovirt.engine.ui.uicommonweb.models.vms.ImportSource;
 import org.ovirt.engine.ui.uicommonweb.models.vms.ImportVmsModel;
 import org.ovirt.engine.ui.uicompat.ConstantsManager;
@@ -166,10 +169,13 @@ public class ImportVmsPopupView extends AbstractModelBoundPopupView<ImportVmsMod
     @WithElementId("hosts")
     ListModelListBoxEditor<VDS> hostsEditor;
 
+    @UiField(provided = true)
+    public InfoIcon ovaPathInfoIcon;
+
     @UiField
     @Path("ovaPath.entity")
     @WithElementId("ovaPath")
-    StringEntityModelTextBoxEditor ovaPathEditor;
+    StringEntityModelTextBoxOnlyEditor ovaPathEditor;
 
     @Path("xenUri.entity")
     @WithElementId("xenUri")
@@ -246,6 +252,7 @@ public class ImportVmsPopupView extends AbstractModelBoundPopupView<ImportVmsMod
 
     private static final ApplicationConstants constants = AssetProvider.getConstants();
     private static final CommonApplicationTemplates templates = AssetProvider.getTemplates();
+    private static final CommonApplicationMessages messages = AssetProvider.getMessages();
 
     @Inject
     public ImportVmsPopupView(EventBus eventBus) {
@@ -333,6 +340,8 @@ public class ImportVmsPopupView extends AbstractModelBoundPopupView<ImportVmsMod
                         importedVms,
                         constants.externalVms(),
                         constants.importedVms());
+
+        ovaPathInfoIcon = new InfoIcon(templates.italicText(messages.ovaPathInfo()));
         initWidget(ViewUiBinder.uiBinder.createAndBindUi(this));
         initEntityModelCellTables();
 
@@ -343,14 +352,20 @@ public class ImportVmsPopupView extends AbstractModelBoundPopupView<ImportVmsMod
         externalVms.addColumn(new AbstractTextColumn<EntityModel<VM>>() {
             @Override
             public String getValue(EntityModel<VM> externalVmModel) {
+                if (externalVmModel instanceof OvaVmModel && ((OvaVmModel) externalVmModel).getOvaFileName() != null) {
+                    return externalVmModel.getEntity().getName() + " (" + ((OvaVmModel) externalVmModel).getOvaFileName() + ")"; //$NON-NLS-1$ //$NON-NLS-2$
+                }
                 return externalVmModel.getEntity().getName();
             }
         }, constants.name());
 
         importedVms.addColumn(new AbstractTextColumn<EntityModel<VM>>() {
             @Override
-            public String getValue(EntityModel<VM> externalVmModel) {
-                return externalVmModel.getEntity().getName();
+            public String getValue(EntityModel<VM> importedVmModel) {
+                if (importedVmModel instanceof OvaVmModel && ((OvaVmModel) importedVmModel).getOvaFileName() != null) {
+                    return importedVmModel.getEntity().getName() + " (" + ((OvaVmModel) importedVmModel).getOvaFileName() + ")"; //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                return importedVmModel.getEntity().getName();
             }
         }, constants.name());
     }
@@ -379,6 +394,7 @@ public class ImportVmsPopupView extends AbstractModelBoundPopupView<ImportVmsMod
 
     private void updateErrorAndWarning(ImportVmsModel model) {
         errorRow.setVisible(false);
+        enableDefaultCommand(model, true);
         String message = model.getProblemDescription().getEntity();
         if (message == null) {
             return;
@@ -387,6 +403,7 @@ public class ImportVmsPopupView extends AbstractModelBoundPopupView<ImportVmsMod
             errorMessage.setType(AlertType.WARNING);
         } else {
             errorMessage.setType(AlertType.DANGER);
+            enableDefaultCommand(model, false);
         }
         errorMessage.setText(message);
         errorRow.setVisible(true);
@@ -436,5 +453,11 @@ public class ImportVmsPopupView extends AbstractModelBoundPopupView<ImportVmsMod
     @Override
     public HasEnabled getLoadKvmButton() {
         return loadKvmButton;
+    }
+
+    private void enableDefaultCommand(ImportVmsModel model, boolean enable) {
+        if (model.getDefaultCommand() != null) {
+            model.getDefaultCommand().setIsExecutionAllowed(enable);
+        }
     }
 }

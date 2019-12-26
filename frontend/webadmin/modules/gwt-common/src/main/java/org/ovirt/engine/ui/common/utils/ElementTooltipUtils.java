@@ -75,6 +75,25 @@ public final class ElementTooltipUtils {
     }
 
     /**
+     * Apply tooltip on the given element or replace existing text if tooltip already exists
+     */
+    public static void setOrReplaceTooltipOnElement(Element e, SafeHtml tooltip, TooltipConfig config) {
+
+        // Try not to set the same tooltip again.
+        if (sameTooltipOnElement(e, tooltip)) {
+            return;
+        }
+
+        // if tooltip already exists, just replace the text
+        if (hasTooltip(e)) {
+            replaceTooltipContent(e, getTooltipHtmlString(tooltip));
+            return;
+        }
+
+        setTooltipOnElement(e, tooltip, config);
+    }
+
+    /**
      * Apply tooltip on the given element.
      */
     public static void setTooltipOnElement(Element e, SafeHtml tooltip, TooltipConfig config) {
@@ -97,7 +116,8 @@ public final class ElementTooltipUtils {
             createTooltipImpl(e, tooltipHtmlString,
                     placement,
                     config.getTooltipTemplate(),
-                    config.isForceShow());
+                    config.isForceShow(),
+                    config.isSanitizeContent());
 
             // Update reaper lists.
             if (config.isForCellWidgetElement()) {
@@ -117,6 +137,13 @@ public final class ElementTooltipUtils {
     private static String getTooltipHtmlString(SafeHtml tooltip) {
         return (tooltip != null) ? tooltip.asString() : "";
     }
+
+    private static native void replaceTooltipContent(Element element, String html) /*-{
+        var $e = $wnd.jQuery(element);
+        $e.attr('data-tooltip-content', html);
+        $e.attr('data-original-title', html);
+
+    }-*/;
 
     private static native void replaceTooltipContent(String elementId, String html) /*-{
         var $e = $wnd.jQuery('#' + elementId);
@@ -145,7 +172,7 @@ public final class ElementTooltipUtils {
         return $wnd.jQuery(e).attr('rel') === 'tooltip';
     }-*/;
 
-    private static native void createTooltipImpl(Element e, String html, String placement, String template, boolean forceShow) /*-{
+    private static native void createTooltipImpl(Element e, String html, String placement, String template, boolean forceShow, boolean sanitize) /*-{
         var $e = $wnd.jQuery(e);
 
         // `rel=tooltip` identifies a tooltipped element.
@@ -165,7 +192,8 @@ public final class ElementTooltipUtils {
             title: html,
             html: true,
             placement: placement,
-            template: template
+            template: template,
+            sanitize: sanitize
         });
 
         if (forceShow) {

@@ -61,7 +61,6 @@ import org.ovirt.engine.core.common.queries.QueryType;
 import org.ovirt.engine.core.common.queries.SearchParameters;
 import org.ovirt.engine.core.common.utils.pm.FenceProxySourceTypeHelper;
 import org.ovirt.engine.core.compat.Guid;
-import org.ovirt.engine.core.compat.RpmVersion;
 import org.ovirt.engine.core.compat.StringHelper;
 import org.ovirt.engine.core.searchbackend.SearchObjects;
 import org.ovirt.engine.ui.frontend.Frontend;
@@ -75,7 +74,6 @@ import org.ovirt.engine.ui.uicommonweb.Uri;
 import org.ovirt.engine.ui.uicommonweb.dataprovider.AsyncDataProvider;
 import org.ovirt.engine.ui.uicommonweb.help.HelpTag;
 import org.ovirt.engine.ui.uicommonweb.models.ConfirmationModel;
-import org.ovirt.engine.ui.uicommonweb.models.EntityModel;
 import org.ovirt.engine.ui.uicommonweb.models.HasEntity;
 import org.ovirt.engine.ui.uicommonweb.models.HostErrataCountModel;
 import org.ovirt.engine.ui.uicommonweb.models.HostMaintenanceConfirmationModel;
@@ -515,8 +513,6 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
         getSearchNextPageCommand().setIsAvailable(true);
         getSearchPreviousPageCommand().setIsAvailable(true);
 
-        getSelectedItemChangedEvent().addListener((ev, sender, args) -> updateAvailableOvirtNodeUpgrades());
-
         getItemsChangedEvent().addListener((ev, sender, args) -> hostAffinityLabelListModel.loadEntitiesNameMap());
     }
 
@@ -923,12 +919,6 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
             parameters.setOverrideFirewall(model.getOverrideIpTables().getEntity());
             parameters.setAuthMethod(model.getAuthenticationMethod());
 
-            Provider<?> networkProvider = model.getNetworkProviders().getSelectedItem();
-            if (networkProvider != null) {
-                parameters.getVdsStaticData().setOpenstackNetworkProviderId(networkProvider.getId());
-                parameters.setNetworkMappings(model.getInterfaceMappings().getEntity());
-            }
-
             if (model.getProviders().getSelectedItem() != null) {
                 parameters.getVdsStaticData().setHostProviderId(model.getProviders().getSelectedItem().getId());
             }
@@ -948,6 +938,7 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
 
             parameters.setHostedEngineDeployConfiguration(
                     new HostedEngineDeployConfiguration(model.getHostedEngineHostModel().getSelectedItem()));
+            parameters.setAffinityGroups(model.getAffinityGroupList().getSelectedItems());
             parameters.setAffinityLabels(model.getLabelList().getSelectedItems());
             parameters.setActivateHost(model.getActivateHostAfterInstall().getEntity());
 
@@ -968,6 +959,7 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
             parameters.setInstallHost(false);
             parameters.setAuthMethod(model.getAuthenticationMethod());
             parameters.setFenceAgents(model.getFenceAgentListModel().getFenceAgents());
+            parameters.setAffinityGroups(model.getAffinityGroupList().getSelectedItems());
             parameters.setAffinityLabels(model.getLabelList().getSelectedItems());
             if (model.getExternalHostProviderEnabled().getEntity() && model.getProviders().getSelectedItem() != null) {
                 host.setHostProviderId(model.getProviders().getSelectedItem().getId());
@@ -1297,20 +1289,21 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
     }
 
     public void approve() {
-        HostModel hostModel = new EditHostModel();
+        EditHostModel hostModel = new EditHostModel();
         setWindow(hostModel);
+        VDS host = getSelectedItem();
+
         AsyncDataProvider.getInstance().getDataCenterList(new AsyncQuery<>(dataCenters -> {
-            HostModel innerHostModel = (HostModel) getWindow();
-            VDS host = getSelectedItem();
-            innerHostModel.updateModelFromVds(host, dataCenters, false);
-            innerHostModel.setTitle(ConstantsManager.getInstance().getConstants().editAndApproveHostTitle());
-            innerHostModel.setHelpTag(HelpTag.edit_and_approve_host);
-            innerHostModel.setHashName("edit_and_approve_host"); //$NON-NLS-1$
+            hostModel.setSelectedCluster(host);
+            hostModel.updateModelFromVds(host, dataCenters, false);
+            hostModel.setTitle(ConstantsManager.getInstance().getConstants().editAndApproveHostTitle());
+            hostModel.setHelpTag(HelpTag.edit_and_approve_host);
+            hostModel.setHashName("edit_and_approve_host"); //$NON-NLS-1$
 
             UICommand tempVar = UICommand.createDefaultOkUiCommand("OnApprove", HostListModel.this); //$NON-NLS-1$
-            innerHostModel.getCommands().add(tempVar);
+            hostModel.getCommands().add(tempVar);
             UICommand tempVar2 = UICommand.createCancelUiCommand("Cancel", HostListModel.this); //$NON-NLS-1$
-            innerHostModel.getCommands().add(tempVar2);
+            hostModel.getCommands().add(tempVar2);
         }));
     }
 
@@ -1362,11 +1355,6 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
         final VDS host = getSelectedItem();
         InstallModel model = (InstallModel) getWindow();
 
-        if (!model.validate(host.isOvirtVintageNode())) {
-            model.setValidationFailed(new EntityModel<>(true));
-            return;
-        }
-
         final UpdateVdsActionParameters param = new UpdateVdsActionParameters();
         param.setvds(host);
         param.setVdsId(host.getId());
@@ -1380,14 +1368,6 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
         param.setFenceAgents(null);  // Explicitly set null, to be clear we don't want to update fence agents.
         param.setHostedEngineDeployConfiguration(
                 new HostedEngineDeployConfiguration(model.getHostedEngineHostModel().getSelectedItem()));
-
-        Provider<?> networkProvider = (Provider<?>) model.getNetworkProviders().getSelectedItem();
-        if (networkProvider == null) {
-            param.getVdsStaticData().setOpenstackNetworkProviderId(null);
-        } else {
-            param.getVdsStaticData().setOpenstackNetworkProviderId(networkProvider.getId());
-            param.setNetworkMappings((String) model.getInterfaceMappings().getEntity());
-        }
 
         AsyncDataProvider.getInstance().getClusterById(new AsyncQuery<>(returnValue -> Frontend.getInstance().runAction(
                 ActionType.InstallVds,
@@ -1438,7 +1418,7 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
     public void restart(String uiCommand) {
         final UIConstants constants = ConstantsManager.getInstance().getConstants();
         final UIMessages messages = ConstantsManager.getInstance().getMessages();
-        ConfirmationModel model = new ConfirmationModel();
+        HostRestartConfirmationModel model = new HostRestartConfirmationModel();
         setConfirmWindow(model);
         model.setTitle(constants.restartHostsTitle());
         model.setHelpTag(HelpTag.restart_host);
@@ -1520,7 +1500,7 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
     }
 
     public void onRestart() {
-        ConfirmationModel model = (ConfirmationModel) getConfirmWindow();
+        HostRestartConfirmationModel model = (HostRestartConfirmationModel) getConfirmWindow();
 
         if (model.getProgress() != null) {
             return;
@@ -1529,14 +1509,15 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
         ArrayList<ActionParametersBase> list = new ArrayList<>();
         for (Object item : getSelectedItems()) {
             VDS vds = (VDS) item;
-            list.add(new FenceVdsActionParameters(vds.getId()));
+            FenceVdsActionParameters parameters = new FenceVdsActionParameters(vds.getId());
+            parameters.setChangeHostToMaintenanceOnStart(model.getForceToMaintenance().getEntity());
+            list.add(parameters);
         }
 
         model.startProgress();
 
         Frontend.getInstance().runMultipleAction(ActionType.RestartVds, list,
                 result -> {
-
                     ConfirmationModel localModel = (ConfirmationModel) result.getState();
                     localModel.stopProgress();
                     cancelConfirm();
@@ -1604,9 +1585,6 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
     }
 
     private void configureLocalStorage() {
-
-        VDS host = getSelectedItem();
-
         if (getWindow() != null) {
             return;
         }
@@ -1616,21 +1594,6 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
         model.setTitle(ConstantsManager.getInstance().getConstants().configureLocalStorageTitle());
         model.setHelpTag(HelpTag.configure_local_storage);
         model.setHashName("configure_local_storage"); //$NON-NLS-1$
-
-        if (host.isOvirtVintageNode()) {
-            configureLocalStorage2(model);
-        } else {
-            configureLocalStorage3(model);
-        }
-    }
-
-    private void configureLocalStorage2(ConfigureLocalStorageModel model) {
-        String prefix = (String) AsyncDataProvider.getInstance().getConfigValuePreConverted(ConfigValues.RhevhLocalFSPath);
-        if (StringHelper.isNotNullOrEmpty(prefix)) {
-            EntityModel<String> pathModel = model.getStorage().getPath();
-            pathModel.setEntity(prefix);
-            pathModel.setIsChangeable(false);
-        }
 
         configureLocalStorage3(model);
     }
@@ -1775,19 +1738,6 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
         updateActionAvailability();
     }
 
-    private void updateAvailableOvirtNodeUpgrades() {
-        final VDS host = getSelectedItem();
-        if (host == null) {
-            return;
-        }
-
-        if (!host.isOvirtVintageNode()) {
-            return;
-        }
-
-        AsyncDataProvider.getInstance().getoVirtISOsList(new AsyncQuery<List<RpmVersion>>(), host.getId());
-    }
-
     @Override
     protected void selectedItemsChanged() {
         super.selectedItemsChanged();
@@ -1820,11 +1770,9 @@ public class HostListModel<E> extends ListWithSimpleDetailsModel<E, VDS> impleme
         getActivateCommand().setIsExecutionAllowed(items.size() > 0
                 && ActionUtils.canExecute(items, VDS.class, ActionType.ActivateVds));
 
-        // or special case where its installation failed but its oVirt node
         boolean approveAvailability =
                 items.size() == 1
-                        && (ActionUtils.canExecute(items, VDS.class, ActionType.ApproveVds) || (items.get(0)
-                                .getStatus() == VDSStatus.InstallFailed && items.get(0).isOvirtVintageNode()));
+                        && (ActionUtils.canExecute(items, VDS.class, ActionType.ApproveVds));
         getApproveCommand().setIsExecutionAllowed(approveAvailability);
 
         boolean installAvailability = false;

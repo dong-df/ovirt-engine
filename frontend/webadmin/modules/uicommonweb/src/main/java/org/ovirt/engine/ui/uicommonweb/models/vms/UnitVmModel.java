@@ -3,6 +3,8 @@ package org.ovirt.engine.ui.uicommonweb.models.vms;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -10,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
 import org.ovirt.engine.core.common.businessentities.BiosType;
@@ -42,11 +45,13 @@ import org.ovirt.engine.core.common.businessentities.VmTemplate;
 import org.ovirt.engine.core.common.businessentities.VmType;
 import org.ovirt.engine.core.common.businessentities.VmWatchdogAction;
 import org.ovirt.engine.core.common.businessentities.VmWatchdogType;
+import org.ovirt.engine.core.common.businessentities.comparators.LexoNumericNameableComparator;
 import org.ovirt.engine.core.common.businessentities.profiles.CpuProfile;
 import org.ovirt.engine.core.common.businessentities.storage.RepoImage;
 import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.migration.MigrationPolicy;
 import org.ovirt.engine.core.common.migration.NoMigrationPolicy;
+import org.ovirt.engine.core.common.scheduling.AffinityGroup;
 import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.common.utils.VmCommonUtils;
 import org.ovirt.engine.core.compat.Guid;
@@ -64,6 +69,7 @@ import org.ovirt.engine.ui.uicommonweb.models.HasEntity;
 import org.ovirt.engine.ui.uicommonweb.models.HasValidatedTabs;
 import org.ovirt.engine.ui.uicommonweb.models.ListModel;
 import org.ovirt.engine.ui.uicommonweb.models.Model;
+import org.ovirt.engine.ui.uicommonweb.models.SortedListModel;
 import org.ovirt.engine.ui.uicommonweb.models.TabName;
 import org.ovirt.engine.ui.uicommonweb.models.ValidationCompleteEvent;
 import org.ovirt.engine.ui.uicommonweb.models.hosts.numa.NumaSupportModel;
@@ -78,7 +84,6 @@ import org.ovirt.engine.ui.uicommonweb.validation.IValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.IconWithOsDefaultValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.IntegerValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.LengthValidation;
-import org.ovirt.engine.ui.uicommonweb.validation.NoTrimmingWhitespacesValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.NotEmptyQuotaValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.NotEmptyValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.NotNullIntegerValidation;
@@ -89,15 +94,19 @@ import org.ovirt.engine.ui.uicompat.Event;
 import org.ovirt.engine.ui.uicompat.EventArgs;
 import org.ovirt.engine.ui.uicompat.PropertyChangedEventArgs;
 import org.ovirt.engine.ui.uicompat.UIConstants;
+import org.ovirt.engine.ui.uicompat.UIMessages;
 
 public class UnitVmModel extends Model implements HasValidatedTabs {
 
     public static final int VM_TEMPLATE_AND_INSTANCE_TYPE_NAME_MAX_LIMIT = 40;
     public static final int DESCRIPTION_MAX_LIMIT = 255;
 
-    final UIConstants constants = ConstantsManager.getInstance().getConstants();
+    static final UIConstants constants = ConstantsManager.getInstance().getConstants();
+    static final UIMessages messages = ConstantsManager.getInstance().getMessages();
 
     private boolean privateIsNew;
+
+    private boolean privateIsClone;
 
     private EntityModel<Boolean> valid;
 
@@ -169,6 +178,14 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     public void setIsNew(boolean value) {
         privateIsNew = value;
+    }
+
+    public boolean getIsClone() {
+        return privateIsClone;
+    }
+
+    public void setIsClone(boolean value) {
+        privateIsClone = value;
     }
 
     private boolean vmAttachedToPool;
@@ -243,6 +260,16 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         this.icon = icon;
     }
 
+    private boolean singleQxlEnabled;
+
+    public boolean isSingleQxlEnabled() {
+        return singleQxlEnabled;
+    }
+
+    public void setSingleQxlEnabled(boolean value) {
+        singleQxlEnabled = value;
+    }
+
     /**
      * Note: We assume that this method is called only once, on the creation stage of the model. if this assumption is
      * changed (i.e the VM can attached/detached from a pool after the model is created), this method should be modified
@@ -293,7 +320,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             getConsoleDisconnectAction().setIsChangeable(false);
             getResumeBehavior().setIsChangeable(false);
             getNumOfMonitors().setIsChangeable(false);
-            getIsSingleQxlEnabled().setIsChangeable(false);
             getIsSmartcardEnabled().setIsChangeable(false);
             getAllowConsoleReconnect().setIsChangeable(false);
             getVncKeyboardLayout().setIsChangeable(false);
@@ -307,7 +333,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             getMigrationMode().setIsChangeable(false);
             getCpuPinning().setIsChangeable(false);
             getMigrationDowntime().setIsChangeable(false);
-            getOverrideMigrationPolicy().setIsChangeable(false);
             getMigrationPolicies().setIsChangeable(false);
             getCustomCompatibilityVersion().setIsChangeable(false);
 
@@ -324,9 +349,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             getSecondBootDevice().setIsChangeable(false);
             getCdAttached().setIsChangeable(false);
             getCdImage().setIsChangeable(false);
-            getKernel_path().setIsChangeable(false);
-            getInitrd_path().setIsChangeable(false);
-            getKernel_parameters().setIsChangeable(false);
 
             // ==Random Generator Tab==
             getIsRngEnabled().setIsChangeable(false);
@@ -526,17 +548,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
     private void setNumOfMonitors(NotChangableForVmInPoolListModel<Integer> value) {
         privateNumOfMonitors = value;
     }
-
-    private NotChangableForVmInPoolEntityModel<Boolean> privateIsSingleQxlEnabled;
-
-    public EntityModel<Boolean> getIsSingleQxlEnabled() {
-        return privateIsSingleQxlEnabled;
-    }
-
-    private void setIsSingleQxlEnabled(NotChangableForVmInPoolEntityModel<Boolean> value) {
-        privateIsSingleQxlEnabled = value;
-    }
-
 
     private NotChangableForVmInPoolEntityModel<Boolean> privateAllowConsoleReconnect;
 
@@ -1095,13 +1106,13 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         privateSecondBootDevice = value;
     }
 
-    private NotChangableForVmInPoolListModel<RepoImage> privateCdImage;
+    private NotChangableForVmInPoolSortedListModel<RepoImage> privateCdImage;
 
     public ListModel<RepoImage> getCdImage() {
         return privateCdImage;
     }
 
-    private void setCdImage(NotChangableForVmInPoolListModel<RepoImage> value) {
+    private void setCdImage(NotChangableForVmInPoolSortedListModel<RepoImage> value) {
         privateCdImage = value;
     }
 
@@ -1123,36 +1134,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     public void setCdAttached(NotChangableForVmInPoolEntityModel<Boolean> value) {
         cdAttached = value;
-    }
-
-    private NotChangableForVmInPoolEntityModel<String> privateInitrd_path;
-
-    public EntityModel<String> getInitrd_path() {
-        return privateInitrd_path;
-    }
-
-    private void setInitrd_path(NotChangableForVmInPoolEntityModel<String> value) {
-        privateInitrd_path = value;
-    }
-
-    private NotChangableForVmInPoolEntityModel<String> privateKernel_path;
-
-    public EntityModel<String> getKernel_path() {
-        return privateKernel_path;
-    }
-
-    private void setKernel_path(NotChangableForVmInPoolEntityModel<String> value) {
-        privateKernel_path = value;
-    }
-
-    private NotChangableForVmInPoolEntityModel<String> privateKernel_parameters;
-
-    public EntityModel<String> getKernel_parameters() {
-        return privateKernel_parameters;
-    }
-
-    private void setKernel_parameters(NotChangableForVmInPoolEntityModel<String> value) {
-        privateKernel_parameters = value;
     }
 
     private NotChangableForVmInPoolEntityModel<String> privateCustomProperties;
@@ -1246,6 +1227,16 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         this.hostCpu = hostCpu;
     }
 
+    private EntityModel<Boolean> tscFrequency;
+
+    public EntityModel<Boolean> getTscFrequency() {
+        return tscFrequency;
+    }
+
+    public void setTscFrequency(EntityModel<Boolean> tscFrequency) {
+        this.tscFrequency = tscFrequency;
+    }
+
     private NotChangableForVmInPoolListModel<MigrationSupport> migrationMode;
 
     public ListModel<MigrationSupport> getMigrationMode() {
@@ -1256,43 +1247,23 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         migrationMode = value;
     }
 
-    private NotChangableForVmInPoolEntityModel<Boolean> overrideMigrationDowntime;
-
-    public EntityModel<Boolean> getOverrideMigrationDowntime() {
-        return overrideMigrationDowntime;
-    }
-
-    private void setOverrideMigrationDowntime(NotChangableForVmInPoolEntityModel<Boolean> value) {
-        overrideMigrationDowntime = value;
-    }
-
-    private ListModel<MigrationPolicy> migrationPolicies;
+    private ListModelWithClusterDefault<MigrationPolicy> migrationPolicies;
 
     public ListModel<MigrationPolicy> getMigrationPolicies() {
         return migrationPolicies;
     }
 
-    public void setMigrationPolicies(ListModel<MigrationPolicy> migrationPolicies) {
+    public void setMigrationPolicies(ListModelWithClusterDefault<MigrationPolicy> migrationPolicies) {
         this.migrationPolicies = migrationPolicies;
     }
 
-    private EntityModel<Boolean> overrideMigrationPolicy;
+    private NotChangableForVmInPoolListModel<Integer> migrationDowntime;
 
-    public EntityModel<Boolean> getOverrideMigrationPolicy() {
-        return overrideMigrationPolicy;
-    }
-
-    public void setOverrideMigrationPolicy(EntityModel<Boolean> overrideMigrationPolicy) {
-        this.overrideMigrationPolicy = overrideMigrationPolicy;
-    }
-
-    private NotChangableForVmInPoolEntityModel<Integer> migrationDowntime;
-
-    public EntityModel<Integer> getMigrationDowntime() {
+    public ListModel<Integer> getMigrationDowntime() {
         return migrationDowntime;
     }
 
-    private void setMigrationDowntime(NotChangableForVmInPoolEntityModel<Integer> value) {
+    private void setMigrationDowntime(NotChangableForVmInPoolListModel<Integer> value) {
         migrationDowntime = value;
     }
 
@@ -1412,14 +1383,24 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         this.vncKeyboardLayout = vncKeyboardLayout;
     }
 
-    private SerialNumberPolicyModel serialNumberPolicy;
+    private ListModelWithClusterDefault<SerialNumberPolicy> serialNumberPolicy;
 
-    public SerialNumberPolicyModel getSerialNumberPolicy() {
+    public ListModel<SerialNumberPolicy> getSerialNumberPolicy() {
         return serialNumberPolicy;
     }
 
-    public void setSerialNumberPolicy(SerialNumberPolicyModel value) {
+    public void setSerialNumberPolicy(ListModelWithClusterDefault<SerialNumberPolicy> value) {
         this.serialNumberPolicy = value;
+    }
+
+    private EntityModel<String> customSerialNumber;
+
+    public EntityModel<String> getCustomSerialNumber() {
+        return customSerialNumber;
+    }
+
+    public void setCustomSerialNumber(EntityModel<String> customSerialNumberPolicy) {
+        this.customSerialNumber = customSerialNumberPolicy;
     }
 
     private EntityModel<Boolean> bootMenuEnabled;
@@ -1508,24 +1489,35 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     private boolean numaChanged = false;
 
-    private ListModel<Boolean> autoConverge;
+    private ListModelWithClusterDefault<Boolean> autoConverge;
 
     public ListModel<Boolean> getAutoConverge() {
         return autoConverge;
     }
 
-    public void setAutoConverge(NotChangableForVmInPoolListModel<Boolean> autoConverge) {
+    public void setAutoConverge(ListModelWithClusterDefault<Boolean> autoConverge) {
         this.autoConverge = autoConverge;
     }
 
-    private ListModel<Boolean> migrateCompressed;
+    private ListModelWithClusterDefault<Boolean> migrateCompressed;
 
     public ListModel<Boolean> getMigrateCompressed() {
         return migrateCompressed;
     }
 
-    public void setMigrateCompressed(NotChangableForVmInPoolListModel<Boolean> migrateCompressed) {
+    public void setMigrateCompressed(ListModelWithClusterDefault<Boolean> migrateCompressed) {
         this.migrateCompressed = migrateCompressed;
+    }
+
+    private ListModelWithClusterDefault<Boolean> migrateEncrypted;
+
+    // the return value has to be ListModel otherwise the GWT compilation won't work
+    public ListModel<Boolean> getMigrateEncrypted() {
+        return migrateEncrypted;
+    }
+
+    public void setMigrateEncrypted(ListModelWithClusterDefault<Boolean> migrateEncrypted) {
+        this.migrateEncrypted = migrateEncrypted;
     }
 
     private ListModel<Label> labelList;
@@ -1536,6 +1528,16 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     public ListModel<Label> getLabelList() {
         return labelList;
+    }
+
+    private ListModel<AffinityGroup> affinityGroupList;
+
+    public ListModel<AffinityGroup> getAffinityGroupList() {
+        return affinityGroupList;
+    }
+
+    public void setAffinityGroupList(ListModel<AffinityGroup> affinityGroupList) {
+        this.affinityGroupList = affinityGroupList;
     }
 
     public UnitVmModel(VmModelBehaviorBase behavior, ListModel<?> parentModel) {
@@ -1591,7 +1593,11 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         getLabelList().getSelectedItemsChangedEvent().addListener(this);
         getLabelList().setIsAvailable(false);
 
-        setCdImage(new NotChangableForVmInPoolListModel<>());
+        setAffinityGroupList(new ListModel<>());
+        getAffinityGroupList().getSelectedItemChangedEvent().addListener(this);
+        getAffinityGroupList().setIsAvailable(false);
+
+        setCdImage(new NotChangableForVmInPoolSortedListModel<>(new LexoNumericNameableComparator<>()));
         getCdImage().setIsChangeable(false);
 
         setMemoryBalloonDeviceEnabled(new EntityModel<Boolean>());
@@ -1619,9 +1625,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         setIsHighlyAvailable(new NotChangableForVmInPoolEntityModel<Boolean>());
         getIsHighlyAvailable().getEntityChangedEvent().addListener(this);
         setIsTemplatePublic(new NotChangableForVmInPoolEntityModel<Boolean>());
-        setKernel_parameters(new NotChangableForVmInPoolEntityModel<String>());
-        setKernel_path(new NotChangableForVmInPoolEntityModel<String>());
-        setInitrd_path(new NotChangableForVmInPoolEntityModel<String>());
         setCustomProperties(new NotChangableForVmInPoolEntityModel<String>());
         setCustomPropertySheet(new NotChangableForVmInPoolKeyValueModel());
         setDisplayType(new NotChangableForVmInPoolListModel<DisplayType>());
@@ -1650,7 +1653,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
         setBiosType(new NotChangableForVmInPoolListModel<>());
         getBiosType().setItems(AsyncDataProvider.getInstance().getBiosTypeList());
-        getBiosType().setSelectedItem(BiosType.I440FX_SEA_BIOS);
+        getBiosType().setSelectedItem(BiosType.CLUSTER_DEFAULT);
 
         setEmulatedMachine(new NotChangableForVmInPoolListModel<String>());
 
@@ -1707,26 +1710,30 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         setThreadsPerCore(new NotChangableForVmInPoolListModel<Integer>());
         getThreadsPerCore().getSelectedItemChangedEvent().addListener(this);
 
-        setSerialNumberPolicy(new SerialNumberPolicyModel());
+        setSerialNumberPolicy(new ListModelWithClusterDefault<>());
+        getSerialNumberPolicy().setItems(new ArrayList<SerialNumberPolicy>(Arrays.asList(SerialNumberPolicy.values())));
+
+        setCustomSerialNumber(new EntityModel<>());
+        updateCustomSerialNumber();
+        getSerialNumberPolicy().getSelectedItemChangedEvent().addListener((ev, sender, args) -> {
+            updateCustomSerialNumber();
+        });
 
         setMigrationMode(new NotChangableForVmInPoolListModel<MigrationSupport>());
         getMigrationMode().getSelectedItemChangedEvent().addListener(this);
 
-        setOverrideMigrationDowntime(new NotChangableForVmInPoolEntityModel<Boolean>());
-        getOverrideMigrationDowntime().getEntityChangedEvent().addListener(this);
+        setMigrationDowntime(new NotChangableForVmInPoolListModel<Integer>());
+        getMigrationDowntime().setItems(new ArrayList<Integer>(Collections.singletonList(null)));
+        getMigrationDowntime().getSelectedItemChangedEvent().addListener(this);
 
-        setMigrationDowntime(new NotChangableForVmInPoolEntityModel<Integer>());
-        getMigrationDowntime().getEntityChangedEvent().addListener(this);
-
-        setMigrationPolicies(new NotChangableForVmInPoolListModel<MigrationPolicy>());
+        setMigrationPolicies(new ListModelWithClusterDefault<MigrationPolicy>());
         getMigrationPolicies().getSelectedItemChangedEvent().addListener(this);
-
-        setOverrideMigrationPolicy(new NotChangableForVmInPoolEntityModel<Boolean>());
-        getOverrideMigrationPolicy().getEntityChangedEvent().addListener(this);
-
 
         setHostCpu(new NotChangableForVmInPoolEntityModel<Boolean>());
         getHostCpu().getEntityChangedEvent().addListener(this);
+
+        setTscFrequency(new NotChangableForVmInPoolEntityModel<Boolean>());
+        getTscFrequency().getEntityChangedEvent().addListener(this);
 
         setWatchdogAction(new NotChangableForVmInPoolListModel<VmWatchdogAction>());
         getWatchdogAction().getSelectedItemChangedEvent().addListener(this);
@@ -1807,7 +1814,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         getIsSoundcardEnabled().setEntity(false);
         getIsSoundcardEnabled().setIsChangeable(false);
 
-        setIsSingleQxlEnabled(new NotChangableForVmInPoolEntityModel<Boolean>());
         getBehavior().enableSinglePCI(false);
 
         selectSsoMethod(SsoMethod.GUEST_AGENT);
@@ -1839,10 +1845,15 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
                     }
                 }));
 
-        setAutoConverge(new NotChangableForVmInPoolListModel<Boolean>());
-        getAutoConverge().setItems(Arrays.asList(null, true, false));
-        setMigrateCompressed(new NotChangableForVmInPoolListModel<Boolean>());
-        getMigrateCompressed().setItems(Arrays.asList(null, true, false));
+        setAutoConverge(new ListModelWithClusterDefault<Boolean>());
+        getAutoConverge().setItems(Arrays.asList(true, false));
+
+        setMigrateCompressed(new ListModelWithClusterDefault<Boolean>());
+        getMigrateCompressed().setItems(Arrays.asList(true, false));
+
+        setMigrateEncrypted(new ListModelWithClusterDefault<Boolean>());
+        getMigrateEncrypted().setItems(Arrays.asList(true, false));
+
         setIcon(new NotChangableForVmInPoolEntityModel<IconWithOsDefault>());
 
         setIoThreadsEnabled(new NotChangableForVmInPoolEntityModel<>(false));
@@ -1885,22 +1896,51 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         }), ProviderType.FOREMAN);
     }
 
-    private void updateLabelList() {
-        AsyncDataProvider.getInstance().getLabelList(new AsyncQuery<>(allLabels -> {
-            boolean isExistingVmBehavior = getBehavior() instanceof ExistingVmModelBehavior;
+    private void updateAffinityLists() {
+        boolean isExistingVmBehavior = getBehavior() instanceof ExistingVmModelBehavior;
 
+        AsyncCallback<List<AffinityGroup>> affinityGroupsCallback = groups -> {
+            affinityGroupList.setItems(groups);
             if (isExistingVmBehavior) {
                 Guid vmId = ((ExistingVmModelBehavior) getBehavior()).getVm().getId();
-
-                AsyncDataProvider.getInstance().getLabelListByEntityId(new AsyncQuery<>(vmLabelsList -> {
-                    labelList.setItems(allLabels);
-                    labelList.setSelectedItems(vmLabelsList);
-                }), vmId);
+                affinityGroupList.setSelectedItems(groups.stream()
+                        .filter(ag -> ag.getVmIds().contains(vmId))
+                        .collect(Collectors.toList()));
             } else {
-                labelList.setItems(allLabels);
+                affinityGroupList.setSelectedItems(new ArrayList<>());
+            }
+        };
+
+        if (getSelectedCluster() == null) {
+            // This must be a modifiable list, otherwise an exception is thrown.
+            // Once the selected cluster is not null anymore and this list is changed for another one,
+            // somewhere the code adds an element to this list, even if it is not used.
+            affinityGroupsCallback.onSuccess(new ArrayList<>());
+        } else {
+            AsyncDataProvider.getInstance().getAffinityGroupsByClusterId(new AsyncQuery<>(affinityGroupsCallback),
+                    getSelectedCluster().getId());
+        }
+
+        AsyncDataProvider.getInstance().getLabelList(new AsyncQuery<>(labels -> {
+            labelList.setItems(labels);
+            if (isExistingVmBehavior) {
+                Guid vmId = ((ExistingVmModelBehavior) getBehavior()).getVm().getId();
+                labelList.setSelectedItems(labels.stream()
+                        .filter(label -> label.getVms().contains(vmId))
+                        .collect(Collectors.toList()));
+            } else {
                 labelList.setSelectedItems(new ArrayList<>());
             }
         }));
+    }
+
+    public void addAffinityGroup() {
+        AffinityGroup group = affinityGroupList.getSelectedItem();
+
+        if (!affinityGroupList.getSelectedItems().contains(group)) {
+            affinityGroupList.getSelectedItems().add(group);
+            affinityGroupList.getSelectedItemsChangedEvent().raise(affinityGroupList, EventArgs.EMPTY);
+        }
     }
 
     public void addAffinityLabel() {
@@ -1953,7 +1993,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         initVncKeyboardLayout();
         initConsoleDisconnectAction();
         updateResumeBehavior();
-        updateLabelList();
+        updateAffinityLists();
 
         behavior.initialize();
     }
@@ -1970,6 +2010,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
                 compatibilityVersionChanged(sender, args);
                 behavior.updateEmulatedMachines();
                 behavior.updateCustomCpu();
+                updateTscFrequency();
             } else if (sender == getTemplateWithVersion()) {
                 templateWithVersion_SelectedItemChanged(sender, args);
             } else if (sender == getTimeZone()) {
@@ -2007,6 +2048,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
                 behavior.updateCpuPinningVisibility();
                 behavior.updateHaAvailability();
                 behavior.updateNumaEnabled();
+                updateTscFrequency();
             } else if (sender == getMigrationPolicies()) {
                 updateMigrationRelatedFields();
             } else if (sender == getCpuSharesAmountSelection()) {
@@ -2069,10 +2111,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             } else if (sender == getIsHighlyAvailable()) {
                 behavior.updateMigrationAvailability();
                 updateResumeBehavior();
-            } else if (sender == getOverrideMigrationDowntime()) {
-                overrideMigrationDowntimeChanged();
-            } else if (sender == getOverrideMigrationPolicy()) {
-                overrideMigrationPolicyChanged();
             } else if (sender == getIsSubTemplate()) {
                 behavior.isSubTemplateEntityChanged();
             } else if (sender == getHostCpu()) {
@@ -2093,6 +2131,8 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         behavior.updateNumOfIoThreads();
         initUsbPolicy();
         updateMultiQueues();
+        updateMigrateEncrypted();
+        updateSerialNumberPolicy();
     }
 
     private void updateMultiQueues() {
@@ -2102,10 +2142,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             return;
         }
 
-        Boolean isMultiQueuesSupported =
-                (Boolean) AsyncDataProvider.getInstance().getConfigValuePreConverted(ConfigValues.DomainXML,
-                        compatibilityVersion.getValue());
-        getMultiQueues().setIsAvailable(isMultiQueuesSupported);
+        getMultiQueues().setIsAvailable(true);
     }
 
     private void vmInitEnabledChanged() {
@@ -2132,6 +2169,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     private void vmTypeChanged() {
         behavior.vmTypeChanged(getVmType().getSelectedItem());
+        updateTscFrequency();
     }
 
     private void watchdogModelSelectedItemChanged(Object sender, EventArgs args) {
@@ -2172,7 +2210,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             return;
         }
 
-        getResumeBehavior().updateChangeability(ConfigValues.ResumeBehaviorSupported, getCompatibilityVersion());
+        getResumeBehavior().setIsChangeable(true);
 
         if (!getResumeBehavior().getIsChangable()) {
             getResumeBehavior().setSelectedItem(null);
@@ -2243,15 +2281,26 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         } else {
             getMigrationMode().setItems(Arrays.asList(MigrationSupport.PINNED_TO_HOST));
         }
-
-        autoConverge.setIsChangeable(true);
-        migrateCompressed.setIsChangeable(true);
     }
 
     private void initGraphicsAndDisplayListeners() {
         getIsHeadlessModeEnabled().getEntityChangedEvent().addListener(this);
         getDisplayType().getSelectedItemChangedEvent().addListener(this);
         getGraphicsType().getSelectedItemChangedEvent().addListener(this);
+    }
+
+    private void updateTscFrequency() {
+        if (getSelectedCluster() == null || getVmType() == null || getMigrationMode() == null) {
+            return;
+        }
+
+        boolean isChangeable = ArchitectureType.x86.equals(getSelectedCluster().getArchitecture().getFamily())
+                && VmType.HighPerformance.equals(getVmType().getSelectedItem())
+                && (MigrationSupport.MIGRATABLE.equals(getMigrationMode().getSelectedItem())
+                 || MigrationSupport.IMPLICITLY_NON_MIGRATABLE.equals(getMigrationMode().getSelectedItem()));
+        // If it's editable, set it to true. Users might override the value manually if needed
+        tscFrequency.setIsChangeable(isChangeable);
+        tscFrequency.setEntity(isChangeable);
     }
 
     private void updateDisplayAndGraphics() {
@@ -2339,7 +2388,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         behavior.dataCenterWithClusterSelectedItemChanged();
         refreshMigrationPolicies();
         updateMigrationRelatedFields();
-
+        updateClusterMigrationRelatedFields();
         DataCenterWithCluster dataCenterWithCluster = getDataCenterWithClustersList().getSelectedItem();
         if (dataCenterWithCluster != null && dataCenterWithCluster.getDataCenter() != null) {
             getDisksAllocationModel().setQuotaEnforcementType(dataCenterWithCluster.getDataCenter()
@@ -2364,6 +2413,8 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         if (!selectedTimeZone.isEmpty()) {
             getBehavior().updateTimeZone(selectedTimeZone);
         }
+
+        updateAffinityLists();
     }
 
     private void updateBootMenu() {
@@ -2432,15 +2483,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
         setIsWindowsOS(AsyncDataProvider.getInstance().isWindowsOsType(osType));
         setIsLinuxOS(AsyncDataProvider.getInstance().isLinuxOsType(osType));
-
-        getInitrd_path().setIsChangeable(getIsLinuxOS());
-        getInitrd_path().setIsAvailable(getIsLinuxOS());
-
-        getKernel_path().setIsChangeable(getIsLinuxOS());
-        getKernel_path().setIsAvailable(getIsLinuxOS());
-
-        getKernel_parameters().setIsChangeable(getIsLinuxOS());
-        getKernel_parameters().setIsAvailable(getIsLinuxOS());
 
         getBehavior().updateDefaultTimeZone();
 
@@ -2541,17 +2583,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         behavior.provisioning_SelectedItemChanged();
     }
 
-    private void overrideMigrationDowntimeChanged() {
-        Boolean entity = getOverrideMigrationDowntime().getEntity();
-        getMigrationDowntime().setIsChangeable(Boolean.TRUE.equals(entity));
-    }
-
-    private void overrideMigrationPolicyChanged() {
-        boolean override = Boolean.TRUE.equals(getOverrideMigrationPolicy().getEntity());
-        getMigrationPolicies().setIsChangeable(override);
-        updateMigrationRelatedFields();
-    }
-
     private void updateSoundCard() {
         if (getOSType().getSelectedItem() != null && getSelectedCluster() != null) {
             int osType = getOSType().getSelectedItem();
@@ -2633,7 +2664,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         if (isHeadlessEnabled) {
             getUsbPolicy().setIsChangeable(!isHeadlessEnabled);
             getNumOfMonitors().setIsChangeable(!isHeadlessEnabled);
-            getIsSingleQxlEnabled().setIsChangeable(!isHeadlessEnabled);
             getIsSmartcardEnabled().setIsChangeable(!isHeadlessEnabled);
             getSpiceFileTransferEnabled().setIsChangeable(!isHeadlessEnabled);
             getSpiceCopyPasteEnabled().setIsChangeable(!isHeadlessEnabled);
@@ -2852,30 +2882,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             getCdImage().validateSelectedItem(new IValidation[] { new NotEmptyValidation() });
         }
 
-        if (getIsLinuxOS()) {
-            getKernel_path().validateEntity(new IValidation[] { new NoTrimmingWhitespacesValidation() });
-            getInitrd_path().validateEntity(new IValidation[] { new NoTrimmingWhitespacesValidation() });
-            getKernel_parameters().validateEntity(new IValidation[] { new NoTrimmingWhitespacesValidation() });
-
-            // initrd path and kernel params require kernel path to be filled
-            if (StringHelper.isNullOrEmpty(getKernel_path().getEntity())) {
-
-                if (!StringHelper.isNullOrEmpty(getInitrd_path().getEntity())) {
-                    getInitrd_path().getInvalidityReasons().add(constants.initrdPathInvalid());
-                    getInitrd_path().setIsValid(false);
-                    getKernel_path().getInvalidityReasons().add(constants.initrdPathInvalid());
-                    getKernel_path().setIsValid(false);
-                }
-
-                if (!StringHelper.isNullOrEmpty(getKernel_parameters().getEntity())) {
-                    getKernel_parameters().getInvalidityReasons().add(constants.kernelParamsInvalid());
-                    getKernel_parameters().setIsValid(false);
-                    getKernel_path().getInvalidityReasons().add(constants.kernelParamsInvalid());
-                    getKernel_path().setIsValid(false);
-                }
-            }
-        }
-
         if (!getBehavior().isBlankTemplateBehavior()) {
             setValidTab(TabName.GENERAL_TAB, isValidTab(TabName.GENERAL_TAB)
                     && getDataCenterWithClustersList().getIsValid()
@@ -2890,7 +2896,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
                 && getCpuSharesAmount().getIsValid() && diskAliasesValid);
 
         setValidTab(TabName.BOOT_OPTIONS_TAB, isValidTab(TabName.BOOT_OPTIONS_TAB) &&
-                getCdImage().getIsValid() && getKernel_path().getIsValid());
+                getCdImage().getIsValid());
 
         boolean vmInitIsValid = getVmInitModel().validate();
         setValidTab(TabName.INITIAL_RUN_TAB, isValidTab(TabName.INITIAL_RUN_TAB) && vmInitIsValid);
@@ -2965,8 +2971,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
     }
 
     public boolean validateHwPart() {
-        getMigrationDowntime().validateEntity(new IValidation[] { new NotNullIntegerValidation(0, Integer.MAX_VALUE) });
-
         getTotalCPUCores().validateEntity(new IValidation[] {
                 new NotEmptyValidation(),
                 new IntegerValidation(1, behavior.maxCpus),
@@ -2986,10 +2990,10 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         setValidTab(TabName.CUSTOM_PROPERTIES_TAB, isValidTab(TabName.CUSTOM_PROPERTIES_TAB) &&
                 getCustomPropertySheet().validate());
 
-        if (getSerialNumberPolicy().getSelectedSerialNumberPolicy() == SerialNumberPolicy.CUSTOM) {
-            getSerialNumberPolicy().getCustomSerialNumber().validateEntity(new IValidation[] { new NotEmptyValidation() });
+        if (getSerialNumberPolicy().getSelectedItem() == SerialNumberPolicy.CUSTOM) {
+            getCustomSerialNumber().validateEntity(new IValidation[] { new NotEmptyValidation() });
         } else {
-            getSerialNumberPolicy().getCustomSerialNumber().setIsValid(true);
+            getCustomSerialNumber().setIsValid(true);
         }
 
         getEmulatedMachine().validateSelectedItem(new IValidation[] { new I18NExtraNameOrNoneValidation(), new LengthValidation(
@@ -3028,7 +3032,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
                 getMaxMemorySize().getIsValid() &&
                 getMinAllocatedMemory().getIsValid() &&
                 getTotalCPUCores().getIsValid() &&
-                getSerialNumberPolicy().getCustomSerialNumber().getIsValid() &&
+                getCustomSerialNumber().getIsValid() &&
                 getEmulatedMachine().getIsValid() &&
                 getCustomCpu().getIsValid());
 
@@ -3084,14 +3088,10 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             return;
         }
 
-        boolean migrationPolicyOverridden = id != null;
-        getOverrideMigrationPolicy().setEntity(migrationPolicyOverridden);
-        if (migrationPolicyOverridden) {
-            for (MigrationPolicy policy : getMigrationPolicies().getItems()) {
-                if (Objects.equals(policy.getId(), id)) {
-                    getMigrationPolicies().setSelectedItem(policy);
-                    break;
-                }
+        for (MigrationPolicy policy : getMigrationPolicies().getItems()) {
+            if (policy != null && Objects.equals(policy.getId(), id)) {
+                getMigrationPolicies().setSelectedItem(policy);
+                break;
             }
         }
     }
@@ -3265,6 +3265,55 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         }
     }
 
+    public class ListModelWithClusterDefault<T> extends NotChangableForVmInPoolListModel<T> {
+
+        public static final String CLUSTER_VALUE_EVENT = "ClusterValue";//$NON-NLS-1$
+
+        private T clusterValue;
+
+        @Override
+        public void setItems(Collection<T> value) {
+            this.setItems(value, null);
+        }
+
+        @Override
+        public void setItems(Collection<T> value, T selectedItem) {
+            List<T> items = value == null ? new ArrayList<>() : new ArrayList<>(value);
+            if (items.isEmpty() || items.get(0) != null) {
+                items.add(0, null);
+            }
+            super.setItems(items, selectedItem);
+        }
+
+        public void fireItemsChangedEvent() {
+            getItemsChangedEvent().raise(this, EventArgs.EMPTY);
+            onPropertyChanged(new PropertyChangedEventArgs("Items")); //$NON-NLS-1$
+        }
+
+        public void setClusterValue(T clusterValue) {
+            this.clusterValue = clusterValue;
+            onPropertyChanged(new PropertyChangedEventArgs(CLUSTER_VALUE_EVENT));
+        }
+
+        public T getClusterValue() {
+            return clusterValue;
+        }
+    }
+
+    private class NotChangableForVmInPoolSortedListModel<T> extends SortedListModel<T> {
+        public NotChangableForVmInPoolSortedListModel(Comparator<? super T> comparator) {
+            super(comparator);
+        }
+
+        @Override
+        public ListModel<T> setIsChangeable(boolean value) {
+            if (!isVmAttachedToPool()) {
+                super.setIsChangeable(value);
+            }
+            return this;
+        }
+    }
+
     private class NotChangableForVmInPoolEntityModel<T> extends EntityModel<T> {
         public NotChangableForVmInPoolEntityModel() {
         }
@@ -3349,24 +3398,18 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
     }
 
     public Integer getSelectedMigrationDowntime() {
-        if (Boolean.TRUE.equals(getOverrideMigrationDowntime().getEntity())) {
-            return getMigrationDowntime().getEntity();
-        } else {
-            return null;
-        }
+        return getMigrationDowntime().getSelectedItem();
     }
 
     public Guid getSelectedMigrationPolicy() {
-        if (Boolean.TRUE.equals(getOverrideMigrationPolicy().getEntity())) {
-            return getMigrationPolicies().getSelectedItem().getId();
-        } else {
+        if (getMigrationPolicies().getSelectedItem() == null) {
             return null;
         }
+        return getMigrationPolicies().getSelectedItem().getId();
     }
 
     public void setSelectedMigrationDowntime(Integer value) {
-        getOverrideMigrationDowntime().setEntity(value != null);
-        getMigrationDowntime().setEntity(value);
+        getMigrationDowntime().setSelectedItem(value);
     }
 
     public boolean isCreateInstanceOnly() {
@@ -3445,6 +3488,11 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     private void refreshMigrationPolicies() {
         Version version = getCompatibilityVersion();
+        Cluster selectedCluster = getSelectedCluster();
+
+        if (version == null || selectedCluster == null) {
+            return;
+        }
 
         Guid selectedPolicyId = null;
         if (getMigrationPolicies() != null && getMigrationPolicies().getSelectedItem() != null) {
@@ -3452,11 +3500,20 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         }
 
         List<MigrationPolicy> policies = AsyncDataProvider.getInstance().getMigrationPolicies(version);
+
+        Guid clusterMigrationPolicyID = selectedCluster.getMigrationPolicyId();
+        for (MigrationPolicy policy : policies) {
+            if (policy != null && policy.getId().equals(clusterMigrationPolicyID)) {
+                migrationPolicies.setClusterValue(policy);
+                break;
+            }
+        }
+
         getMigrationPolicies().setItems(policies);
 
         if (selectedPolicyId != null) {
             for (MigrationPolicy policy : policies) {
-                if (Objects.equals(policy.getId(), selectedPolicyId)) {
+                if (policy != null && Objects.equals(policy.getId(), selectedPolicyId)) {
                     getMigrationPolicies().setSelectedItem(policy);
                     break;
                 }
@@ -3466,35 +3523,58 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     private void updateMigrationRelatedFields() {
         Cluster cluster = getSelectedCluster();
-        boolean override = Boolean.TRUE.equals(getOverrideMigrationPolicy().getEntity());
 
         boolean hasMigrationPolicy = true;
 
-        if (override) {
-            MigrationPolicy selectedPolicy = getMigrationPolicies().getSelectedItem();
-            if (selectedPolicy == null) {
-                // if had selected something which does not exist anymore
-                hasMigrationPolicy = false;
-            } else if (selectedPolicy.getId().equals(NoMigrationPolicy.ID)) {
-                // explicitly selected the empty
-                hasMigrationPolicy = false;
-            }
-        } else {
+        if (getMigrationPolicies().getSelectedItem() == null) {
             if (cluster == null) {
                 // for non-cluster entities (e.g. blank template, instance types)
                 hasMigrationPolicy = false;
-            } else if (cluster.getMigrationPolicyId() == null || cluster.getMigrationPolicyId().equals(NoMigrationPolicy.ID)) {
+            } else if (cluster.getMigrationPolicyId() == null
+                    || cluster.getMigrationPolicyId().equals(NoMigrationPolicy.ID)) {
                 // explicitly selected the empty
                 hasMigrationPolicy = false;
             }
-
+        } else if (NoMigrationPolicy.ID.equals(getMigrationPolicies().getSelectedItem().getId())){
+            hasMigrationPolicy = false;
         }
 
-        getOverrideMigrationDowntime().setIsChangeable(!hasMigrationPolicy, constants.availableOnlyWithLegacyPolicy());
-        boolean overrideDowntime = Boolean.TRUE.equals(getOverrideMigrationDowntime().getEntity());
-        getMigrationDowntime().setIsChangeable(!hasMigrationPolicy && overrideDowntime, constants.availableOnlyWithLegacyPolicy());
-        getAutoConverge().setIsChangeable(!hasMigrationPolicy, constants.availableOnlyWithLegacyPolicy());
-        getMigrateCompressed().setIsChangeable(!hasMigrationPolicy, constants.availableOnlyWithLegacyPolicy());
+        Version version = getCompatibilityVersion();
+        if (version == null || version.greaterOrEquals(Version.v4_4)) {
+            getMigrationDowntime().setIsAvailable(false);
+            getAutoConverge().setIsAvailable(false);
+            getMigrateCompressed().setIsAvailable(false);
+        } else {
+            getMigrationDowntime().setIsAvailable(true);
+            getAutoConverge().setIsAvailable(true);
+            getMigrateCompressed().setIsAvailable(true);
+
+            getMigrationDowntime().setIsChangeable(!hasMigrationPolicy, constants.availableOnlyWithLegacyPolicy());
+            getAutoConverge().setIsChangeable(!hasMigrationPolicy, constants.availableOnlyWithLegacyPolicy());
+            getMigrateCompressed().setIsChangeable(!hasMigrationPolicy, constants.availableOnlyWithLegacyPolicy());
+        }
+    }
+
+    private void updateClusterMigrationRelatedFields() {
+        Cluster cluster = getSelectedCluster();
+
+        Boolean useAutoConverge = cluster == null ? null : cluster.getAutoConverge();
+        if (useAutoConverge == null) {
+            useAutoConverge = AsyncDataProvider.getInstance().getAutoConverge();
+        }
+        autoConverge.setClusterValue(useAutoConverge);
+
+        Boolean compressed = cluster == null ? null : cluster.getMigrateCompressed();
+        if (compressed == null) {
+            compressed = AsyncDataProvider.getInstance().getMigrateCompressed();
+        }
+        migrateCompressed.setClusterValue(compressed);
+
+        Boolean encrypt = cluster == null ? null : cluster.getMigrateEncrypted();
+        if (encrypt == null) {
+            encrypt = AsyncDataProvider.getInstance().getMigrateEncrypted();
+        }
+        migrateEncrypted.setClusterValue(encrypt);
     }
 
     private void updateBiosType() {
@@ -3505,10 +3585,54 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         }
         if (cluster.getArchitecture().getFamily() != ArchitectureType.x86) {
             getBiosType().setIsChangeable(false, ConstantsManager.getInstance().getMessages().biosTypeSupportedForX86Only());
-            return;
-
+        } else {
+            getBiosType().updateChangeability(ConfigValues.BiosTypeSupported, getCompatibilityVersion());
         }
-        getBiosType().updateChangeability(ConfigValues.BiosTypeSupported, getCompatibilityVersion());
+        if (!getBiosType().getIsChangable()) {
+            getBiosType().setSelectedItem(BiosType.CLUSTER_DEFAULT);
+        }
     }
 
+    private void updateMigrateEncrypted() {
+        Version version = getCompatibilityVersion();
+        if (version == null || version.greaterOrEquals(Version.v4_4)) {
+            getMigrateEncrypted().setIsChangeable(true);
+        } else {
+            getMigrateEncrypted().setIsChangeable(false, messages.availableInVersionOrHigher(Version.v4_4.toString()));
+            getMigrateEncrypted().setSelectedItem(null);
+        }
+    }
+
+    private void updateSerialNumberPolicy() {
+        Cluster cluster = getSelectedCluster();
+
+        SerialNumberPolicy policy = cluster == null ? null : cluster.getSerialNumberPolicy();
+
+        if (policy == null) {
+            policy = AsyncDataProvider.getInstance().getSerialNumberPolicy();
+        }
+
+        serialNumberPolicy.setClusterValue(policy);
+        updateCustomSerialNumber();
+    }
+
+    private void updateCustomSerialNumber() {
+        if (SerialNumberPolicy.CUSTOM.equals(serialNumberPolicy.getSelectedItem())) {
+            getCustomSerialNumber().setIsChangeable(true);
+        } else if (serialNumberPolicy.getSelectedItem() == null
+                && SerialNumberPolicy.CUSTOM.equals(serialNumberPolicy.getClusterValue())) {
+            Cluster cluster = getSelectedCluster();
+            String customNumber = cluster == null ? null : cluster.getCustomSerialNumber();
+
+            if (customNumber == null) {
+                customNumber = AsyncDataProvider.getInstance().getCustomSerialNumber();
+            }
+
+            getCustomSerialNumber().setEntity(customNumber);
+            getCustomSerialNumber().setIsChangeable(false, constants.clusterDefaultCustomSerialNumberDisabledReason());
+        } else {
+            getCustomSerialNumber().setEntity(null);
+            getCustomSerialNumber().setIsChangeable(false, constants.customSerialNumberDisabledReason());
+        }
+    }
 }

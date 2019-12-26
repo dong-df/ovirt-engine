@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +19,7 @@ import javax.inject.Singleton;
 
 import org.apache.commons.lang.StringUtils;
 import org.ovirt.engine.core.bll.context.CompensationContext;
+import org.ovirt.engine.core.bll.profiles.DiskProfileHelper;
 import org.ovirt.engine.core.bll.storage.connection.StorageHelperDirector;
 import org.ovirt.engine.core.bll.storage.utils.VdsCommandsHelper;
 import org.ovirt.engine.core.bll.utils.ClusterUtils;
@@ -29,6 +31,7 @@ import org.ovirt.engine.core.common.businessentities.StorageDomainStatic;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VmDeviceId;
 import org.ovirt.engine.core.common.businessentities.VmTemplate;
+import org.ovirt.engine.core.common.businessentities.aaa.DbUser;
 import org.ovirt.engine.core.common.businessentities.storage.BaseDisk;
 import org.ovirt.engine.core.common.businessentities.storage.Disk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskBackup;
@@ -51,6 +54,7 @@ import org.ovirt.engine.core.common.errors.EngineError;
 import org.ovirt.engine.core.common.errors.EngineException;
 import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.common.interfaces.VDSBrokerFrontend;
+import org.ovirt.engine.core.common.utils.VmDeviceType;
 import org.ovirt.engine.core.common.vdscommands.GetImageInfoVDSCommandParameters;
 import org.ovirt.engine.core.common.vdscommands.GetVolumeInfoVDSCommandParameters;
 import org.ovirt.engine.core.common.vdscommands.ImageActionsVDSCommandParameters;
@@ -73,6 +77,8 @@ import org.ovirt.engine.core.dao.VmDeviceDao;
 import org.ovirt.engine.core.utils.ovf.OvfManager;
 import org.ovirt.engine.core.utils.ovf.OvfReaderException;
 import org.ovirt.engine.core.utils.transaction.TransactionSupport;
+import org.ovirt.engine.core.vdsbroker.monitoring.FullListAdapter;
+import org.ovirt.engine.core.vdsbroker.vdsbroker.VdsProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -126,6 +132,12 @@ public class ImagesHandler {
 
     @Inject
     private VmDeviceUtils vmDeviceUtils;
+
+    @Inject
+    private FullListAdapter fullListAdapter;
+
+    @Inject
+    private DiskProfileHelper diskProfileHelper;
 
     /**
      * The following method will find all images and storages where they located for provide template and will fill an
@@ -271,7 +283,7 @@ public class ImagesHandler {
      * @param imageStorageDomainMap
      *            storage domain map entry to map between the image and its storage domain
      */
-    public void addDiskImage(DiskImage image, boolean active, ImageStorageDomainMap imageStorageDomainMap, Guid vmId) {
+    private void addDiskImage(DiskImage image, boolean active, ImageStorageDomainMap imageStorageDomainMap, Guid vmId) {
         try {
             addImage(image, active, imageStorageDomainMap);
             addDiskToVmIfNotExists(image, vmId);
@@ -343,7 +355,7 @@ public class ImagesHandler {
      * @param imageStorageDomainMap
      *            entry of image storagte domain map
      */
-    public void addDiskImageWithNoVmDevice(DiskImage image,
+    private void addDiskImageWithNoVmDevice(DiskImage image,
             boolean active,
             ImageStorageDomainMap imageStorageDomainMap) {
         try {
@@ -376,7 +388,7 @@ public class ImagesHandler {
      * @param disk
      *            disk to add
      */
-    public void addDisk(BaseDisk disk) {
+    private void addDisk(BaseDisk disk) {
         if (!baseDiskDao.exists(disk.getId())) {
             baseDiskDao.save(disk);
         }
@@ -424,7 +436,7 @@ public class ImagesHandler {
      * @param vmId
      *            the ID of the vm to add to if the disk does not exist for this VM
      */
-    public void addDiskToVmIfNotExists(BaseDisk disk, Guid vmId) {
+    private void addDiskToVmIfNotExists(BaseDisk disk, Guid vmId) {
         if (!baseDiskDao.exists(disk.getId())) {
             addDiskToVm(disk, vmId);
         }
@@ -491,7 +503,7 @@ public class ImagesHandler {
         return true;
     }
 
-    public static boolean checkImageConfiguration(StorageDomainStatic storageDomain, VolumeType volumeType, VolumeFormat volumeFormat, DiskBackup diskBackup) {
+    private static boolean checkImageConfiguration(StorageDomainStatic storageDomain, VolumeType volumeType, VolumeFormat volumeFormat, DiskBackup diskBackup) {
         return !((volumeType == VolumeType.Preallocated && volumeFormat == VolumeFormat.COW && diskBackup != DiskBackup.Incremental)
                 || (storageDomain.getStorageType().isBlockDomain() && volumeType == VolumeType.Sparse && volumeFormat == VolumeFormat.RAW)
                 || volumeFormat == VolumeFormat.Unassigned
@@ -630,13 +642,13 @@ public class ImagesHandler {
         return -1;
     }
 
-    public void removeImage(DiskImage diskImage) {
+    private void removeImage(DiskImage diskImage) {
         imageStorageDomainMapDao.remove(diskImage.getImageId());
         diskImageDynamicDao.remove(diskImage.getImageId());
         imageDao.remove(diskImage.getImageId());
     }
 
-    public void removeDiskFromVm(Guid vmGuid, Guid diskId) {
+    private void removeDiskFromVm(Guid vmGuid, Guid diskId) {
         vmDeviceDao.remove(new VmDeviceId(diskId, vmGuid));
         baseDiskDao.remove(diskId);
     }
@@ -900,7 +912,7 @@ public class ImagesHandler {
         return diskImageFromClient.getVolumeFormat() != srcDiskImage.getVolumeFormat() || diskImageFromClient.getVolumeType() != srcDiskImage.getVolumeType();
     }
 
-    protected static void changeVolumeInfo(DiskImage clonedDiskImage, DiskImage diskImageFromClient) {
+    private static void changeVolumeInfo(DiskImage clonedDiskImage, DiskImage diskImageFromClient) {
         clonedDiskImage.setVolumeFormat(diskImageFromClient.getVolumeFormat());
         clonedDiskImage.setVolumeType(diskImageFromClient.getVolumeType());
     }
@@ -936,7 +948,7 @@ public class ImagesHandler {
         return null;
     }
 
-    public static long computeCowImageNeededSize(VolumeFormat sourceFormat, long actualSize) {
+    private static long computeCowImageNeededSize(VolumeFormat sourceFormat, long actualSize) {
         // When vdsm creates a COW volume with provided initial size the size is multiplied by 1.1 to prevent a
         // case in which we won't have enough space. If the source is already COW we don't need the additional
         // space.
@@ -1001,5 +1013,82 @@ public class ImagesHandler {
                         newStorageDomainID,
                         newImageGroupId,
                         newImageId));
+    }
+
+    public Set<Guid> getVolumeChain(Guid vmId, Guid vdsId, DiskImage activeImage) {
+        Map[] vms = null;
+        try {
+            vms = getVms(vdsId, vmId);
+        } catch (EngineException e) {
+            log.error("Failed to retrieve images list of VM {}.", vmId, e);
+        }
+
+        if (vms == null || vms.length == 0) {
+            log.error("Failed to retrieve VM information");
+            return null;
+        }
+
+        Map vm = vms[0];
+        if (vm == null || vm.get(VdsProperties.vm_guid) == null) {
+            log.error("Received incomplete VM information");
+            return null;
+        }
+
+        Guid receivedVmId = new Guid((String) vm.get(VdsProperties.vm_guid));
+        if (!receivedVmId.equals(vmId)) {
+            log.error("Invalid VM returned when querying status: expected '{}', got '{}'",
+                    vmId, receivedVmId);
+            return null;
+        }
+
+        Set<Guid> images = new HashSet<>();
+        DiskImage activeDiskImage = activeImage;
+        for (Object o : (Object[]) vm.get(VdsProperties.Devices)) {
+            Map device = (Map<String, Object>) o;
+            if (VmDeviceType.DISK.getName().equals(device.get(VdsProperties.Device))
+                    && !device.get(VdsProperties.ImageId).equals("mapper")
+                    && activeDiskImage.getId().equals(Guid.createGuidFromString(
+                    (String) device.get(VdsProperties.ImageId)))) {
+                Object[] volumeChain = (Object[]) device.get(VdsProperties.VolumeChain);
+                for (Object v : volumeChain) {
+                    Map<String, Object> volume = (Map<String, Object>) v;
+                    images.add(Guid.createGuidFromString((String) volume.get(VdsProperties.VolumeId)));
+                }
+                break;
+            }
+        }
+        return images;
+    }
+
+    private Map[] getVms(Guid vdsId, Guid vmId) {
+        return (Map[]) fullListAdapter.getVmFullList(
+                vdsId,
+                Collections.singletonList(vmId),
+                true)
+                .getReturnValue();
+    }
+
+    public Map<DiskImage, DiskImage> mapChainToNewIDs(Guid sourceImageGroupID,
+            Guid newImageGroupID,
+            Guid targetStorageDomainID,
+            DbUser user) {
+        List<DiskImage> oldChain = diskImageDao.getAllSnapshotsForImageGroup(sourceImageGroupID);
+        Map<DiskImage, DiskImage> oldToNewChain = new HashMap<>(oldChain.size());
+        Guid nextParentId = oldChain.get(0).getImageTemplateId() != Guid.Empty ? oldChain.get(0).getParentId() : Guid.Empty;
+        sortImageList(oldChain);
+
+        for (DiskImage diskImage : oldChain) {
+            DiskImage newImage = DiskImage.copyOf(diskImage);
+            newImage.setParentId(nextParentId);
+            newImage.setId(newImageGroupID);
+            newImage.setStorageIds(List.of(targetStorageDomainID));
+            nextParentId = Guid.newGuid();
+            newImage.setImageId(nextParentId);
+            newImage.setVmSnapshotId(null);
+            diskProfileHelper.setAndValidateDiskProfiles(Map.of(newImage, targetStorageDomainID), user);
+            oldToNewChain.put(diskImage, newImage);
+        }
+
+        return oldToNewChain;
     }
 }

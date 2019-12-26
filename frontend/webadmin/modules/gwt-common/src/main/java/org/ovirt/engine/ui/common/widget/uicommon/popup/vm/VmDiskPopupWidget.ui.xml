@@ -34,11 +34,19 @@
             padding-top: 3px;
             margin-left: -20px;
         }
+
+        .hostInfoIcon {
+            float: left;
+            margin-left: 55px;
+            font-size: 12px;
+            position: absolute;
+            line-height: 20px;
+        }
     </ui:style>
 
     <b:Container fluid="true">
         <b:Row>
-            <b:Column size="SM_12">
+            <b:Column size="SM_12" addStyleNames="{style.topRow}">
                 <w:RadioButtonPanel ui:field="radioButtonPanel" name="diskTypePanel" dataToggle="BUTTONS" />
             </b:Column>
         </b:Row>
@@ -90,7 +98,11 @@
                     <e:ListModelListBoxEditor ui:field="quotaEditor" label="{constants.quotaVmDiskPopup}" usePatternFly="true" labelColSize="SM_4" widgetColSize="SM_8" />
                 </b:Row>
                 <b:Row>
-                    <e:ListModelListBoxEditor ui:field="hostListEditor" label="{constants.hostVmDiskPopup}" usePatternFly="true" labelColSize="SM_4" widgetColSize="SM_8" />
+                    <e:ListModelListBoxEditor ui:field="hostListEditor" label="{constants.hostVmDiskPopup}" usePatternFly="true" labelColSize="SM_4" widgetColSize="SM_8">
+                        <e:WidgetDecorator>
+                            <d:InfoIcon ui:field="hostInfoIcon" addStyleNames="{style.hostInfoIcon}" />
+                        </e:WidgetDecorator>
+                    </e:ListModelListBoxEditor>
                 </b:Row>
                 <b:Row>
                     <e:ListModelListBoxEditor ui:field="storageTypeEditor" label="{constants.storageTypeVmDiskPopup}" usePatternFly="true" labelColSize="SM_4" widgetColSize="SM_8" />
@@ -135,9 +147,10 @@
                 <g:Label ui:field="message" addStyleNames="{style.errorMessageLabel}"/>
             </b:Column>
         </b:Row>
+        <b:html.ClearFix />
         <b:Row>
             <b:Column size="SM_12">
-                <g:FlowPanel ui:field="externalDiskPanel" />
+                <g:FlowPanel ui:field="externalDiskPanel" height="330px"/>
             </b:Column>
         </b:Row>
     </b:Container>

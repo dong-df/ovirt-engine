@@ -69,7 +69,7 @@ public class MainVirtualMachineView extends AbstractMainWithDetailsTableView<VM,
             @Override
             public void update(int index, VM vm, String value) {
                 Map<String, String> parameters = new HashMap<>();
-                parameters.put(FragmentParams.NAME.getName(), vm.getName());
+                parameters.put(FragmentParams.ID.getName(), vm.getId().toString());
                 //The link was clicked, now fire an event to switch to details.
                 getPlaceTransitionHandler().handlePlaceTransition(
                         WebAdminApplicationPlaces.virtualMachineGeneralSubTabPlace, parameters);
@@ -162,7 +162,7 @@ public class MainVirtualMachineView extends AbstractMainWithDetailsTableView<VM,
 
         getTable().addColumn(dcColumn, constants.dcVm(), "120px"); //$NON-NLS-1$
 
-        getTable().addColumn(new ColumnResizeTableLineChartProgressBar<VM>(
+        getTable().addColumn(new ColumnResizeTableLineChartProgressBar<Void, VM>(
                 getTable(),
                 VmConditionFieldAutoCompleter.MEM_USAGE) {
             @Override
@@ -171,7 +171,7 @@ public class MainVirtualMachineView extends AbstractMainWithDetailsTableView<VM,
             }
         }, constants.memoryVm(), "80px"); //$NON-NLS-1$
 
-        getTable().addColumn(new ColumnResizeTableLineChartProgressBar<VM>(
+        getTable().addColumn(new ColumnResizeTableLineChartProgressBar<Void, VM>(
                 getTable(),
                 VmConditionFieldAutoCompleter.CPU_USAGE) {
             @Override
@@ -180,7 +180,7 @@ public class MainVirtualMachineView extends AbstractMainWithDetailsTableView<VM,
             }
         }, constants.cpuVm(), "80px"); //$NON-NLS-1$
 
-        getTable().addColumn(new ColumnResizeTableLineChartProgressBar<VM>(
+        getTable().addColumn(new ColumnResizeTableLineChartProgressBar<Void, VM>(
                 getTable(),
                 VmConditionFieldAutoCompleter.NETWORK_USAGE) {
             @Override

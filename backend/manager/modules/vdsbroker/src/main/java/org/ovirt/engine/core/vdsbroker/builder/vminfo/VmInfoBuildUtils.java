@@ -23,6 +23,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -42,6 +43,7 @@ import org.ovirt.engine.core.common.businessentities.HostDevice;
 import org.ovirt.engine.core.common.businessentities.StorageDomainStatic;
 import org.ovirt.engine.core.common.businessentities.StorageServerConnections;
 import org.ovirt.engine.core.common.businessentities.SupportedAdditionalClusterFeature;
+import org.ovirt.engine.core.common.businessentities.UsbControllerModel;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VdsNumaNode;
 import org.ovirt.engine.core.common.businessentities.VdsStatistics;
@@ -79,6 +81,7 @@ import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.osinfo.OsRepository;
 import org.ovirt.engine.core.common.utils.PDIVMapBuilder;
 import org.ovirt.engine.core.common.utils.ValidationUtils;
+import org.ovirt.engine.core.common.utils.VmCpuCountHelper;
 import org.ovirt.engine.core.common.utils.VmDeviceCommonUtils;
 import org.ovirt.engine.core.common.utils.VmDeviceType;
 import org.ovirt.engine.core.compat.Guid;
@@ -93,6 +96,7 @@ import org.ovirt.engine.core.dao.DiskVmElementDao;
 import org.ovirt.engine.core.dao.HostDeviceDao;
 import org.ovirt.engine.core.dao.StorageDomainStaticDao;
 import org.ovirt.engine.core.dao.StorageServerConnectionDao;
+import org.ovirt.engine.core.dao.VdsDynamicDao;
 import org.ovirt.engine.core.dao.VdsNumaNodeDao;
 import org.ovirt.engine.core.dao.VdsStaticDao;
 import org.ovirt.engine.core.dao.VdsStatisticsDao;
@@ -150,6 +154,7 @@ public class VmInfoBuildUtils {
     private final StorageServerConnectionDao storageServerConnectionDao;
     private final VdsNumaNodeDao vdsNumaNodeDao;
     private final VdsStaticDao vdsStaticDao;
+    private final VdsDynamicDao vdsDynamicDao;
     private final VdsStatisticsDao vdsStatisticsDao;
     private final HostDeviceDao hostDeviceDao;
     private final DiskVmElementDao diskVmElementDao;
@@ -183,6 +188,7 @@ public class VmInfoBuildUtils {
             StorageServerConnectionDao storageServerConnectionDao,
             VdsNumaNodeDao vdsNumaNodeDao,
             VdsStaticDao vdsStaticDao,
+            VdsDynamicDao vdsDynamicDao,
             VdsStatisticsDao vdsStatisticsDao,
             HostDeviceDao hostDeviceDao,
             VmSerialNumberBuilder vmSerialNumberBuilder,
@@ -206,6 +212,7 @@ public class VmInfoBuildUtils {
         this.storageServerConnectionDao = Objects.requireNonNull(storageServerConnectionDao);
         this.vdsNumaNodeDao = Objects.requireNonNull(vdsNumaNodeDao);
         this.vdsStaticDao = Objects.requireNonNull(vdsStaticDao);
+        this.vdsDynamicDao = Objects.requireNonNull(vdsDynamicDao);
         this.vdsStatisticsDao = Objects.requireNonNull(vdsStatisticsDao);
         this.hostDeviceDao = Objects.requireNonNull(hostDeviceDao);
         this.vmSerialNumberBuilder = Objects.requireNonNull(vmSerialNumberBuilder);
@@ -329,6 +336,7 @@ public class VmInfoBuildUtils {
         }
         addProfileDataToNic(struct, vm, vmDevice, nic, vnicProfile);
     }
+
     public void addProfileDataToNic(Map<String, Object> struct,
             VM vm,
             VmDevice vmDevice,
@@ -371,7 +379,7 @@ public class VmInfoBuildUtils {
                     VdsProperties.PORT_MIRRORING,
                     network == null
                             ? Collections.<String> emptyList()
-                            : Collections.singletonList(network.getName()));
+                            : Collections.singletonList(network.getVdsmName()));
         }
 
     }
@@ -751,7 +759,7 @@ public class VmInfoBuildUtils {
         return null;
     }
 
-    private String getTimeZoneForVm(VM vm) {
+    public String getTimeZoneForVm(VM vm) {
         if (!StringUtils.isEmpty(vm.getTimeZone())) {
             return vm.getTimeZone();
         }
@@ -888,15 +896,20 @@ public class VmInfoBuildUtils {
     public VmDevice createSysprepPayloadDevice(String sysPrepContent, VM vm) {
         // We do not validate the size of the content being passed to the VM payload by VmPayload.isPayloadSizeLegal().
         // The sysprep file size isn't being verified for 3.0 clusters and below, so we maintain the same behavior here.
+        boolean cdromPayload = !osRepository.isFloppySupported(vm.getOs(), vm.getCompatibilityVersion());
         VmPayload vmPayload = new VmPayload();
-        vmPayload.setDeviceType(VmDeviceType.FLOPPY);
+        if (cdromPayload) {
+            vmPayload.setDeviceType(VmDeviceType.CDROM);
+        } else {
+            vmPayload.setDeviceType(VmDeviceType.FLOPPY);
+        }
         vmPayload.getFiles().put(
                 osRepository.getSysprepFileName(vm.getOs(), vm.getCompatibilityVersion()),
                 new String(BASE_64.encode(sysPrepContent.getBytes()), StandardCharsets.UTF_8));
 
         return new VmDevice(new VmDeviceId(Guid.newGuid(), vm.getId()),
                 VmDeviceGeneralType.DISK,
-                VmDeviceType.FLOPPY.getName(),
+                cdromPayload ? VmDeviceType.CDROM.getName() : VmDeviceType.FLOPPY.getName(),
                 "",
                 vmPayload.getSpecParams(),
                 true,
@@ -968,9 +981,7 @@ public class VmInfoBuildUtils {
     private boolean isFeatureSupportedAsAdditionalFeature(Guid clusterId, String featureName) {
         return clusterFeatureDao.getAllByClusterId(clusterId).stream()
         .filter(SupportedAdditionalClusterFeature::isEnabled)
-        .filter(f -> f.getFeature().getName().equals(featureName))
-        .findAny()
-        .isPresent();
+        .anyMatch(f -> f.getFeature().getName().equals(featureName));
     }
 
     /**
@@ -996,7 +1007,7 @@ public class VmInfoBuildUtils {
             String msgReason1 = MapUtils.isEmpty(cpuPinning) ? "CPU Pinning topology is not set": null;
             String msgReason2 = vm.getNumOfIoThreads() == 0 ? "IO Threads is not enabled": null;
             String msgReason3 = !pinnedVmNumaNode.isPresent() ? "vm's virtual NUMA nodes are not pinned to host's NUMA nodes": null;
-            String finalMsgReason = Arrays.asList(msgReason1, msgReason2, msgReason3).stream()
+            String finalMsgReason = Stream.of(msgReason1, msgReason2, msgReason3)
                     .filter(Objects::nonNull).collect(Collectors.joining(", ")) + ".";
 
             log.warn("No IO thread(s) pinning and Emulator thread(s) pinning for High Performance VM {} {} due to wrong configuration: {}",
@@ -1170,18 +1181,41 @@ public class VmInfoBuildUtils {
     }
 
     public List<VmNumaNode> getVmNumaNodes(VM vm) {
+        int onlineCpus = vm.getNumOfCpus();
+        int vcpus = FeatureSupported.supportedInConfig(ConfigValues.HotPlugCpuSupported, vm.getCompatibilityVersion(), vm.getClusterArch()) ?
+                VmCpuCountHelper.calcMaxVCpu(vm, vm.getClusterCompatibilityVersion())
+                : onlineCpus;
+        int offlineCpus = vcpus - onlineCpus;
         List<VmNumaNode> vmNumaNodes = vmNumaNodeDao.getAllVmNumaNodeByVmId(vm.getId());
         if (!vmNumaNodes.isEmpty()) {
+            // When the NUMA Configuration is provided, distribute the remaining
+            // offline vCPUs evenly across all nodes
+            if (offlineCpus > 0) {
+                int numaCount = vmNumaNodes.size();
+                int index = onlineCpus;
+                for (VmNumaNode vmNode : vmNumaNodes) {
+                    if (numaCount <= 0) {
+                        break;
+                    }
+                    for (int i = vmNode.getCpuIds().size(); i < vcpus / numaCount; i++) {
+                        vmNode.getCpuIds().add(index++);
+                    }
+                    vcpus -= vcpus / numaCount;
+                    --numaCount;
+                }
+            }
             return vmNumaNodes;
         }
 
         // if user didn't set specific NUMA conf
         // create a default one with one guest numa node
-        if (FeatureSupported.hotPlugMemory(vm.getCompatibilityVersion(), vm.getClusterArch())) {
+        // and assign also offline vCPUs to it when CPU
+        // hotplug is supported.
+        if (offlineCpus > 0) {
             VmNumaNode vmNode = new VmNumaNode();
             vmNode.setIndex(0);
             vmNode.setMemTotal(vm.getMemSizeMb());
-            for (int i = 0; i < vm.getNumOfCpus(); i++) {
+            for (int i = 0; i < vcpus; i++) {
                 vmNode.getCpuIds().add(i);
             }
             return Collections.singletonList(vmNode);
@@ -1373,10 +1407,17 @@ public class VmInfoBuildUtils {
         return multiQueueUtils.isInterfaceQueuable(vmDevice, vmNic);
     }
 
+    private UsbControllerModel getUsbControllerModelForVm(VM vm) {
+        return osRepository.getOsUsbControllerModel(
+                vm.getVmOsId(),
+                vm.getCompatibilityVersion(),
+                vm.getBiosType().getChipsetType());
+    }
+
     public boolean isTabletEnabled(VM vm) {
         return vm.getVmType() != VmType.HighPerformance // avoid adding Tablet device for HP VMs since no USB devices are set
-                && vm.getGraphicsInfos().size() == 1
-                && vm.getGraphicsInfos().containsKey(GraphicsType.VNC);
+                && getUsbControllerModelForVm(vm) != UsbControllerModel.NONE // or when there's no USB controller for this OS
+                && vm.getGraphicsInfos().containsKey(GraphicsType.VNC); // and VNC is requested (VNC or SPICE+VNC)
     }
 
     public boolean shouldUseNativeIO(VM vm, DiskImage diskImage, VmDevice device) {
@@ -1404,9 +1445,9 @@ public class VmInfoBuildUtils {
     }
 
     boolean isKernelFipsMode(Guid vdsGuid) {
-        boolean fips = vdsStaticDao.get(vdsGuid).isKernelCmdlineFips();
-        log.info("Kernel FIPS - Guid: " + vdsGuid + " fips: " + fips);
-        return vdsStaticDao.get(vdsGuid).isKernelCmdlineFips();
+        boolean fips = vdsDynamicDao.get(vdsGuid).isFipsEnabled();
+        log.debug("Kernel FIPS - Guid: {} fips: {}", vdsGuid, fips);
+        return fips;
     }
 
     /**
@@ -1422,7 +1463,7 @@ public class VmInfoBuildUtils {
         // detect ignition
         boolean isIgnition = false;
         try {
-            if (vmInit.getCustomScript() != null) {
+            if (vmInit != null && vmInit.getCustomScript() != null) {
                 isIgnition = JsonHelper.jsonToMap(vmInit.getCustomScript()).containsKey("ignition");
                 if (isIgnition) {
                     // there is no json schema or a java library that validates ignition files yet. The passing criterira now
@@ -1436,4 +1477,11 @@ public class VmInfoBuildUtils {
         return isIgnition ? new IgnitionHandler(vmInit).getFileData() : new CloudInitHandler(vmInit).getFileData();
     }
 
+    String getTscFrequency(Guid vdsGuid) {
+        return vdsDynamicDao.get(vdsGuid).getTscFrequency();
+    }
+
+    String getCpuFlags(Guid vdsGuid) {
+        return vdsDynamicDao.get(vdsGuid).getCpuFlags();
+    }
 }

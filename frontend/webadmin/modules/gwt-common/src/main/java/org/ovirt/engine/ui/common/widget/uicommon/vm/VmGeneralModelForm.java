@@ -1,20 +1,30 @@
 package org.ovirt.engine.ui.common.widget.uicommon.vm;
 
+
+import static org.ovirt.engine.ui.uicommonweb.models.vms.VmGeneralModel.CONFIGURED_CPU_TYPE_PROPERTY_CHANGE;
+import static org.ovirt.engine.ui.uicommonweb.models.vms.VmGeneralModel.GUEST_CPU_TYPE_PROPERTY_CHANGE;
+
 import org.ovirt.engine.core.common.businessentities.VMStatus;
 import org.ovirt.engine.ui.common.CommonApplicationConstants;
+import org.ovirt.engine.ui.common.CommonApplicationMessages;
 import org.ovirt.engine.ui.common.editor.UiCommonEditorDriver;
 import org.ovirt.engine.ui.common.gin.AssetProvider;
 import org.ovirt.engine.ui.common.uicommon.model.ModelProvider;
+import org.ovirt.engine.ui.common.widget.WidgetWithWarn;
 import org.ovirt.engine.ui.common.widget.form.FormItem;
 import org.ovirt.engine.ui.common.widget.label.BooleanLabel;
 import org.ovirt.engine.ui.common.widget.label.EnumLabel;
 import org.ovirt.engine.ui.common.widget.label.StringValueLabel;
+import org.ovirt.engine.ui.common.widget.renderer.UptimeRenderer;
 import org.ovirt.engine.ui.common.widget.tooltip.WidgetTooltip;
 import org.ovirt.engine.ui.common.widget.uicommon.AbstractModelBoundFormWidget;
 import org.ovirt.engine.ui.uicommonweb.models.vms.VmGeneralModel;
+import org.ovirt.engine.ui.uicompat.PropertyChangedEventArgs;
 
 import com.google.gwt.core.client.GWT;
 import com.google.gwt.safehtml.shared.SafeHtmlUtils;
+import com.google.gwt.user.client.ui.ValueLabel;
+import com.google.gwt.user.client.ui.Widget;
 
 public class VmGeneralModelForm extends AbstractModelBoundFormWidget<VmGeneralModel> {
 
@@ -22,8 +32,9 @@ public class VmGeneralModelForm extends AbstractModelBoundFormWidget<VmGeneralMo
     }
 
     StringValueLabel name = new StringValueLabel();
-    EnumLabel<VMStatus> status = new EnumLabel<>();
     StringValueLabel description = new StringValueLabel();
+    EnumLabel<VMStatus> status = new EnumLabel<>();
+    ValueLabel<Double> uptime = new ValueLabel<>(new UptimeRenderer());
     StringValueLabel quotaName = new StringValueLabel();
     StringValueLabel template = new StringValueLabel();
     StringValueLabel definedMemory = new StringValueLabel();
@@ -57,10 +68,12 @@ public class VmGeneralModelForm extends AbstractModelBoundFormWidget<VmGeneralMo
 
     private static final CommonApplicationConstants constants = AssetProvider.getConstants();
 
+    private static final CommonApplicationMessages messages = AssetProvider.getMessages();
+
     private final Driver driver = GWT.create(Driver.class);
 
     public VmGeneralModelForm(ModelProvider<VmGeneralModel> modelProvider) {
-        super(modelProvider, 3, 10);
+        super(modelProvider, 3, 11);
     }
 
     /**
@@ -74,15 +87,16 @@ public class VmGeneralModelForm extends AbstractModelBoundFormWidget<VmGeneralMo
         driver.initialize(this);
 
         formBuilder.addFormItem(new FormItem(constants.nameVm(), name, 0, 0));
-        formBuilder.addFormItem(new FormItem(constants.statusVm(), status, 1, 0));
-        formBuilder.addFormItem(new FormItem(constants.descriptionVm(), description, 2, 0));
-        formBuilder.addFormItem(new FormItem(constants.templateVm(), template, 3, 0));
-        formBuilder.addFormItem(new FormItem(constants.osVm(), oS, 4, 0));
-        formBuilder.addFormItem(new FormItem(constants.biosTypeGeneral(), biosType, 5, 0));
-        formBuilder.addFormItem(new FormItem(constants.graphicsProtocol(), graphicsType, 6, 0));
-        formBuilder.addFormItem(new FormItem(constants.videoType(), defaultDisplayType, 7, 0));
-        formBuilder.addFormItem(new FormItem(constants.priorityVm(), priority, 8, 0));
-        formBuilder.addFormItem(new FormItem(constants.optimizedFor(), optimizedForSystemProfile, 9, 0));
+        formBuilder.addFormItem(new FormItem(constants.descriptionVm(), description, 1, 0));
+        formBuilder.addFormItem(new FormItem(constants.statusVm(), status, 2, 0));
+        formBuilder.addFormItem(new FormItem(constants.uptimeVm(), uptime, 3, 0));
+        formBuilder.addFormItem(new FormItem(constants.templateVm(), template, 4, 0));
+        formBuilder.addFormItem(new FormItem(constants.osVm(), oS, 5, 0));
+        formBuilder.addFormItem(new FormItem(constants.biosTypeGeneral(), biosType, 6, 0));
+        formBuilder.addFormItem(new FormItem(constants.graphicsProtocol(), graphicsType, 7, 0));
+        formBuilder.addFormItem(new FormItem(constants.videoType(), defaultDisplayType, 8, 0));
+        formBuilder.addFormItem(new FormItem(constants.priorityVm(), priority, 9, 0));
+        formBuilder.addFormItem(new FormItem(constants.optimizedFor(), optimizedForSystemProfile, 10, 0));
         formBuilder.addFormItem(new FormItem(constants.definedMemoryVm(), definedMemory, 0, 1));
         formBuilder.addFormItem(new FormItem(constants.physMemGauranteedVm(), minAllocatedMemory, 1, 1));
         formBuilder.addFormItem(new FormItem(constants.guestFreeCachedBufferedMemInfo(), guestFreeCachedBufferedMemInfo, 2, 1)
@@ -91,7 +105,7 @@ public class VmGeneralModelForm extends AbstractModelBoundFormWidget<VmGeneralMo
         cpuInfoWithTooltip.setHtml(SafeHtmlUtils.fromString(constants.numOfCpuCoresTooltip()));
         formBuilder.addFormItem(new FormItem(constants.numOfCpuCoresVm(), cpuInfoWithTooltip, 3, 1));
         formBuilder.addFormItem(new FormItem(constants.GuestCpuCount(), guestCpuCount, 4, 1));
-        formBuilder.addFormItem(new FormItem(constants.GuestCpuType(), guestCpuType, 5, 1));
+        formBuilder.addFormItem(new FormItem(constants.GuestCpuType(), createGuestCpuTypeWidget(), 5, 1));
         formBuilder.addFormItem(new FormItem(constants.highlyAvailableVm(), isHighlyAvailable, 6, 1));
         formBuilder.addFormItem(new FormItem(constants.numOfMonitorsVm(), monitorCount, 7, 1));
         formBuilder.addFormItem(new FormItem(constants.usbPolicyVm(), usbPolicy, 8, 1));
@@ -152,4 +166,32 @@ public class VmGeneralModelForm extends AbstractModelBoundFormWidget<VmGeneralMo
         driver.cleanup();
     }
 
+    private Widget createGuestCpuTypeWidget() {
+        WidgetWithWarn guestCpuTypeWithWarn = new WidgetWithWarn(guestCpuType,
+                messages.vmGuestCpuTypeWarning(
+                        getModel().getConfiguredCpuType()));
+
+        updateCpuTypeWarning(guestCpuTypeWithWarn);
+
+        getModel().getPropertyChangedEvent().addListener((ev, sender, args) -> {
+            if (args instanceof PropertyChangedEventArgs) {
+                String key = ((PropertyChangedEventArgs) args).propertyName;
+                if (key.equals(CONFIGURED_CPU_TYPE_PROPERTY_CHANGE)
+                        || key.equals(GUEST_CPU_TYPE_PROPERTY_CHANGE)) {
+                    updateCpuTypeWarning(guestCpuTypeWithWarn);
+                }
+            }
+        });
+
+        return guestCpuTypeWithWarn;
+    }
+
+    private void updateCpuTypeWarning(WidgetWithWarn widgetWithWarn) {
+        if (getModel().getConfiguredCpuType() == null) {
+            widgetWithWarn.setIconVisible(false);
+            return;
+        }
+
+        widgetWithWarn.setIconVisible(!getModel().getConfiguredCpuType().equals(getModel().getGuestCpuType()));
+    }
 }

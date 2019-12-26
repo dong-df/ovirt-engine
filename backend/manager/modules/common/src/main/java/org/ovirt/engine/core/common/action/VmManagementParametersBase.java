@@ -18,6 +18,7 @@ import org.ovirt.engine.core.common.businessentities.VmRngDevice;
 import org.ovirt.engine.core.common.businessentities.VmStatic;
 import org.ovirt.engine.core.common.businessentities.VmWatchdog;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
+import org.ovirt.engine.core.common.scheduling.AffinityGroup;
 import org.ovirt.engine.core.common.utils.VmDeviceType;
 import org.ovirt.engine.core.common.validation.annotation.HostedEngineUpdate;
 import org.ovirt.engine.core.common.validation.group.UpdateEntity;
@@ -28,7 +29,7 @@ import org.ovirt.engine.core.compat.Version;
 public class VmManagementParametersBase extends VmOperationParameterBase
         implements HasGraphicsDevices, HasVmIcon, HasRngDevice {
 
-    private static final long serialVersionUID = -7695630335738521510L;
+    private static final long serialVersionUID = -1956210836775846184L;
 
     /**
      * This class combines a value and update flag. If update flag is false, the value is not used to update the VM.
@@ -94,7 +95,7 @@ public class VmManagementParametersBase extends VmOperationParameterBase
     @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.WATCHDOG, type = VmDeviceType.WATCHDOG)
     private Optional<VmWatchdog> watchdog = new Optional<>();
 
-    @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.RNG, type = VmDeviceType.VIRTIO)
+    @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.RNG, type = VmDeviceType.VIRTIO, name="rng")
     private Optional<VmRngDevice> rngDevice = new Optional<>();
 
     /*
@@ -103,7 +104,7 @@ public class VmManagementParametersBase extends VmOperationParameterBase
      * for add vm legacy logic will be used: create device for desktop type
      * for update the current configuration will remain
      */
-    @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.SOUND, type = VmDeviceType.UNKNOWN, isReadOnly = true)
+    @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.SOUND, type = VmDeviceType.UNKNOWN, name="sound", isReadOnly = true)
     private Boolean soundDeviceEnabled;
 
     /*
@@ -119,7 +120,7 @@ public class VmManagementParametersBase extends VmOperationParameterBase
      * - Add VM - defaulted to true for cluster >= 3.3
      * - Update VM - preserve current configuration
      */
-    @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.CONTROLLER, type = VmDeviceType.VIRTIOSCSI)
+    @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.CONTROLLER, type = VmDeviceType.VIRTIOSCSI, name="virtioscsi")
     private Boolean virtioScsiEnabled;
 
     /**
@@ -132,6 +133,8 @@ public class VmManagementParametersBase extends VmOperationParameterBase
     @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.GRAPHICS, type = VmDeviceType.UNKNOWN,
                                    name = "graphicsProtocol")
     private Map<GraphicsType, GraphicsDevice> graphicsDevices = new HashMap<>();
+
+    private List<AffinityGroup> affinityGroups;
 
     /**
      * This attribute contains information about affinity labels.
@@ -150,6 +153,35 @@ public class VmManagementParametersBase extends VmOperationParameterBase
 
     public VmManagementParametersBase(VM vm) {
         this(vm.getStaticData());
+    }
+
+    public VmManagementParametersBase(VmManagementParametersBase baseParams) {
+        this(baseParams.getVmStaticData());
+        setMakeCreatorExplicitOwner(baseParams.isMakeCreatorExplicitOwner());
+        setStorageDomainId(baseParams.getStorageDomainId());
+        setVmPayload(baseParams.getVmPayload());
+        setClearPayload(baseParams.isClearPayload());
+        setCopyTemplatePermissions(baseParams.isCopyTemplatePermissions());
+        setApplyChangesLater(baseParams.applyChangesLater);
+        setClusterLevelChangeFromVersion(baseParams.getClusterLevelChangeFromVersion());
+        setMemoryHotUnplugEnabled(baseParams.isMemoryHotUnplugEnabled());
+
+        setSoundDeviceEnabled(baseParams.isSoundDeviceEnabled());
+        setConsoleEnabled(baseParams.isConsoleEnabled());
+        setBalloonEnabled(baseParams.isBalloonEnabled());
+        setVirtioScsiEnabled(baseParams.isVirtioScsiEnabled());
+        setUpdateNuma(baseParams.isUpdateNuma());
+        setUpdateRngDevice(baseParams.isUpdateRngDevice());
+        setRngDevice(baseParams.getRngDevice());
+        setUpdateWatchdog(baseParams.isUpdateWatchdog());
+        setWatchdog(baseParams.getWatchdog());
+        setAffinityGroups(baseParams.getAffinityGroups());
+        setAffinityLabels(baseParams.getAffinityLabels());
+
+        getGraphicsDevices().putAll(baseParams.getGraphicsDevices());
+        setDiskInfoDestinationMap(baseParams.getDiskInfoDestinationMap());
+
+        setVmLargeIcon(baseParams.getVmLargeIcon());
     }
 
     public VmStatic getVmStaticData() {
@@ -315,6 +347,14 @@ public class VmManagementParametersBase extends VmOperationParameterBase
 
     public void setVmLargeIcon(String vmLargeIcon) {
         this.vmLargeIcon = vmLargeIcon;
+    }
+
+    public List<AffinityGroup> getAffinityGroups() {
+        return affinityGroups;
+    }
+
+    public void setAffinityGroups(List<AffinityGroup> affinityGroups) {
+        this.affinityGroups = affinityGroups;
     }
 
     public List<Label> getAffinityLabels() {

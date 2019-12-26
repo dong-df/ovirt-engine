@@ -2,6 +2,7 @@ package org.ovirt.engine.core.bll;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -13,6 +14,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
+import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.UsbPolicy;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.queries.GetVmChangedFieldsForNextRunParameters;
@@ -37,6 +39,7 @@ public class GetVmChangedFieldsForNextRunQueryTest
 
     @BeforeEach
     public void init() {
+        doNothing().when(vmHandler).enableVmsToolVersionCheck();
         vmHandler.init();
         mockVmPropertiesUtils();
     }
@@ -52,6 +55,7 @@ public class GetVmChangedFieldsForNextRunQueryTest
         vm.setUserDefinedProperties(StringUtils.EMPTY);
         vm.setClusterCompatibilityVersion(Version.getLast());
         vm.setClusterArch(ArchitectureType.x86_64);
+        vm.setClusterBiosType(BiosType.I440FX_SEA_BIOS);
         return vm;
     }
 

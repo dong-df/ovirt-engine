@@ -67,7 +67,7 @@ public class VmAffinityPolicyUnitTestBase {
         newVm = createVMDown(cluster);
 
         when(pendingResourceManager.pendingResources(any())).thenReturn(Collections.emptyList());
-        when(affinityGroupDao.getAllAffinityGroupsByVmId(any())).thenReturn(affinityGroups);
+        when(affinityGroupDao.getAllAffinityGroupsWithFlatLabelsByVmId(any())).thenReturn(affinityGroups);
         when(vmDao.getAllRunningByCluster(any())).thenReturn(runningVMs);
     }
 
@@ -102,11 +102,20 @@ public class VmAffinityPolicyUnitTestBase {
             EntityAffinityRule vmAffinityRule,
             boolean enforcing,
             final VM... vmList) {
+        return createAffinityGroup(cluster, vmAffinityRule, enforcing, 1.0, vmList);
+    }
+
+    protected AffinityGroup createAffinityGroup(Cluster cluster,
+            EntityAffinityRule vmAffinityRule,
+            boolean enforcing,
+            double priority,
+            final VM... vmList) {
         AffinityGroup ag = new AffinityGroup();
         ag.setId(Guid.newGuid());
         ag.setVmAffinityRule(vmAffinityRule);
         ag.setClusterId(cluster.getId());
         ag.setVmEnforcing(enforcing);
+        ag.setPriorityFromDouble(priority);
         ag.setVmIds(Arrays.stream(vmList).map(VM::getId).collect(Collectors.toList()));
         return ag;
     }

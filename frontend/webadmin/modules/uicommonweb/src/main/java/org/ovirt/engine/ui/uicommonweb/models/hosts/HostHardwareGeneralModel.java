@@ -173,6 +173,26 @@ public class HostHardwareGeneralModel extends EntityModel<VDS> {
         }
     }
 
+    private String tscFrequency;
+
+    public String getTscFrequency() {
+        return tscFrequency;
+    }
+
+    public void setTscFrequency(String tscFrequency) {
+        this.tscFrequency = tscFrequency;
+    }
+
+    private boolean tscScalingEnabled;
+
+    public boolean isTscScalingEnabled() {
+        return tscScalingEnabled;
+    }
+
+    public void setTscScaling(boolean tscScalingEnabled) {
+        this.tscScalingEnabled = tscScalingEnabled;
+    }
+
     public enum HbaDeviceKeys { MODEL_NAME, // Model name field
                                 TYPE,       // Device type
                                 WWNN,       // WWNN of the NIC
@@ -237,6 +257,14 @@ public class HostHardwareGeneralModel extends EntityModel<VDS> {
             setThreadsPerCore(messages.commonMessageWithBrackets(threads.toString(), threads > 1 ? constants.smtEnabled()
                     : constants.smtDisabled()));
         }
+
+        if (vds.getTscFrequency() == null) {
+            setTscFrequency(constants.unknown());
+        } else {
+            setTscFrequency(vds.getTscFrequency());
+        }
+
+        setTscScaling(vds.isTscScalingEnabled());
 
         /* Go through the list of HBA devices and transfer the necessary info
            to the GWT host hardware model */

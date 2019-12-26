@@ -190,11 +190,10 @@ public class RestoreAllSnapshotsCommand<T extends RestoreAllSnapshotsParameters>
         removeSnapshotsFromDB();
         succeeded = updateLeaseInfoIfNeeded() && succeeded;
 
-        if (!getTaskIdList().isEmpty() || !cinderDisksToRestore.isEmpty() || !cinderVolumesToRemove.isEmpty() ||
-                !managedBlockStorageDisksToRestore.isEmpty()) {
-            restoreManagedBlockSnapshot(managedBlockStorageDisksToRestore);
+        if (shouldInvokeChildCommand(cinderDisksToRestore, cinderVolumesToRemove, managedBlockStorageDisksToRestore)) {
+            restoreManagedBlockSnapshotIfNeeded(managedBlockStorageDisksToRestore);
             deleteOrphanedImages(cinderDisksToRemove);
-            if (!restoreCinderDisks(removedSnapshot.getId(),
+            if (!restoreCinderDisksIfNeeded(removedSnapshot.getId(),
                     cinderDisksToRestore,
                     cinderDisksToRemove,
                     cinderVolumesToRemove)) {
@@ -209,15 +208,25 @@ public class RestoreAllSnapshotsCommand<T extends RestoreAllSnapshotsParameters>
         setSucceeded(succeeded);
     }
 
-    private void restoreManagedBlockSnapshot(List<ManagedBlockStorageDisk> images) {
-        RestoreAllManagedBlockSnapshotsParameters params = new RestoreAllManagedBlockSnapshotsParameters();
-        params.setManagedBlockStorageDisks(images);
-        params.setSnapshotAction(getParameters().getSnapshotAction());
-        params.setParentCommand(getActionType());
-        params.setParentParameters(getParameters());
-        params.setEndProcedure(EndProcedure.COMMAND_MANAGED);
+    // Check whether we should invoke additional commands based on the disk type
+    private boolean shouldInvokeChildCommand(List<CinderDisk> cinderDisksToRestore,
+            List<CinderDisk> cinderVolumesToRemove,
+            List<ManagedBlockStorageDisk> managedBlockStorageDisksToRestore) {
+        return !getTaskIdList().isEmpty() || !cinderDisksToRestore.isEmpty() || !cinderVolumesToRemove.isEmpty() ||
+                !managedBlockStorageDisksToRestore.isEmpty();
+    }
 
-        runInternalAction(ActionType.RestoreAllManagedBlockSnapshots, params);
+    private void restoreManagedBlockSnapshotIfNeeded(List<ManagedBlockStorageDisk> images) {
+        if (!images.isEmpty()) {
+            RestoreAllManagedBlockSnapshotsParameters params = new RestoreAllManagedBlockSnapshotsParameters();
+            params.setManagedBlockStorageDisks(images);
+            params.setSnapshotAction(getParameters().getSnapshotAction());
+            params.setParentCommand(getActionType());
+            params.setParentParameters(getParameters());
+            params.setEndProcedure(EndProcedure.COMMAND_MANAGED);
+
+            runInternalAction(ActionType.RestoreAllManagedBlockSnapshots, params);
+        }
     }
 
     private void initializeSnapshotsLeasesDomainIds() {
@@ -433,7 +442,7 @@ public class RestoreAllSnapshotsCommand<T extends RestoreAllSnapshotsParameters>
         }
     }
 
-    private boolean restoreCinderDisks(Guid removedSnapshotId, List<CinderDisk> cinderDisksToRestore,
+    private boolean restoreCinderDisksIfNeeded(Guid removedSnapshotId, List<CinderDisk> cinderDisksToRestore,
                                   List<CinderDisk> cinderDisksToRemove,
                                   List<CinderDisk> cinderVolumesToRemove) {
         if (!cinderDisksToRestore.isEmpty() || !cinderDisksToRemove.isEmpty() || !cinderVolumesToRemove.isEmpty()) {
@@ -521,8 +530,7 @@ public class RestoreAllSnapshotsCommand<T extends RestoreAllSnapshotsParameters>
 
         Snapshot previewedSnapshot = snapshotDao.get(getVmId(), SnapshotType.PREVIEW);
         if (previewedSnapshot != null) {
-            VM vmFromConf = snapshotVmConfigurationHelper.getVmFromConfiguration(
-                    previewedSnapshot.getVmConfiguration(), previewedSnapshot.getVmId(), previewedSnapshot.getId());
+            VM vmFromConf = snapshotVmConfigurationHelper.getVmFromConfiguration(previewedSnapshot);
             List<DiskImage> previewedImagesFromDB = diskImageDao.getAllSnapshotsForVmSnapshot(previewedSnapshot.getId());
             imagesFromPreviewSnapshot.addAll(ImagesHandler.imagesIntersection(vmFromConf.getImages(), previewedImagesFromDB));
         }
@@ -604,7 +612,7 @@ public class RestoreAllSnapshotsCommand<T extends RestoreAllSnapshotsParameters>
         snapshotsToRemove.add(removedSnapshot.getId());
         getSnapshotsManager().removeAllIllegalDisks(removedSnapshot.getId(), getVmId());
 
-        getSnapshotsManager().attempToRestoreVmConfigurationFromSnapshot(getVm(),
+        getSnapshotsManager().attemptToRestoreVmConfigurationFromSnapshot(getVm(),
                 targetSnapshot,
                 targetSnapshot.getId(),
                 null,
@@ -690,8 +698,7 @@ public class RestoreAllSnapshotsCommand<T extends RestoreAllSnapshotsParameters>
         Set<Guid> snapshotsToRemove = new HashSet<>();
 
         newerSnapshots.forEach(snapshot -> {
-            VM vm = snapshotVmConfigurationHelper.getVmFromConfiguration(
-                    snapshot.getVmConfiguration(), snapshot.getVmId(), snapshot.getId());
+            VM vm = snapshotVmConfigurationHelper.getVmFromConfiguration(snapshot);
             if (vm != null) {
                 boolean shouldRemove = vm.getImages().isEmpty() || vm.getImages().stream().allMatch(
                         diskImage -> diskImage.getImageStatus() == ImageStatus.ILLEGAL);

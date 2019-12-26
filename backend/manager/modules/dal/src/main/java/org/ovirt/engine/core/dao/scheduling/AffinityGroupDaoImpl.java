@@ -1,7 +1,11 @@
 package org.ovirt.engine.core.dao.scheduling;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import javax.inject.Named;
@@ -31,8 +35,22 @@ public class AffinityGroupDaoImpl extends DefaultGenericDao<AffinityGroup, Guid>
     }
 
     @Override
+    public List<AffinityGroup> getAllAffinityGroupsWithFlatLabelsByClusterId(Guid clusterId) {
+        return getCallsHandler().executeReadList("getAllAffinityGroupsWithFlatLabelsByClusterId",
+                createEntityRowMapper(),
+                getCustomMapSqlParameterSource().addValue("cluster_id", clusterId));
+    }
+
+    @Override
     public List<AffinityGroup> getAllAffinityGroupsByVmId(Guid vmId) {
         return getCallsHandler().executeReadList("getAllAffinityGroupsByVmId",
+                createEntityRowMapper(),
+                getCustomMapSqlParameterSource().addValue("vm_id", vmId));
+    }
+
+    @Override
+    public List<AffinityGroup> getAllAffinityGroupsWithFlatLabelsByVmId(Guid vmId) {
+        return getCallsHandler().executeReadList("getAllAffinityGroupsWithFlatLabelsByVmId",
                 createEntityRowMapper(),
                 getCustomMapSqlParameterSource().addValue("vm_id", vmId));
     }
@@ -59,22 +77,26 @@ public class AffinityGroupDaoImpl extends DefaultGenericDao<AffinityGroup, Guid>
     }
 
     @Override
-    public void removeVmFromAffinityGroups(Guid vmId) {
-        getCallsHandler().executeModification("RemoveVmFromAffinityGroups",
-                getCustomMapSqlParameterSource().addValue("vm_id", vmId));
-    }
-
-    @Override
-    public void removeVdsFromAffinityGroups(Guid vdsId) {
-        getCallsHandler().executeModification("RemoveVdsFromAffinityGroups",
-                getCustomMapSqlParameterSource().addValue("vds_id", vdsId));
-    }
-
-    @Override
     public List<AffinityGroup> getPositiveEnforcingAffinityGroupsByRunningVmsOnVdsId(Guid vdsId) {
         return getCallsHandler().executeReadList("getPositiveEnforcingAffinityGroupsByRunningVmsOnVdsId",
                 createEntityRowMapper(),
                 getCustomMapSqlParameterSource().addValue("vds_id", vdsId));
+    }
+
+    @Override
+    public void setAffinityGroupsForVm(Guid vmId, List<Guid> groupIds) {
+        getCallsHandler().executeModification("SetAffinityGroupsForVm",
+                getCustomMapSqlParameterSource()
+                        .addValue("vm_id", vmId)
+                        .addValue("groups", createArrayOf("uuid", groupIds.toArray())));
+    }
+
+    @Override
+    public void setAffinityGroupsForHost(Guid hostId, List<Guid> groupIds) {
+        getCallsHandler().executeModification("SetAffinityGroupsForHost",
+                getCustomMapSqlParameterSource()
+                        .addValue("host_id", hostId)
+                        .addValue("groups", createArrayOf("uuid", groupIds.toArray())));
     }
 
     @Override
@@ -89,8 +111,11 @@ public class AffinityGroupDaoImpl extends DefaultGenericDao<AffinityGroup, Guid>
                 .addValue("vds_enforcing", entity.isVdsEnforcing())
                 .addValue("vms_affinity_enabled", entity.isVmAffinityEnabled())
                 .addValue("vds_affinity_enabled", entity.isVdsAffinityEnabled())
+                .addValue("priority", entity.getPriority())
                 .addValue("vm_ids", createArrayOf("uuid", entity.getVmIds().toArray()))
-                .addValue("vds_ids", createArrayOf("uuid", entity.getVdsIds().toArray()));
+                .addValue("vds_ids", createArrayOf("uuid", entity.getVdsIds().toArray()))
+                .addValue("vm_label_ids", createArrayOf("uuid", entity.getVmLabels().toArray()))
+                .addValue("host_label_ids", createArrayOf("uuid", entity.getHostLabels().toArray()));
     }
 
     @Override
@@ -109,6 +134,7 @@ public class AffinityGroupDaoImpl extends DefaultGenericDao<AffinityGroup, Guid>
             affinityGroup.setClusterId(getGuid(rs, "cluster_id"));
             affinityGroup.setVmEnforcing(rs.getBoolean("vm_enforcing"));
             affinityGroup.setVdsEnforcing(rs.getBoolean("vds_enforcing"));
+            affinityGroup.setPriority(rs.getLong("priority"));
 
             if (rs.getBoolean("vds_affinity_enabled")) {
                 if (rs.getBoolean("vds_positive")) {
@@ -130,19 +156,28 @@ public class AffinityGroupDaoImpl extends DefaultGenericDao<AffinityGroup, Guid>
                 affinityGroup.setVmAffinityRule(EntityAffinityRule.DISABLED);
             }
 
-            String[] rawUuids = (String[]) rs.getArray("vm_ids").getArray();
-            List<String> vms = Arrays.asList(rawUuids);
-            rawUuids = (String[]) rs.getArray("vds_ids").getArray();
-            List<String> hosts = Arrays.asList(rawUuids);
-            List<String> vmNames = Arrays.asList((String[]) rs.getArray("vm_names").getArray());
-            List<String> vdsNames = Arrays.asList((String[]) rs.getArray("vds_names").getArray());
+            affinityGroup.setVmIds(readList(rs, "vm_ids", Guid::new));
+            affinityGroup.setVdsIds(readList(rs, "vds_ids", Guid::new));
+            affinityGroup.setVmLabels(readList(rs, "vm_label_ids", Guid::new));
+            affinityGroup.setHostLabels(readList(rs, "host_label_ids", Guid::new));
 
-            affinityGroup.setVmIds(vms.stream().filter(v -> v != null).map(Guid::new).collect(Collectors.toList()));
-            affinityGroup.setVdsIds(hosts.stream().filter(v -> v != null).map(Guid::new).collect(Collectors.toList()));
-            affinityGroup.setVmEntityNames(vmNames.stream().filter(v -> v != null).collect(Collectors.toList()));
-            affinityGroup.setVdsEntityNames(vdsNames.stream().filter(v -> v != null).collect(Collectors.toList()));
+            affinityGroup.setVmEntityNames(readList(rs, "vm_names"));
+            affinityGroup.setVdsEntityNames(readList(rs, "vds_names"));
+            affinityGroup.setVmLabelNames(readList(rs, "vm_label_names"));
+            affinityGroup.setHostLabelNames(readList(rs, "host_label_names"));
 
             return affinityGroup;
         };
+    }
+
+    private List<String> readList(ResultSet rs, String columnLabel) throws SQLException {
+        return readList(rs, columnLabel, str -> str);
+    }
+
+    private<T> List<T> readList(ResultSet rs, String columnLabel, Function<String, T> converter) throws SQLException {
+        return Arrays.stream((String[]) rs.getArray(columnLabel).getArray())
+                .filter(Objects::nonNull)
+                .map(converter)
+                .collect(Collectors.toList());
     }
 }

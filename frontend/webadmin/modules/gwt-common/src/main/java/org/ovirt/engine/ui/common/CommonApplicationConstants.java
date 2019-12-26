@@ -95,9 +95,9 @@ public interface CommonApplicationConstants extends Constants {
 
     String runOncePopupAttachIsoLabel();
 
-    String runOncePopupInitialRunLabel();
+    String runOncePopupSysprepLabel();
 
-    String runOnceSysPrepToEnableLabel();
+    String runOncePopupInitialRunLabel();
 
     String runOncePopupSysPrepDomainNameLabel();
 
@@ -335,6 +335,8 @@ public interface CommonApplicationConstants extends Constants {
 
     String statusVm();
 
+    String uptimeVm();
+
     String typeVm();
 
     String aliasVm();
@@ -507,6 +509,8 @@ public interface CommonApplicationConstants extends Constants {
 
     String passThroughHostCpu();
 
+    String tscFrequency();
+
     String allowMigrationOnlyAdminVmPopup();
 
     String highlyAvailableVmPopup();
@@ -540,6 +544,8 @@ public interface CommonApplicationConstants extends Constants {
     String customPropsVmPopup();
 
     String runOnVmPopup();
+
+    String hostCpuVmPopup();
 
     String runMigrationOptionsVmPopup();
 
@@ -783,6 +789,8 @@ public interface CommonApplicationConstants extends Constants {
 
     String creationDateDisk();
 
+    String modificationDateDisk();
+
     String diskSnapshotIDDisk();
 
     String descriptionDisk();
@@ -886,6 +894,8 @@ public interface CommonApplicationConstants extends Constants {
     String storageDomainVmDiskPopup();
 
     String hostVmDiskPopup();
+
+    String hostToUseToolTip();
 
     String aliasVmDiskPopup();
 
@@ -1095,15 +1105,21 @@ public interface CommonApplicationConstants extends Constants {
 
     String imageTransferPausedUser();
 
-    String imageTransferCancelled();
+    String imageTransferCancelledSystem();
+
+    String imageTransferCancelledUser();
 
     String imageTransferFinalizingSuccess();
 
     String imageTransferFinalizingFailure();
 
+    String imageTransferFinalizingCleanup();
+
     String imageTransferFinishedSuccess();
 
     String imageTransferFinishedFailure();
+
+    String imageTransferFinishedCleanup();
 
     String imageTransferringViaBrowser();
 
@@ -1116,6 +1132,8 @@ public interface CommonApplicationConstants extends Constants {
     String multiQueuesLabel();
 
     String cpuPinningLabelExplanation();
+
+    String diskFormatTypeMatrixInfo();
 
     String multiQueuesLabelExplanation();
 
@@ -1148,6 +1166,8 @@ public interface CommonApplicationConstants extends Constants {
     String elementName();
 
     String assignQuota();
+
+    String refreshLUN();
 
     String increaseNumberOfVMsInPoolBy();
 
@@ -1277,8 +1297,6 @@ public interface CommonApplicationConstants extends Constants {
 
     String soundcardEnabled();
 
-    String singleQxlEnabled();
-
     String optimizedFor();
 
     String addItemButtonLabel();
@@ -1287,7 +1305,9 @@ public interface CommonApplicationConstants extends Constants {
 
     String selectItemTooltip();
 
-    String affinityLabels();
+    String affinity();
+
+    String affinityGroupsDropDownInstruction();
 
     String affinityLabelsDropDownInstruction();
 
@@ -1437,10 +1457,6 @@ public interface CommonApplicationConstants extends Constants {
 
     String importTemplateName();
 
-    String overrideMigrationDowntimeLabel();
-
-    String overrideMigrationPolicyLabel();
-
     String migrationMode();
 
     String migrationDowntimeLabel();
@@ -1547,6 +1563,8 @@ public interface CommonApplicationConstants extends Constants {
 
     String migrateCompressedLabel();
 
+    String migrateEncryptedLabel();
+
     String autoConverge();
 
     String dontAutoConverge();
@@ -1554,6 +1572,10 @@ public interface CommonApplicationConstants extends Constants {
     String compress();
 
     String dontCompress();
+
+    String encrypt();
+
+    String dontEncrypt();
 
     String inheritFromCluster();
 
@@ -1672,6 +1694,8 @@ public interface CommonApplicationConstants extends Constants {
     String guestTimezoneDiffers();
 
     String guestAgentNotAvailable();
+
+    String isRunOnce();
 
     String ExternalStatus();
 
@@ -1830,4 +1854,16 @@ public interface CommonApplicationConstants extends Constants {
     String cloudInitProtocolInfo();
 
     String storageDomainStatus();
+
+    String forceToMaintenance();
+
+    String systemDefaultOption();
+
+    String vmMigrationPolicyLabel();
+
+    String migrationDowntime();
+
+    String vmSerialNumberPolicy();
+
+    String vmCustomSerialNumber();
 }

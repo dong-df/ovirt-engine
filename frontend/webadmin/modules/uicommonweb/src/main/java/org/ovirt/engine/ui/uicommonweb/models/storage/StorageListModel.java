@@ -1012,11 +1012,17 @@ public class StorageListModel extends ListWithSimpleDetailsModel<Void, StorageDo
                 return;
             }
             cancelConfirm();
-            getExistingStorageDomainList();
+            showFormatUpgradeConfirmIfRequired("OnImportFilePostConfirm"); //$NON-NLS-1$
         } else if ("OnImportSan".equals(command.getName())) { //$NON-NLS-1$
             if (getConfirmWindow() != null && !((ConfirmationModel) getConfirmWindow()).validate()) {
                 return;
             }
+            cancelConfirm();
+            showFormatUpgradeConfirmIfRequired("OnImportSanPostConfirm"); //$NON-NLS-1$
+        } else if ("OnImportFilePostConfirm".equals(command.getName())) { //$NON-NLS-1$
+            cancelConfirm();
+            addExistingFileStorageDomain();
+        } else if ("OnImportSanPostConfirm".equals(command.getName())) { //$NON-NLS-1$
             cancelConfirm();
             onImportSanDomainApprove();
         } else if ("OnRemove".equals(command.getName())) { //$NON-NLS-1$
@@ -1055,16 +1061,13 @@ public class StorageListModel extends ListWithSimpleDetailsModel<Void, StorageDo
 
         this.context = context;
 
-        StorageDomain selectedItem = getSelectedItem();
         StorageModel model = (StorageModel) getWindow();
         boolean isNew = model.getStorage() == null;
         storageModel = model.getCurrentStorageItem();
         final PosixStorageModel posixModel = (PosixStorageModel) storageModel;
         path = posixModel.getPath().getEntity();
 
-        storageDomain = isNew ? new StorageDomainStatic() : (StorageDomainStatic) Cloner.clone(selectedItem.getStorageStaticData());
-        saveBaseStorageProperties(model);
-        storageDomain.setStorageFormat(model.getFormat().getSelectedItem());
+        setStorageProperties();
 
         if (isNew) {
             AsyncDataProvider.getInstance().getStorageDomainsByConnection(new AsyncQuery<>(storages -> {
@@ -1089,15 +1092,12 @@ public class StorageListModel extends ListWithSimpleDetailsModel<Void, StorageDo
 
         this.context = context;
 
-        StorageDomain selectedItem = getSelectedItem();
         StorageModel model = (StorageModel) getWindow();
         boolean isNew = model.getStorage() == null;
         storageModel = model.getCurrentStorageItem();
         final ManagedBlockStorageModel managedBlockStorageModel = (ManagedBlockStorageModel) storageModel;
 
-        storageDomain = isNew ? new StorageDomainStatic() : (StorageDomainStatic) Cloner.clone(selectedItem.getStorageStaticData());
-        saveBaseStorageProperties(model);
-        storageDomain.setStorageFormat(model.getFormat().getSelectedItem());
+        setStorageProperties();
 
         if (isNew) {
             AsyncDataProvider.getInstance().getManagedBlockStorageDomainsByDrivers(new AsyncQuery<>(storages -> {
@@ -1252,19 +1252,13 @@ public class StorageListModel extends ListWithSimpleDetailsModel<Void, StorageDo
     private void saveNfsStorage(TaskContext context) {
         this.context = context;
 
-        StorageDomain selectedItem = getSelectedItem();
         StorageModel model = (StorageModel) getWindow();
         boolean isNew = model.getStorage() == null;
         storageModel = model.getCurrentStorageItem();
         final NfsStorageModel nfsModel = (NfsStorageModel) storageModel;
         path = nfsModel.getPath().getEntity();
 
-        storageDomain =
-                isNew ? new StorageDomainStatic()
-                        : (StorageDomainStatic) Cloner.clone(selectedItem.getStorageStaticData());
-
-        saveBaseStorageProperties(model);
-        storageDomain.setStorageFormat(model.getFormat().getSelectedItem());
+        setStorageProperties();
 
         if (isNew) {
             AsyncDataProvider.getInstance().getStorageDomainsByConnection(new AsyncQuery<>(storages -> {
@@ -1448,10 +1442,22 @@ public class StorageListModel extends ListWithSimpleDetailsModel<Void, StorageDo
                 }, this);
     }
 
+    private void setStorageProperties() {
+        StorageDomain selectedItem = getSelectedItem();
+        StorageModel model = (StorageModel) getWindow();
+        boolean isNew = model.getStorage() == null;
+
+        storageDomain =
+                isNew ? new StorageDomainStatic()
+                        : (StorageDomainStatic) Cloner.clone(selectedItem.getStorageStaticData());
+
+        saveBaseStorageProperties(model);
+        storageDomain.setStorageFormat(model.getFormat().getSelectedItem());
+    }
+
     private void saveLocalStorage(TaskContext context) {
         this.context = context;
 
-        StorageDomain selectedItem = getSelectedItem();
         StorageModel model = (StorageModel) getWindow();
         VDS host = model.getHost().getSelectedItem();
         boolean isNew = model.getStorage() == null;
@@ -1459,11 +1465,7 @@ public class StorageListModel extends ListWithSimpleDetailsModel<Void, StorageDo
         LocalStorageModel localModel = (LocalStorageModel) storageModel;
         path = localModel.getPath().getEntity();
 
-        storageDomain =
-                isNew ? new StorageDomainStatic()
-                        : (StorageDomainStatic) Cloner.clone(selectedItem.getStorageStaticData());
-
-        saveBaseStorageProperties(model);
+        setStorageProperties();
 
         if (isNew) {
             AsyncDataProvider.getInstance().getStorageDomainsByConnection(new AsyncQuery<>(storages -> {
@@ -1659,7 +1661,8 @@ public class StorageListModel extends ListWithSimpleDetailsModel<Void, StorageDo
         StorageModel model = (StorageModel) getWindow();
         storageModel = model.getCurrentStorageItem();
         ImportSanStorageModel importSanStorageModel = (ImportSanStorageModel) storageModel;
-        checkSanDomainAttachedToDc("OnImportSan", importSanStorageModel.getStorageDomains().getSelectedItems()); //$NON-NLS-1$
+        storageDomainsToAdd = importSanStorageModel.getStorageDomains().getSelectedItems();
+        checkSanDomainAttachedToDc("OnImportSan", storageDomainsToAdd); //$NON-NLS-1$
     }
 
     private void onImportSanDomainApprove() {
@@ -1774,11 +1777,7 @@ public class StorageListModel extends ListWithSimpleDetailsModel<Void, StorageDo
                     boolean success = returnVal != null && returnVal.getSucceeded();
                     if (success) {
                         storageListModel.fileConnection.setId((String) returnVal.getActionReturnValue());
-                        if (storageModel.getRole() == StorageDomainType.Data) {
-                            checkFileDomainAttachedToDc("OnImportFile", storageListModel.fileConnection); //$NON-NLS-1$
-                        } else {
-                            getExistingStorageDomainList();
-                        }
+                        getExistingStorageDomainList();
                     } else {
                         postImportFileStorage(storageListModel.context,
                             false,
@@ -1796,7 +1795,11 @@ public class StorageListModel extends ListWithSimpleDetailsModel<Void, StorageDo
                         domains -> {
                             if (domains != null && !domains.isEmpty()) {
                                 storageDomainsToAdd = domains;
-                                addExistingFileStorageDomain();
+                                if (storageModel.getRole() == StorageDomainType.Data) {
+                                    checkFileDomainAttachedToDc("OnImportFile", fileConnection); //$NON-NLS-1$
+                                } else {
+                                    addExistingFileStorageDomain();
+                                }
                             } else {
                                 String errorMessage = domains == null ?
                                         ConstantsManager.getInstance().getConstants()
@@ -1878,6 +1881,27 @@ public class StorageListModel extends ListWithSimpleDetailsModel<Void, StorageDo
 
     private void checkFileDomainAttachedToDc(String commandName, StorageServerConnections storageServerConnections) {
         checkDomainAttachedToDc(commandName, null, storageServerConnections);
+    }
+
+    private void showFormatUpgradeConfirmIfRequired(String okCommandName) {
+        StorageModel storageModel = (StorageModel) getWindow();
+        StoragePool dc = storageModel.getDataCenter().getSelectedItem();
+
+        StorageFormatUpgradeConfirmationModel model = new StorageFormatUpgradeConfirmationModel();
+        boolean shouldDisplay = model.initialize(
+                storageDomainsToAdd, dc,
+                okCommandName, "CancelImportConfirm", this); //$NON-NLS-1$
+        if (shouldDisplay) {
+            setConfirmWindow(model);
+            model.setHelpTag(HelpTag.import_storage_domain_confirmation);
+            model.setHashName("import_storage_domain_confirmation"); //$NON-NLS-1$
+        } else {
+            UICommand okCommand = UICommand.createDefaultOkUiCommand(okCommandName, this);
+            okCommand.execute();
+        }
+
+        // Clearing cached domains
+        storageDomainsToAdd = null;
     }
 
     private void checkDomainAttachedToDc(String commandName, List<StorageDomain> storageDomains,

@@ -1,16 +1,14 @@
 package org.ovirt.engine.ui.uicommonweb.models.vms;
 
-import java.util.Arrays;
-
-import org.ovirt.engine.core.common.ActionUtils;
 import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.VmDiskOperationParameterBase;
 import org.ovirt.engine.core.common.businessentities.StoragePool;
-import org.ovirt.engine.core.common.businessentities.VM;
+import org.ovirt.engine.core.common.businessentities.VmDeviceId;
 import org.ovirt.engine.core.common.businessentities.storage.CinderDisk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskBackup;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskStorageType;
+import org.ovirt.engine.core.common.businessentities.storage.DiskVmElement;
 import org.ovirt.engine.core.common.businessentities.storage.LunDisk;
 import org.ovirt.engine.core.common.businessentities.storage.ManagedBlockStorageDisk;
 import org.ovirt.engine.core.common.businessentities.storage.ScsiGenericIO;
@@ -32,9 +30,7 @@ public class EditDiskModel extends AbstractDiskModel {
     @Override
     public void initialize() {
         super.initialize();
-
-        setDiskVmElement(getDisk().getDiskVmElementForVm(getVm().getId()));
-
+        initDiskVmElement();
         disableNonChangeableEntities();
 
         getAlias().setEntity(getDisk().getDiskAlias());
@@ -43,9 +39,8 @@ public class EditDiskModel extends AbstractDiskModel {
         getIsWipeAfterDelete().setEntity(getDisk().isWipeAfterDelete());
         getIsScsiPassthrough().setEntity(getDisk().isScsiPassthrough());
         getIsSgIoUnfiltered().setEntity(getDisk().getSgio() == ScsiGenericIO.UNFILTERED);
-        getIsReadOnly().setEntity(getDiskVmElement().isReadOnly());
-        getIsBootable().setEntity(getDiskVmElement().isBoot());
-        getPassDiscard().setEntity(getDiskVmElement().isPassDiscard());
+        getIsBootable().setIsAvailable(false);
+        getDiskInterface().setIsAvailable(false);
 
         switch (getDisk().getDiskStorageType()) {
             case IMAGE:
@@ -54,10 +49,7 @@ public class EditDiskModel extends AbstractDiskModel {
                 getSize().setEntity((int) diskImage.getSizeInGigabytes());
                 getVolumeType().setSelectedItem(diskImage.getVolumeType());
                 getIsIncrementalBackup().setEntity(diskImage.getBackup() == DiskBackup.Incremental);
-
-                boolean isExtendImageSizeEnabled = getVm() != null && !diskImage.isDiskSnapshot() &&
-                        ActionUtils.canExecute(Arrays.asList(getVm()), VM.class, ActionType.ExtendImageSize);
-                getSizeExtend().setIsChangeable(isExtendImageSizeEnabled);
+                getSizeExtend().setIsChangeable(isSizeExtendChangeable(diskImage));
                 break;
             case LUN:
                 LunDisk lunDisk = (LunDisk) getDisk();
@@ -65,7 +57,7 @@ public class EditDiskModel extends AbstractDiskModel {
                 getStorageType().setIsAvailable(false);
                 getSize().setEntity(lunDisk.getLun().getDeviceSize());
                 getSizeExtend().setIsAvailable(false);
-                getIsUsingScsiReservation().setEntity(getDiskVmElement().isUsingScsiReservation());
+                getHost().setIsAvailable(false);
                 break;
             case CINDER:
                 CinderDisk cinderDisk = (CinderDisk) getDisk();
@@ -80,10 +72,14 @@ public class EditDiskModel extends AbstractDiskModel {
                 getSizeExtend().setIsChangeable(true);
                 break;
         }
+    }
 
-        updateReadOnlyChangeability();
-        updatePassDiscardChangeability();
-        updateWipeAfterDeleteChangeability();
+    protected boolean isSizeExtendChangeable(DiskImage diskImage) {
+        return true;
+    }
+
+    protected void initDiskVmElement() {
+        setDiskVmElement(new DiskVmElement(new VmDeviceId()));
     }
 
     @Override
@@ -140,13 +136,13 @@ public class EditDiskModel extends AbstractDiskModel {
 
         startProgress();
 
-        VmDiskOperationParameterBase parameters = new VmDiskOperationParameterBase(getDiskVmElement(), getDisk());
+        VmDiskOperationParameterBase parameters = new VmDiskOperationParameterBase(getDisk());
         IFrontendActionAsyncCallback onFinished = callback != null ? callback : result -> {
             EditDiskModel diskModel = (EditDiskModel) result.getState();
             diskModel.stopProgress();
             diskModel.cancel();
         };
-        Frontend.getInstance().runAction(ActionType.UpdateVmDisk, parameters, onFinished, this);
+        Frontend.getInstance().runAction(ActionType.UpdateDisk, parameters, onFinished, this);
     }
 
     @Override
@@ -175,7 +171,6 @@ public class EditDiskModel extends AbstractDiskModel {
         getVolumeType().setIsChangeable(false);
         getSize().setIsChangeable(false);
         getCinderVolumeType().setIsChangeable(false);
-        getDiskStorageType().setIsChangeable(false);
 
         if (!isEditEnabled()) {
             getIsShareable().setIsChangeable(false);

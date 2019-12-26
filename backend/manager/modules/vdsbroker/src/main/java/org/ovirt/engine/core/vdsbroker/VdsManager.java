@@ -28,6 +28,7 @@ import org.ovirt.engine.core.common.businessentities.V2VJobInfo.JobStatus;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VDSDomainsData;
 import org.ovirt.engine.core.common.businessentities.VDSStatus;
+import org.ovirt.engine.core.common.businessentities.VMStatus;
 import org.ovirt.engine.core.common.businessentities.VdsDynamic;
 import org.ovirt.engine.core.common.businessentities.VdsNumaNode;
 import org.ovirt.engine.core.common.businessentities.VdsSpmStatus;
@@ -54,7 +55,6 @@ import org.ovirt.engine.core.dao.VdsDynamicDao;
 import org.ovirt.engine.core.dao.VdsNumaNodeDao;
 import org.ovirt.engine.core.dao.VdsStatisticsDao;
 import org.ovirt.engine.core.dao.VmDynamicDao;
-import org.ovirt.engine.core.dao.VmStaticDao;
 import org.ovirt.engine.core.dao.network.InterfaceDao;
 import org.ovirt.engine.core.dao.network.NetworkDao;
 import org.ovirt.engine.core.di.Injector;
@@ -113,9 +113,6 @@ public class VdsManager {
     private VmDynamicDao vmDynamicDao;
 
     @Inject
-    private VmStaticDao vmStaticDao;
-
-    @Inject
     private VdsStatisticsDao vdsStatisticsDao;
 
     @Inject
@@ -135,7 +132,6 @@ public class VdsManager {
 
     @Inject
     private Instance<IrsProxyManager> irsProxyManager;
-    private final AtomicInteger failedToRunVmAttempts;
     private final AtomicInteger unrespondedAttempts;
     private final Guid vdsId;
     private final VdsMonitor vdsMonitor = new VdsMonitor();
@@ -152,7 +148,7 @@ public class VdsManager {
     private volatile boolean beforeFirstRefresh = true;
     private volatile HostMonitoring hostMonitoring;
     private volatile boolean monitoringNeeded;
-    private List<VmDynamic> lastVmsList = Collections.emptyList();
+    private Map<Guid, VMStatus> lastVmsList = Collections.emptyMap();
     private Map<Guid, V2VJobInfo> vmIdToV2VJob = new ConcurrentHashMap<>();
     private VmStatsRefresher vmsRefresher;
     protected AtomicInteger refreshIteration;
@@ -174,7 +170,6 @@ public class VdsManager {
         cachedVds = vds;
         vdsId = vds.getId();
         unrespondedAttempts = new AtomicInteger();
-        failedToRunVmAttempts = new AtomicInteger();
         autoStartVmsWithLeasesLock = new ReentrantLock();
     }
 
@@ -253,18 +248,20 @@ public class VdsManager {
         try {
             refreshImpl();
         } catch (Throwable t) {
-            log.error("Timer update runtime info failed. Exception:", ExceptionUtils.getRootCauseMessage(t));
+            log.error("Timer update runtime info failed. Exception: {}", ExceptionUtils.getRootCauseMessage(t));
             log.debug("Exception:", t);
         }
     }
 
     public void refreshImpl() {
         boolean releaseLock = true;
-        if (lockManager.acquireLock(monitoringLock).getFirst()) {
+        log.debug("Before acquiring monitor lock for scheduled host refresh");
+        if (lockManager.acquireLock(monitoringLock).isAcquired()) {
             try {
                 setIsSetNonOperationalExecuted(false);
                 synchronized (this) {
                     refreshCachedVds();
+                    setMonitoringNeeded();
                     if (cachedVds == null) {
                         log.error("VdsManager::refreshVdsRunTimeInfo - onTimer is NULL for '{}'",
                                 getVdsId());
@@ -355,7 +352,7 @@ public class VdsManager {
                 setDomains(domainsList);
             }
         } catch (Exception e) {
-            log.error("Timer update runtime info failed. Exception:", ExceptionUtils.getRootCauseMessage(e));
+            log.error("Timer update runtime info failed. Exception: {}", ExceptionUtils.getRootCauseMessage(e));
             log.debug("Exception:", e);
         } finally {
             lockManager.releaseLock(monitoringLock);
@@ -375,7 +372,6 @@ public class VdsManager {
 
     private void refreshCachedVds() {
         cachedVds = vdsDao.get(getVdsId());
-        setMonitoringNeeded();
     }
 
     /**
@@ -407,7 +403,7 @@ public class VdsManager {
     }
 
     private void logException(final RuntimeException ex) {
-        log.error("ResourceManager::refreshVdsRunTimeInfo", ExceptionUtils.getRootCauseMessage(ex));
+        log.error("ResourceManager::refreshVdsRunTimeInfo {}", ExceptionUtils.getRootCauseMessage(ex));
         log.debug("Exception", ex);
     }
 
@@ -519,7 +515,9 @@ public class VdsManager {
         synchronized (this) {
             cachedVds.setPendingVcpusCount(pendingCpuCount);
             cachedVds.setPendingVmemSize(pendingMemory);
-            HostMonitoring.refreshCommitedMemory(cachedVds, getVmDynamicDao().getAllRunningForVds(getVdsId()), resourceManager);
+            List<VmDynamic> vmsOnVds = getVmDynamicDao().getAllRunningForVds(getVdsId());
+            Map<Guid, VMStatus> vmIdToStatus = vmsOnVds.stream().collect(Collectors.toMap(VmDynamic::getId, VmDynamic::getStatus));
+            HostMonitoring.refreshCommitedMemory(cachedVds, vmIdToStatus, resourceManager);
             updateDynamicData(cachedVds.getDynamicData());
         }
     }
@@ -571,34 +569,10 @@ public class VdsManager {
                 });
     }
 
-    public void refreshHost(VDS vds) {
-        refreshCapabilities(vds, new RefreshCapabilitiesCallback(vds));
-    }
-
     public void refreshHostSync(VDS vds) {
         VDSReturnValue caps = resourceManager.runVdsCommand(VDSCommandType.GetCapabilities,
                 new VdsIdAndVdsVDSCommandParametersBase(vds));
-        handleRefreshCapabilitiesResponse(vds, caps, true);
-    }
-
-    class RefreshCapabilitiesCallback implements BrokerCommandCallback {
-
-        private VDS vds;
-
-        RefreshCapabilitiesCallback(VDS vds) {
-            this.vds = vds;
-        }
-
-        @Override
-        public void onResponse(Map<String, Object> response) {
-            VDSReturnValue caps = (VDSReturnValue) response.get("result");
-            handleRefreshCapabilitiesResponse(vds, caps, false);
-        }
-
-        @Override
-        public void onFailure(Throwable t) {
-            logRefreshCapabilitiesFailure(t);
-        }
+        handleRefreshCapabilitiesResponse(vds, caps);
     }
 
     private void logRefreshCapabilitiesFailure(Throwable t) {
@@ -606,15 +580,13 @@ public class VdsManager {
         log.debug("Exception", t);
     }
 
-    private void handleRefreshCapabilitiesResponse(VDS vds, VDSReturnValue caps, boolean throwException) {
+    private void handleRefreshCapabilitiesResponse(VDS vds, VDSReturnValue caps) {
         try {
             invokeGetHardwareInfo(vds, caps);
             processRefreshCapabilitiesResponse(new AtomicBoolean(), vds, vds.clone(), caps);
         } catch (Throwable t) {
             logRefreshCapabilitiesFailure(t);
-            if (throwException) {
-                throw t;
-            }
+            throw t;
         } finally {
             if (vds != null) {
                 updateDynamicData(vds.getDynamicData());
@@ -676,10 +648,6 @@ public class VdsManager {
         }
     }
 
-    public void refreshHost() {
-        refreshHost(cachedVds);
-    }
-
     public void setStatus(VDSStatus status, VDS vds) {
         synchronized (this) {
 
@@ -706,6 +674,10 @@ public class VdsManager {
                 this.cachedVds.setStatus(status);
             }
 
+            if (vds.getPreviousStatus() == VDSStatus.Up && status != VDSStatus.Up) {
+                // Don't use the now stale data collected while the host was up
+                invalidateVdsCachedData();
+            }
             switch (status) {
             case NonOperational:
                 if (this.cachedVds != null) {
@@ -717,18 +689,18 @@ public class VdsManager {
             case NonResponsive:
             case Down:
             case Maintenance:
-                vds.setCpuSys(Double.valueOf(0));
-                vds.setCpuUser(Double.valueOf(0));
-                vds.setCpuIdle(Double.valueOf(0));
-                vds.setCpuLoad(Double.valueOf(0));
+                vds.setCpuSys(0.0);
+                vds.setCpuUser(0.0);
+                vds.setCpuIdle(0.0);
+                vds.setCpuLoad(0.0);
                 vds.setUsageCpuPercent(0);
                 vds.setUsageMemPercent(0);
                 vds.setUsageNetworkPercent(0);
                 if (this.cachedVds != null) {
-                    this.cachedVds.setCpuSys(Double.valueOf(0));
-                    this.cachedVds.setCpuUser(Double.valueOf(0));
-                    this.cachedVds.setCpuIdle(Double.valueOf(0));
-                    this.cachedVds.setCpuLoad(Double.valueOf(0));
+                    this.cachedVds.setCpuSys(0.0);
+                    this.cachedVds.setCpuUser(0.0);
+                    this.cachedVds.setCpuIdle(0.0);
+                    this.cachedVds.setCpuLoad(0.0);
                     this.cachedVds.setUsageCpuPercent(0);
                     this.cachedVds.setUsageMemPercent(0);
                     this.cachedVds.setUsageNetworkPercent(0);
@@ -743,30 +715,17 @@ public class VdsManager {
         }
     }
 
+    private void invalidateVdsCachedData() {
+        if (getDomains() != null) {
+            log.info("Clearing domains data for host {}", cachedVds.getName());
+            setDomains(null);
+        }
+    }
+
     private boolean isNetworkExceptionDuringMaintenance(VDSStatus status) {
         return status == VDSStatus.NonResponsive
                     && this.cachedVds != null
                     && this.cachedVds.getStatus() == VDSStatus.Maintenance;
-    }
-
-    /**
-     * This scheduled method allows this cachedVds to recover from
-     * Error status.
-     */
-    public void recoverFromError() {
-        VDS vds = vdsDao.get(getVdsId());
-
-        /**
-         * Move cachedVds to Up status from error
-         */
-        if (vds != null && vds.getStatus() == VDSStatus.Error) {
-            setStatus(VDSStatus.Up, vds);
-            vdsDynamicDao.updateStatus(getVdsId(), VDSStatus.Up);
-            log.info("Settings host '{}' to up after {} failed attempts to run a VM",
-                    vds.getName(),
-                    failedToRunVmAttempts);
-            failedToRunVmAttempts.set(0);
-        }
     }
 
     /**
@@ -1111,7 +1070,7 @@ public class VdsManager {
             // log VM transition to unknown status
             AuditLogable logable = new AuditLogableImpl();
             logable.setVmId(vmId);
-            logable.setVmName(vmStaticDao.get(vmId).getName());
+            logable.setVmName(resourceManager.getVmManager(vmId).getName());
             auditLogDirector.log(logable, AuditLogType.VM_SET_TO_UNKNOWN_STATUS);
         });
     }
@@ -1177,14 +1136,14 @@ public class VdsManager {
         beforeFirstRefresh = value;
     }
 
-    public List<VmDynamic> getLastVmsList() {
+    public Map<Guid, VMStatus> getLastVmsList() {
         return lastVmsList;
     }
 
     /**
      * This method is not thread safe
      */
-    public void setLastVmsList(List<VmDynamic> lastVmsList) {
+    public void setLastVmsList(Map<Guid, VMStatus> lastVmsList) {
         this.lastVmsList = lastVmsList;
     }
 
@@ -1201,6 +1160,9 @@ public class VdsManager {
     }
 
     public void setDomains(ArrayList<VDSDomainsData> domains) {
+        if (domains != null && this.domains == null) {
+            log.info("Received first domain report for host {}", cachedVds.getName());
+        }
         this.domains = domains;
     }
 

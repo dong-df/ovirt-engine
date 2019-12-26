@@ -47,6 +47,12 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
     @Size(max = BusinessEntitiesDefinitions.CLUSTER_CPU_NAME_SIZE)
     private String cpuName;
 
+    private String cpuFlags;
+
+    private String cpuVerb;
+
+    private String configuredCpuVerb;
+
     private Guid storagePoolId;
 
     @Size(max = BusinessEntitiesDefinitions.DATACENTER_NAME_SIZE)
@@ -83,9 +89,13 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
 
     private String emulatedMachine;
 
+    private BiosType biosType;
+
     private boolean trustedService;
 
     private boolean haReservation;
+
+    private boolean hasHostWithMissingCpuFlags;
 
     private Guid clusterPolicyId;
 
@@ -131,6 +141,8 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
 
     private Boolean migrateCompressed;
 
+    private Boolean migrateEncrypted;
+
     private String glusterTunedProfile;
 
     private boolean ksmMergeAcrossNumaNodes;
@@ -159,6 +171,7 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
     private Guid migrationPolicyId;
     private Guid macPoolId;
     private Guid defaultNetworkProviderId;
+    private String hostNamesOutOfSync;
 
     public Cluster() {
         migrateOnError = MigrateOnErrorOptions.YES;
@@ -176,6 +189,7 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
         comment = "";
         cpuName = "";
         vncEncryptionEnabled = true;
+        hostNamesOutOfSync = "";
     }
 
     @Override
@@ -225,6 +239,30 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
 
     public void setCpuName(String value) {
         cpuName = value;
+    }
+
+    public String getCpuFlags() {
+        return cpuFlags;
+    }
+
+    public void setCpuFlags(String cpuFlags) {
+        this.cpuFlags = cpuFlags;
+    }
+
+    public String getCpuVerb() {
+        return cpuVerb;
+    }
+
+    public void setCpuVerb(String cpuVerb) {
+        this.cpuVerb = cpuVerb;
+    }
+
+    public String getConfiguredCpuVerb() {
+        return configuredCpuVerb;
+    }
+
+    public void setConfiguredCpuVerb(String configuredCpuVerb) {
+        this.configuredCpuVerb = configuredCpuVerb;
     }
 
     @Override
@@ -353,6 +391,14 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
         this.emulatedMachine = emulatedMachine;
     }
 
+    public BiosType getBiosType() {
+        return biosType;
+    }
+
+    public void setBiosType(BiosType biosType) {
+        this.biosType = biosType;
+    }
+
     public void setTrustedService(boolean trustedService) {
         this.trustedService = trustedService;
     }
@@ -367,6 +413,14 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
 
     public void setHaReservation(boolean haReservation) {
         this.haReservation = haReservation;
+    }
+
+    public boolean hasHostWithMissingCpuFlags() {
+        return hasHostWithMissingCpuFlags;
+    }
+
+    public void setHasHostWithMissingCpuFlags(boolean hasHostWithMissingCpuFlags) {
+        this.hasHostWithMissingCpuFlags = hasHostWithMissingCpuFlags;
     }
 
     public boolean isInUpgradeMode(){
@@ -506,6 +560,14 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
         this.migrateCompressed = migrateCompressed;
     }
 
+    public Boolean getMigrateEncrypted() {
+        return migrateEncrypted;
+    }
+
+    public void setMigrateEncrypted(Boolean migrateEncrypted) {
+        this.migrateEncrypted = migrateEncrypted;
+    }
+
     public ClusterHostsAndVMs getClusterHostsAndVms() {
         return clusterHostsAndVms;
     }
@@ -642,6 +704,14 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
         this.vncEncryptionEnabled = vncEncryptionEnabled;
     }
 
+    public String getHostNamesOutOfSync() {
+            return hostNamesOutOfSync;
+    }
+
+    public void setHostNamesOutOfSync(String hostNamesOutOfSync) {
+        this.hostNamesOutOfSync = hostNamesOutOfSync;
+    }
+
     @Override
     public int hashCode() {
         return Objects.hash(
@@ -649,6 +719,8 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
                 compatVersion,
                 compatibilityVersion,
                 cpuName,
+                cpuFlags,
+                cpuVerb,
                 description,
                 maxVdsMemoryOverCommit,
                 countThreadsAsCores,
@@ -663,8 +735,10 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
                 glusterCliBasedSchedulingOn,
                 tunnelMigration,
                 emulatedMachine,
+                biosType,
                 trustedService,
                 haReservation,
+                hasHostWithMissingCpuFlags,
                 clusterPolicyName,
                 clusterPolicyProperties,
                 additionalRngSources,
@@ -677,6 +751,7 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
                 fencingPolicy,
                 autoConverge,
                 migrateCompressed,
+                migrateEncrypted,
                 glusterTunedProfile,
                 addtionalFeaturesSupported,
                 ksmMergeAcrossNumaNodes,
@@ -688,7 +763,8 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
                 defaultNetworkProviderId,
                 logMaxMemoryUsedThreshold,
                 logMaxMemoryUsedThresholdType,
-                vncEncryptionEnabled
+                vncEncryptionEnabled,
+                hostNamesOutOfSync
         );
     }
 
@@ -707,6 +783,8 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
                 && Objects.equals(compatVersion, other.compatVersion)
                 && Objects.equals(compatibilityVersion, other.compatibilityVersion)
                 && Objects.equals(cpuName, other.cpuName)
+                && Objects.equals(cpuFlags, other.cpuFlags)
+                && Objects.equals(cpuVerb, other.cpuVerb)
                 && Objects.equals(description, other.description)
                 && maxVdsMemoryOverCommit == other.maxVdsMemoryOverCommit
                 && countThreadsAsCores == other.countThreadsAsCores
@@ -721,8 +799,10 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
                 && glusterCliBasedSchedulingOn == other.glusterCliBasedSchedulingOn
                 && tunnelMigration == other.tunnelMigration
                 && Objects.equals(emulatedMachine, other.emulatedMachine)
+                && biosType == other.biosType
                 && trustedService == other.trustedService
                 && haReservation == other.haReservation
+                && hasHostWithMissingCpuFlags == other.hasHostWithMissingCpuFlags
                 && Objects.equals(clusterPolicyId, other.clusterPolicyId)
                 && Objects.equals(clusterPolicyName, other.clusterPolicyName)
                 && Objects.equals(clusterPolicyProperties, other.clusterPolicyProperties)
@@ -737,6 +817,7 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
                 && Objects.equals(fencingPolicy, other.fencingPolicy)
                 && Objects.equals(autoConverge, other.autoConverge)
                 && Objects.equals(migrateCompressed, other.migrateCompressed)
+                && Objects.equals(migrateEncrypted, other.migrateEncrypted)
                 && Objects.equals(glusterTunedProfile, other.glusterTunedProfile)
                 && Objects.equals(addtionalFeaturesSupported, other.addtionalFeaturesSupported)
                 && ksmMergeAcrossNumaNodes == other.ksmMergeAcrossNumaNodes
@@ -748,7 +829,8 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
                 && Objects.equals(defaultNetworkProviderId, other.defaultNetworkProviderId)
                 && Objects.equals(logMaxMemoryUsedThreshold, other.logMaxMemoryUsedThreshold)
                 && logMaxMemoryUsedThresholdType == other.logMaxMemoryUsedThresholdType
-                && vncEncryptionEnabled == other.vncEncryptionEnabled;
+                && vncEncryptionEnabled == other.vncEncryptionEnabled
+                && Objects.equals(hostNamesOutOfSync, other.hostNamesOutOfSync);
     }
 
     @Override

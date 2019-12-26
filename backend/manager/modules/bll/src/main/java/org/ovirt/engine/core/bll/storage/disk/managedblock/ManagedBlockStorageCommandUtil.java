@@ -4,7 +4,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.ejb.Singleton;
 import javax.inject.Inject;
 
 import org.ovirt.engine.core.bll.VmHandler;
@@ -34,7 +33,6 @@ import org.ovirt.engine.core.dao.VmDeviceDao;
 import org.ovirt.engine.core.utils.transaction.TransactionSupport;
 import org.ovirt.engine.core.vdsbroker.builder.vminfo.VmInfoBuildUtils;
 
-@Singleton
 public class ManagedBlockStorageCommandUtil {
     @Inject
     private BackendInternal backend;
@@ -130,7 +128,7 @@ public class ManagedBlockStorageCommandUtil {
         });
     }
 
-    public VDSReturnValue attachManagedBlockStorageDisk(ManagedBlockStorageDisk disk, VDS vds) {
+    private VDSReturnValue attachManagedBlockStorageDisk(ManagedBlockStorageDisk disk, VDS vds) {
         ActionReturnValue returnValue = getConnectionInfo(disk, vds);
 
         if (!returnValue.getSucceeded()) {
@@ -141,9 +139,7 @@ public class ManagedBlockStorageCommandUtil {
         AttachManagedBlockStorageVolumeVDSCommandParameters params =
                 new AttachManagedBlockStorageVolumeVDSCommandParameters(vds, returnValue.getActionReturnValue());
         params.setVolumeId(disk.getImageId());
-        VDSReturnValue vdsReturnValue =
-                resourceManager.runVdsCommand(VDSCommandType.AttachManagedBlockStorageVolume, params);
-        return vdsReturnValue;
+        return resourceManager.runVdsCommand(VDSCommandType.AttachManagedBlockStorageVolume, params);
     }
 
     private ActionReturnValue getConnectionInfo(ManagedBlockStorageDisk disk, VDS vds) {
@@ -151,46 +147,65 @@ public class ManagedBlockStorageCommandUtil {
         params.setDiskId(disk.getImageId());
         params.setStorageDomainId(disk.getStorageIds().get(0));
         params.setConnectorInfo(vds.getConnectorInfo());
-        ActionReturnValue actionReturnValue =
-                backend.runInternalAction(ActionType.ConnectManagedBlockStorageDevice, params);
-        return actionReturnValue;
+        return backend.runInternalAction(ActionType.ConnectManagedBlockStorageDevice, params);
     }
 
     public boolean disconnectManagedBlockStorageDisks(VM vm, VmHandler vmHandler) {
+        return disconnectManagedBlockStorageDisks(vm, vmHandler, false);
+    }
+
+    public boolean disconnectManagedBlockStorageDisks(VM vm, VmHandler vmHandler, boolean removeDest) {
         if (vm.getDiskMap().isEmpty()) {
             vmHandler.updateDisksFromDb(vm);
         }
 
         List<ManagedBlockStorageDisk> disks =
                 DisksFilter.filterManagedBlockStorageDisks(vm.getDiskMap().values());
-        return disks.stream().allMatch(disk -> disconnectManagedBlockStorageDisk(vm, disk));
+        return disks.stream().allMatch(disk -> disconnectManagedBlockStorageDisk(vm, disk, removeDest));
     }
 
-    public boolean disconnectManagedBlockStorageDisk(VM vm, DiskImage disk) {
+    public boolean disconnectManagedBlockStorageDisk(VM vm, DiskImage disk, boolean removeDest) {
         VmDevice vmDevice = vmDeviceDao.get(new VmDeviceId(disk.getId(), vm.getId()));
         DisconnectManagedBlockStorageDeviceParameters parameters =
                 new DisconnectManagedBlockStorageDeviceParameters();
         parameters.setStorageDomainId(disk.getStorageIds().get(0));
         parameters.setDiskId(disk.getImageId());
 
-        Guid vdsId = (Guid) vmDevice.getSpecParams().get(ManagedBlockStorageDisk.ATTACHED_VDS_ID);
+        // In case of a live migration failure we want to detach from the destination
+        Guid vdsId = removeDest ? (Guid) vmDevice.getSpecParams().get(ManagedBlockStorageDisk.DEST_VDS_ID) :
+                (Guid) vmDevice.getSpecParams().get(ManagedBlockStorageDisk.ATTACHED_VDS_ID);
+
+        // Attach has likely failed so we have nothing to disconnect
+        if (vdsId == null) {
+            return false;
+        }
 
         // Disk is being disconnected as part of live migration
         Guid destVdsId = (Guid) vmDevice.getSpecParams().get(ManagedBlockStorageDisk.DEST_VDS_ID);
-        if (destVdsId != null) {
+        if (destVdsId == null) {
+            vmDevice.getSpecParams().remove(ManagedBlockStorageDisk.ATTACHED_VDS_ID);
+        } else {
+            if (!removeDest) {
+                vmDevice.getSpecParams().put(ManagedBlockStorageDisk.ATTACHED_VDS_ID, destVdsId);
+            }
+
             // The device is now attached only to the destination host
-            vmDevice.getSpecParams().put(ManagedBlockStorageDisk.ATTACHED_VDS_ID, destVdsId);
             vmDevice.getSpecParams().remove(ManagedBlockStorageDisk.DEST_VDS_ID);
-            TransactionSupport.executeInNewTransaction(() -> {
-                vmDeviceDao.update(vmDevice);
-                return null;
-            });
         }
 
         parameters.setVdsId(vdsId);
         ActionReturnValue returnValue =
                 backend.runInternalAction(ActionType.DisconnectManagedBlockStorageDevice, parameters);
 
-        return returnValue.getSucceeded();
+        if (returnValue.getSucceeded()) {
+            TransactionSupport.executeInNewTransaction(() -> {
+                vmDeviceDao.update(vmDevice);
+                return null;
+            });
+
+            return true;
+        }
+
+        return false;
     }
 }

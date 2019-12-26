@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import javax.annotation.PostConstruct;
 import javax.inject.Singleton;
@@ -64,7 +65,12 @@ public class CpuFlagsManagerHandler implements BackendService {
 
     public ArchitectureType getArchitectureByCpuName(String name, Version ver) {
         final CpuFlagsManager cpuFlagsManager = managersDictionary.get(ver);
-        return cpuFlagsManager != null ? cpuFlagsManager.getArchitectureByCpuName(name) : null;
+        return cpuFlagsManager != null ? cpuFlagsManager.getArchitectureByCpuName(name) : ArchitectureType.undefined;
+    }
+
+    public String getFlagsByCpuName(String name, Version ver) {
+        final CpuFlagsManager cpuFlagsManager = managersDictionary.get(ver);
+        return cpuFlagsManager != null ? cpuFlagsManager.getFlagsByCpuName(name) : null;
     }
 
     public List<ServerCpu> allServerCpuList(Version ver) {
@@ -81,6 +87,24 @@ public class CpuFlagsManagerHandler implements BackendService {
     public List<String> missingServerCpuFlags(String clusterCpuName, String serverFlags, Version ver) {
         final CpuFlagsManager cpuFlagsManager = managersDictionary.get(ver);
         return cpuFlagsManager != null ? cpuFlagsManager.missingServerCpuFlags(clusterCpuName, serverFlags) : null;
+    }
+
+    /**
+     * Returns missing CPU flags if any, or null if the server match the
+     * cluster CPU flags
+     *
+     * @return list of missing CPU flags
+     */
+    public List<String> missingClusterCpuFlags(String clusterCpuFlagsString, String serverFlagsString) {
+        List<String> clusterFlags =
+                        StringUtils.isEmpty(clusterCpuFlagsString) ? Collections.emptyList()
+                                : parseFlags(clusterCpuFlagsString);
+
+        Set<String> serverFlags =
+                StringUtils.isEmpty(serverFlagsString) ? Collections.emptySet()
+                        : new HashSet<>(parseFlags(serverFlagsString));
+
+        return clusterFlags.stream().filter(flag -> !serverFlags.contains(flag)).collect(Collectors.toList());
     }
 
     public boolean checkIfCpusSameManufacture(String cpuName1, String cpuName2, Version ver) {
@@ -101,6 +125,13 @@ public class CpuFlagsManagerHandler implements BackendService {
         return cpuFlagsManager != null ? cpuFlagsManager.findMaxServerCpuByFlags(flags) : null;
     }
 
+    /**
+     * Finds all server cpus matching the specified cpu flags
+     */
+    public List<ServerCpu> findServerCpusByFlags(String flags, Version ver) {
+        final CpuFlagsManager cpuFlagsManager = managersDictionary.get(ver);
+        return cpuFlagsManager != null ? cpuFlagsManager.findServerCpusByFlags(flags) : Collections.emptyList();
+    }
 
     public Version getLatestDictionaryVersion() {
         return Collections.max(managersDictionary.keySet());
@@ -115,6 +146,10 @@ public class CpuFlagsManagerHandler implements BackendService {
         final CpuFlagsManager cpuFlagsManager = managersDictionary.get(ver);
         return cpuFlagsManager != null ? cpuFlagsManager.getVendorByCpuName(cpuName) : "";
 
+    }
+
+    private static List<String> parseFlags(String flags) {
+        return Arrays.asList(flags.split("[,]", -1));
     }
 
     private static class CpuFlagsManager {
@@ -143,6 +178,15 @@ public class CpuFlagsManagerHandler implements BackendService {
             }
 
             return ArchitectureType.undefined;
+        }
+
+        public String getFlagsByCpuName(String cpuName) {
+            ServerCpu cpu = getServerCpuByName(cpuName);
+            if (cpu != null) {
+                return StringUtils.join(cpu.getFlags(), ",");
+            }
+
+            return null;
         }
 
         public String getVendorByCpuName(String cpuName) {
@@ -202,7 +246,7 @@ public class CpuFlagsManagerHandler implements BackendService {
                         // if no flags at all create new list instead of split
                         Set<String> flgs =
                                 StringUtils.isEmpty(info[2]) ? new HashSet<>()
-                                        : new HashSet<>(Arrays.asList(info[2].split("[,]", -1)));
+                                        : new HashSet<>(CpuFlagsManagerHandler.parseFlags(info[2]));
 
                         String arch = info[4].trim();
                         ArchitectureType archType = ArchitectureType.valueOf(arch);
@@ -294,7 +338,7 @@ public class CpuFlagsManagerHandler implements BackendService {
 
             Set<String> lstServerflags =
                     StringUtils.isEmpty(serverFlags) ? new HashSet<>()
-                            : new HashSet<>(Arrays.asList(serverFlags.split("[,]", -1)));
+                            : new HashSet<>(parseFlags(serverFlags));
 
             // first find cluster cpu
             if ( StringUtils.isNotEmpty(clusterCpuName)
@@ -364,43 +408,42 @@ public class CpuFlagsManagerHandler implements BackendService {
          * Finds max server cpu by server cpu flags only
          */
         public ServerCpu findMaxServerCpuByFlags(String flags) {
-            ServerCpu result = null;
+            List<ServerCpu> allCpus = findServerCpusByFlags(flags);
+            return allCpus.isEmpty() ? null : allCpus.get(0);
+        }
+
+        public List<ServerCpu> findServerCpusByFlags(String flags) {
+            List<ServerCpu> foundCpus = new ArrayList<>();
             Set<String> lstFlags = StringUtils.isEmpty(flags) ? new HashSet<>()
-                    : new HashSet<>(Arrays.asList(flags.split("[,]", -1)));
+                    : new HashSet<>(parseFlags(flags));
 
             if (lstFlags.contains(CpuVendor.INTEL.getFlag())) {
                 for (int i = intelCpuList.size() - 1; i >= 0; i--) {
                     if (checkIfFlagsContainsCpuFlags(intelCpuList.get(i), lstFlags)) {
-                        result = intelCpuList.get(i);
-                        break;
+                        foundCpus.add(intelCpuList.get(i));
                     }
                 }
             } else if (lstFlags.contains(CpuVendor.AMD.getFlag())) {
                 for (int i = amdCpuList.size() - 1; i >= 0; i--) {
                     if (checkIfFlagsContainsCpuFlags(amdCpuList.get(i), lstFlags)) {
-                        result = amdCpuList.get(i);
-                        break;
+                        foundCpus.add(amdCpuList.get(i));
                     }
                 }
             } else if (lstFlags.contains(CpuVendor.IBM.getFlag())) {
                 for (int i = ibmCpuList.size() - 1; i >= 0; i--) {
                     if (checkIfFlagsContainsCpuFlags(ibmCpuList.get(i), lstFlags)) {
-                        result = ibmCpuList.get(i);
-                        break;
+                        foundCpus.add(ibmCpuList.get(i));
                     }
                 }
             } else if (lstFlags.contains(CpuVendor.IBMS390.getFlag())) {
                 for (int i = s390CpuList.size() - 1; i >= 0; i--) {
                     if (checkIfFlagsContainsCpuFlags(s390CpuList.get(i), lstFlags)) {
-                        result = s390CpuList.get(i);
-                        break;
+                        foundCpus.add(s390CpuList.get(i));
                     }
                 }
             }
-            return result;
+            return foundCpus;
         }
-
-
 
 
         /**

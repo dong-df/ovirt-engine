@@ -30,6 +30,10 @@ public interface ApplicationMessages extends CommonApplicationMessages {
 
     String hostHasSmtClusterDiscrepancyAlert();
 
+    String hostHasMissingCpuFlagsAlert(String flags);
+
+    String hostHasMissingCpuFlagsTooltipAlert(String flags);
+
     String manaulFencePopupMessageLabel(String hostName);
 
     String storageDestroyPopupMessageLabel(String storageName);
@@ -114,10 +118,10 @@ public interface ApplicationMessages extends CommonApplicationMessages {
 
     String testImageIOProxyConnectionFailure(String location);
 
-    String clusterDefaultRouteCompatibility(String version);
-
     String vmStartedWithDifferentName(String runtimeName);
 
     String cpuDeprecationWarning(String cpuType);
+
+    String clusterCpuTypeInfo(String cpuVerb);
 }
 

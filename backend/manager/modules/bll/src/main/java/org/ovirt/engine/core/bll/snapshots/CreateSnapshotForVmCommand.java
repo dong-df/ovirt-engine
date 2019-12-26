@@ -7,7 +7,6 @@ import static org.ovirt.engine.core.bll.storage.disk.image.DisksFilter.ONLY_SNAP
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -236,7 +235,7 @@ public class CreateSnapshotForVmCommand<T extends CreateSnapshotForVmParameters>
         return memoryBuilder;
     }
 
-    protected CinderDisksValidator getCinderDisksValidator(List<CinderDisk> cinderDisks) {
+    private CinderDisksValidator getCinderDisksValidator(List<CinderDisk> cinderDisks) {
         return new CinderDisksValidator(cinderDisks);
     }
 
@@ -331,7 +330,7 @@ public class CreateSnapshotForVmCommand<T extends CreateSnapshotForVmParameters>
         return toReturn;
     }
 
-    protected boolean validateVM(VmValidator vmValidator) {
+    private boolean validateVM(VmValidator vmValidator) {
         return validate(vmValidator.vmNotSavingRestoring()) &&
                 validate(vmValidator.validateVmStatusUsingMatrix(ActionType.CreateSnapshotForVm));
     }
@@ -370,7 +369,7 @@ public class CreateSnapshotForVmCommand<T extends CreateSnapshotForVmParameters>
                 && (getVm().isRunning() || getVm().getStatus() == VMStatus.Paused) && getVm().getRunOnVds() != null;
     }
 
-    protected boolean performLiveSnapshot(final Snapshot snapshot) {
+    private boolean performLiveSnapshot(final Snapshot snapshot) {
         try {
             TransactionSupport.executeInScope(TransactionScopeOption.Suppress, () -> {
                 runVdsCommand(VDSCommandType.Snapshot, buildLiveSnapshotParameters(snapshot));
@@ -386,15 +385,12 @@ public class CreateSnapshotForVmCommand<T extends CreateSnapshotForVmParameters>
     @Override
     protected List<ActionParametersBase> getParametersForChildCommand() {
         List<ActionParametersBase> sortedList = getParameters().getImagesParameters();
-        Collections.sort(sortedList, new Comparator<ActionParametersBase>() {
-            @Override
-            public int compare(ActionParametersBase o1, ActionParametersBase o2) {
-                if (o1 instanceof ImagesActionsParametersBase && o2 instanceof ImagesActionsParametersBase) {
-                    return ((ImagesActionsParametersBase) o1).getDestinationImageId()
-                            .compareTo(((ImagesActionsParametersBase) o2).getDestinationImageId());
-                }
-                return 0;
+        sortedList.sort((o1, o2) -> {
+            if (o1 instanceof ImagesActionsParametersBase && o2 instanceof ImagesActionsParametersBase) {
+                return ((ImagesActionsParametersBase) o1).getDestinationImageId()
+                        .compareTo(((ImagesActionsParametersBase) o2).getDestinationImageId());
             }
+            return 0;
         });
 
         return sortedList;
@@ -429,7 +425,11 @@ public class CreateSnapshotForVmCommand<T extends CreateSnapshotForVmParameters>
         // this will be handled in: https://bugzilla.redhat.com/1568887
         incrementVmGeneration();
         thawVm();
-        endActionOnDisks();
+        TransactionSupport.executeInScope(TransactionScopeOption.Suppress, () -> {
+            endActionOnDisks();
+
+            return null;
+        });
         setSucceeded(getParameters().getTaskGroupSuccess() &&
                 (!getParameters().isLiveSnapshotRequired() || getParameters().isLiveSnapshotSucceeded()));
         getReturnValue().setEndActionTryAgain(false);
@@ -441,7 +441,7 @@ public class CreateSnapshotForVmCommand<T extends CreateSnapshotForVmParameters>
      *
      * @param createdSnapshotId The snapshot ID to return to being active.
      */
-    protected void revertToActiveSnapshot(Guid createdSnapshotId) {
+    private void revertToActiveSnapshot(Guid createdSnapshotId) {
         if (createdSnapshotId != null) {
             snapshotDao.remove(createdSnapshotId);
             snapshotDao.updateId(snapshotDao.getId(getVmId(), Snapshot.SnapshotType.ACTIVE), createdSnapshotId);
@@ -592,10 +592,10 @@ public class CreateSnapshotForVmCommand<T extends CreateSnapshotForVmParameters>
         }
     }
 
-    private Snapshot addSnapshotToDB(Guid snapshotId, MemoryImageBuilder memoryImageBuilder) {
+    private void addSnapshotToDB(Guid snapshotId, MemoryImageBuilder memoryImageBuilder) {
         // Reset cachedSelectedActiveDisks so new Cinder volumes can be fetched when calling getDisksList.
         cachedSelectedActiveDisks = null;
-        return getSnapshotsManager().addSnapshot(snapshotId,
+        getSnapshotsManager().addSnapshot(snapshotId,
                 getParameters().getDescription(),
                 Snapshot.SnapshotStatus.LOCKED,
                 getParameters().getSnapshotType(),

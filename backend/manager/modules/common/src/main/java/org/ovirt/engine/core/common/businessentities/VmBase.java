@@ -413,7 +413,7 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
         customProperties = "";
         consoleDisconnectAction = ConsoleDisconnectAction.LOCK_SCREEN;
         resumeBehavior = VmResumeBehavior.AUTO_RESUME;
-        biosType = BiosType.I440FX_SEA_BIOS;
+        biosType = BiosType.CLUSTER_DEFAULT;
         description = "";
         comment = "";
         multiQueuesEnabled = true;
@@ -531,7 +531,16 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
 
     @CopyOnNewVersion
     @EditableVmField
+    private Boolean migrateEncrypted;
+
+    @CopyOnNewVersion
+    @EditableVmField
     private Guid migrationPolicyId;
+
+    @CopyOnNewVersion
+    @EditableVmField(onStatuses = VMStatus.Down)
+    @EditableVmTemplateField
+    private boolean useTscFrequency;
 
     public VmBase(VmBase vmBase) {
         this(vmBase.getName(),
@@ -586,6 +595,7 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
                 vmBase.getNumaTuneMode(),
                 vmBase.getAutoConverge(),
                 vmBase.getMigrateCompressed(),
+                vmBase.getMigrateEncrypted(),
                 vmBase.getUserDefinedProperties(),
                 vmBase.getPredefinedProperties(),
                 vmBase.getCustomProperties(),
@@ -601,7 +611,8 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
                 vmBase.getMigrationPolicyId(),
                 vmBase.getLeaseStorageDomainId(),
                 vmBase.getResumeBehavior(),
-                vmBase.isMultiQueuesEnabled());
+                vmBase.isMultiQueuesEnabled(),
+                vmBase.getUseTscFrequency());
     }
 
     public VmBase(
@@ -657,6 +668,7 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
             NumaTuneMode numaTuneMode,
             Boolean autoConverge,
             Boolean migrateCompressed,
+            Boolean migrateEncrypted,
             String userDefinedProperties,
             String predefinedProperties,
             String customProperties,
@@ -672,7 +684,8 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
             Guid migrationPolicyId,
             Guid leaseStorageDomainId,
             VmResumeBehavior resumeBehavior,
-            boolean multiQueuesEnabled) {
+            boolean multiQueuesEnabled,
+            boolean useTscFrequency) {
         this();
         this.name = name;
         this.id = id;
@@ -726,6 +739,7 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
         this.cpuProfileId = cpuProfileId;
         this.autoConverge = autoConverge;
         this.migrateCompressed = migrateCompressed;
+        this.migrateEncrypted = migrateEncrypted;
         this.userDefinedProperties = userDefinedProperties;
         this.predefinedProperties = predefinedProperties;
         this.customProperties = customProperties;
@@ -742,6 +756,7 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
         this.leaseStorageDomainId = leaseStorageDomainId;
         this.resumeBehavior = resumeBehavior;
         this.multiQueuesEnabled = multiQueuesEnabled;
+        this.useTscFrequency = useTscFrequency;
     }
 
     @Override
@@ -1145,6 +1160,7 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
                 vNumaNodeList,
                 autoConverge,
                 migrateCompressed,
+                migrateEncrypted,
                 predefinedProperties,
                 userDefinedProperties,
                 customEmulatedMachine,
@@ -1156,7 +1172,8 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
                 consoleDisconnectAction,
                 customCompatibilityVersion,
                 resumeBehavior,
-                multiQueuesEnabled
+                multiQueuesEnabled,
+                useTscFrequency
         );
     }
 
@@ -1215,6 +1232,7 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
                 && Objects.equals(vNumaNodeList, other.vNumaNodeList)
                 && Objects.equals(autoConverge, other.autoConverge)
                 && Objects.equals(migrateCompressed, other.migrateCompressed)
+                && Objects.equals(migrateEncrypted, other.migrateEncrypted)
                 && Objects.equals(predefinedProperties, other.predefinedProperties)
                 && Objects.equals(userDefinedProperties, other.userDefinedProperties)
                 && Objects.equals(customEmulatedMachine, other.customEmulatedMachine)
@@ -1226,7 +1244,8 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
                 && Objects.equals(consoleDisconnectAction, other.consoleDisconnectAction)
                 && Objects.equals(resumeBehavior, other.resumeBehavior)
                 && Objects.equals(customCompatibilityVersion, other.customCompatibilityVersion)
-                && Objects.equals(multiQueuesEnabled, other.multiQueuesEnabled);
+                && Objects.equals(multiQueuesEnabled, other.multiQueuesEnabled)
+                && Objects.equals(useTscFrequency, other.useTscFrequency);
     }
 
     public Guid getQuotaId() {
@@ -1475,6 +1494,16 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
         this.migrateCompressed = migrateCompressed;
     }
 
+    @Override
+    public Boolean getMigrateEncrypted() {
+        return migrateEncrypted;
+    }
+
+    @Override
+    public void setMigrateEncrypted(Boolean value) {
+        this.migrateEncrypted = value;
+    }
+
     public String getCustomProperties() {
         return customProperties;
     }
@@ -1577,4 +1606,11 @@ public class VmBase implements Queryable, BusinessEntity<Guid>, Nameable, Commen
         this.resumeBehavior = resumeBehavior;
     }
 
+    public boolean getUseTscFrequency() {
+        return useTscFrequency;
+    }
+
+    public void setUseTscFrequency(boolean useTscFrequency) {
+        this.useTscFrequency = useTscFrequency;
+    }
 }

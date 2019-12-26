@@ -24,7 +24,6 @@ import org.ovirt.engine.core.common.action.MergeParameters;
 import org.ovirt.engine.core.common.action.MergeStatusReturnValue;
 import org.ovirt.engine.core.common.action.RemoveSnapshotSingleDiskParameters;
 import org.ovirt.engine.core.common.action.RemoveSnapshotSingleDiskStep;
-import org.ovirt.engine.core.common.businessentities.VmBlockJobType;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.Image;
 import org.ovirt.engine.core.common.businessentities.storage.ImageStatus;
@@ -134,18 +133,27 @@ public class RemoveSnapshotSingleDiskLiveCommand<T extends RemoveSnapshotSingleD
             getParameters().setNextCommandStep(RemoveSnapshotSingleDiskStep.REDUCE_IMAGE);
             break;
         case REDUCE_IMAGE:
-            Pair<ActionType, ? extends ActionParametersBase> reduceImageCommand =
-                    buildReduceImageCommand();
-            ActionReturnValue returnValue = CommandHelper.validate(reduceImageCommand.getFirst(),
-                    reduceImageCommand.getSecond(), getContext().clone());
-            if (returnValue.isValid()) {
-                nextCommand = reduceImageCommand;
-                getParameters().setNextCommandStep(RemoveSnapshotSingleDiskStep.COMPLETE);
-            } else {
-                // Couldn't validate reduce image command for execution, however, we don't
-                // want to fail the remove snapshot command as this step isn't mandatory.
-                log.warn("Couldn't validate reduce image command, skipping its execution.");
+            if (shouldSkipReduceImage()) {
+                log.info("No need to execute reduce image command, skipping its execution. " +
+                                "Storage Type: '{}', Disk: '{}' Snapshot: '{}'",
+                        getStorageDomain().getStorageType(),
+                        getImage().getName(),
+                        getImage().getDescription());
                 setCommandStatus(CommandStatus.SUCCEEDED);
+            } else {
+                Pair<ActionType, ? extends ActionParametersBase> reduceImageCommand =
+                        buildReduceImageCommand();
+                ActionReturnValue returnValue = CommandHelper.validate(reduceImageCommand.getFirst(),
+                        reduceImageCommand.getSecond(), getContext().clone());
+                if (returnValue.isValid()) {
+                    nextCommand = reduceImageCommand;
+                    getParameters().setNextCommandStep(RemoveSnapshotSingleDiskStep.COMPLETE);
+                } else {
+                    // Couldn't validate reduce image command for execution, however, we don't
+                    // want to fail the remove snapshot command as this step isn't mandatory.
+                    log.warn("Couldn't validate reduce image command, skipping its execution.");
+                    setCommandStatus(CommandStatus.SUCCEEDED);
+                }
             }
             break;
         case COMPLETE:
@@ -175,6 +183,12 @@ public class RemoveSnapshotSingleDiskLiveCommand<T extends RemoveSnapshotSingleD
             }
         }
         return RemoveSnapshotSingleDiskStep.EXTEND;
+    }
+
+    private boolean shouldSkipReduceImage() {
+        // Skipping file domains and live merge scenarios.
+        return getStorageDomain().getStorageType().isFileDomain() ||
+                (getActiveDiskImage() == null || getActiveDiskImage().getParentId().equals(getImageId()));
     }
 
     private boolean completedMerge() {
@@ -211,14 +225,11 @@ public class RemoveSnapshotSingleDiskLiveCommand<T extends RemoveSnapshotSingleD
     private MergeStatusReturnValue synthesizeMergeStatusReturnValue() {
         Set<Guid> images = new HashSet<>();
         images.add(getDiskImage().getImageId());
-        return new MergeStatusReturnValue(VmBlockJobType.UNKNOWN, images);
+        return new MergeStatusReturnValue(images);
     }
 
     public void onSucceeded() {
-        syncDbRecords(getParameters().getMergeStatusReturnValue().getBlockJobType(),
-                getTargetImageInfoFromVdsm(),
-                getParameters().getMergeStatusReturnValue().getImagesToRemove(),
-                true);
+        syncDbRecords(getTargetImageInfoFromVdsm(), getParameters().getMergeStatusReturnValue().getImagesToRemove(), true);
         log.info("Successfully merged snapshot '{}' images '{}'..'{}'",
                 getDiskImage().getImage().getSnapshotId(),
                 getDiskImage().getImageId(),
@@ -234,8 +245,7 @@ public class RemoveSnapshotSingleDiskLiveCommand<T extends RemoveSnapshotSingleD
     }
 
     private DiskImage getTargetImageInfoFromVdsm() {
-        VmBlockJobType blockJobType = getParameters().getMergeStatusReturnValue().getBlockJobType();
-        return getImageInfoFromVdsm(blockJobType == VmBlockJobType.PULL ? getDestinationDiskImage() : getDiskImage());
+        return getImageInfoFromVdsm(getDiskImage());
     }
 
     @Override
@@ -263,8 +273,7 @@ public class RemoveSnapshotSingleDiskLiveCommand<T extends RemoveSnapshotSingleD
             );
 
         } else {
-            syncDbRecords(getParameters().getMergeStatusReturnValue().getBlockJobType(),
-                    getTargetImageInfoFromVdsm(),
+            syncDbRecords(getTargetImageInfoFromVdsm(),
                     getParameters().getMergeStatusReturnValue().getImagesToRemove(),
                     false);
             log.error("Snapshot '{}' images '{}'..'{}' merged, but volume removal failed." +

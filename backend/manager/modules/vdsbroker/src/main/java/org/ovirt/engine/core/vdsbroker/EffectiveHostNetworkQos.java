@@ -1,5 +1,6 @@
 package org.ovirt.engine.core.vdsbroker;
 
+import java.util.List;
 import java.util.Objects;
 
 import javax.inject.Inject;
@@ -27,7 +28,16 @@ public class EffectiveHostNetworkQos {
                 : getHostNetworkQosFromNetwork(network);
     }
 
-    private HostNetworkQos getHostNetworkQosFromNetwork(Network network) {
-        return hostNetworkQosDao.get(network.getQosId());
+    HostNetworkQos selectQos(NetworkAttachment networkAttachment, HostNetworkQos daoHostNetworkQos) {
+        return networkAttachment != null && networkAttachment.isQosOverridden()
+            ? HostNetworkQos.fromAnonymousHostNetworkQos(networkAttachment.getHostNetworkQos()) : daoHostNetworkQos;
+    }
+
+    HostNetworkQos getHostNetworkQosFromNetwork(Network network) {
+        return network != null ? hostNetworkQosDao.get(network.getQosId()) : null;
+    }
+
+    List<HostNetworkQos> getAll() {
+        return hostNetworkQosDao.getAll();
     }
 }

@@ -46,6 +46,7 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
 
     private int hostCpu;
     private VDS runningOnHost;
+    private Guid bootableDiskStorageDomainId;
 
     public ExistingVmModelBehavior(VM vm) {
         this.vm = vm;
@@ -70,6 +71,7 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
         getModel().getVmType().setIsChangeable(true);
         getModel().getIsSoundcardEnabled().setIsChangeable(true);
         getModel().getInstanceTypes().setIsChangeable(!vm.isRunning());
+        getModel().getAffinityGroupList().setIsAvailable(true);
         getModel().getLabelList().setIsAvailable(true);
 
         getModel().getVmId().setIsAvailable(true);
@@ -198,6 +200,8 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
             getModel().updateResumeBehavior();
 
             getModel().getMigrationMode().setSelectedItem(vm.getMigrationSupport());
+
+            getModel().getTscFrequency().setEntity(vm.getUseTscFrequency());
         });
     }
 
@@ -219,7 +223,7 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
             updateCpuProfile(getModel().getSelectedCluster().getId(), vm.getCpuProfileId());
 
             if (isInStateWithMemoryVolume(getVm()) && !isRestoreMemoryVolumeSupported()) {
-                getModel().getEditingEnabled().setMessage(getModel().constants.suspendedVMsWhenClusterChange());
+                getModel().getEditingEnabled().setMessage(constants.suspendedVMsWhenClusterChange());
             }
         }
     }
@@ -262,10 +266,28 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
         instanceTypeManager.updateAll();
     }
 
+    @Override
+    protected void commonInitialize() {
+        super.commonInitialize();
+
+        getModel().getIsHighlyAvailable().getEntityChangedEvent().addListener((ev, sender, args) -> {
+            boolean ha = getModel().getIsHighlyAvailable().getEntity();
+            // VM set as HA
+            if (ha && !vm.isAutoStartup()) {
+                // bootableDiskStorageDomainId can be null in case of diskless VM or
+                // VM without bootable disk or in case of race condition when the
+                // VM disks aren't initialized yet
+                if (bootableDiskStorageDomainId != null) {
+                    setVmLeaseDefaultStorageDomain(bootableDiskStorageDomainId);
+                }
+            }
+        });
+    }
+
     private void updateInstanceImages() {
         AsyncDataProvider.getInstance().getVmDiskList(asyncQuery(disks -> {
             List<InstanceImageLineModel> imageLineModels = new ArrayList<>();
-            boolean isChangeable = vm == null || VmActionByVmOriginTypeValidator.isCommandAllowed(vm, ActionType.UpdateVmDisk);
+            boolean isChangeable = vm == null || VmActionByVmOriginTypeValidator.isCommandAllowed(vm, ActionType.UpdateDisk);
 
             Collections.sort(disks, new DiskByDiskAliasComparator());
             for (Disk disk : disks) {
@@ -278,6 +300,8 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
             getModel().getInstanceImages().setIsChangeable(isChangeable);
             getModel().getInstanceImages().setItems(imageLineModels);
             getModel().getInstanceImages().setVm(getVm());
+
+            bootableDiskStorageDomainId = findDefaultStorageDomainForVmLease(disks);
         }), getVm().getId());
     }
 
@@ -491,7 +515,7 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
         if (getVm() != null && getVm().isHostedEngine()) {
             getModel().getIsHighlyAvailable().setEntity(false);
             getModel().getIsHighlyAvailable().setIsChangeable(false);
-            getModel().getIsHighlyAvailable().setChangeProhibitionReason(getModel().constants.noHaWhenHostedEngineUsed());
+            getModel().getIsHighlyAvailable().setChangeProhibitionReason(constants.noHaWhenHostedEngineUsed());
         }
     }
 

@@ -394,7 +394,7 @@ public class SchedulingManager implements BackendService {
                 }
 
                 List<VM> vmsNotOnHost = vmGroup.stream()
-                        .filter(vm -> vm.getRunOnVds() != bestHostId)
+                        .filter(vm -> !bestHostId.equals(vm.getRunOnVds()))
                         .collect(Collectors.toList());
 
                 if (vmsNotOnHost.isEmpty()) {
@@ -493,7 +493,7 @@ public class SchedulingManager implements BackendService {
         getPendingResourceManager().addPending(new PendingOvercommitMemory(hostId, vm, vmOverheadCalculator.getTotalRequiredMemoryInMb(vm)));
         getPendingResourceManager().addPending(new PendingVM(hostId, vm));
 
-        int cpuLoad = vm.getRunOnVds() != null && vm.getStatisticsData() != null ?
+        int cpuLoad = vm.getRunOnVds() != null && vm.getStatisticsData() != null && vm.getUsageCpuPercent() != null ?
                 vm.getUsageCpuPercent() * vm.getNumOfCpus() :
                 vcpuLoadPerCore * vm.getNumOfCpus();
 
@@ -643,7 +643,7 @@ public class SchedulingManager implements BackendService {
         }
 
         // TODO - maybe optimize DB call to fetch only needed affinity groups?
-        List<AffinityGroup> allPositiveGroups = affinityGroupDao.getAllAffinityGroupsByClusterId(context.getCluster().getId()).stream()
+        List<AffinityGroup> allPositiveGroups = affinityGroupDao.getAllAffinityGroupsWithFlatLabelsByClusterId(context.getCluster().getId()).stream()
                 .filter(ag -> ag.isVmPositive() && ag.isVmEnforcing())
                 .collect(Collectors.toList());
 
@@ -1003,7 +1003,7 @@ public class SchedulingManager implements BackendService {
         runInternalFunctions(selector, hostList, vmGroup, context);
 
         if (Config.<Boolean>getValue(ConfigValues.ExternalSchedulerEnabled) &&
-                !context.getExternalFilters().isEmpty()) {
+                !context.getExternalScoreFunctions().isEmpty()) {
             runExternalFunctions(selector, hostList, vmGroup, context);
         }
 
@@ -1076,7 +1076,7 @@ public class SchedulingManager implements BackendService {
         }
 
         // TODO - maybe optimize DB call to fetch only needed affinity groups?
-        List<AffinityGroup> allPositiveGroups = affinityGroupDao.getAllAffinityGroupsByClusterId(cluster.getId()).stream()
+        List<AffinityGroup> allPositiveGroups = affinityGroupDao.getAllAffinityGroupsWithFlatLabelsByClusterId(cluster.getId()).stream()
                 .filter(ag -> ag.isVmPositive() && ag.isVmEnforcing())
                 .collect(Collectors.toList());
 

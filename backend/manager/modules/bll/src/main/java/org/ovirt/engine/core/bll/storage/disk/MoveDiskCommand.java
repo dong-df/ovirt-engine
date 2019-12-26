@@ -21,13 +21,17 @@ import org.ovirt.engine.core.common.action.LockProperties;
 import org.ovirt.engine.core.common.action.MoveDiskParameters;
 import org.ovirt.engine.core.common.businessentities.ActionGroup;
 import org.ovirt.engine.core.common.businessentities.VM;
+import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskVmElement;
+import org.ovirt.engine.core.common.businessentities.storage.ImageStatus;
 import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.common.locks.LockingGroup;
 import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.compat.Guid;
+import org.ovirt.engine.core.dao.DiskImageDao;
 import org.ovirt.engine.core.dao.DiskVmElementDao;
 import org.ovirt.engine.core.dao.VmDao;
+import org.ovirt.engine.core.utils.ReplacementUtils;
 import org.ovirt.engine.core.utils.lock.EngineLock;
 
 @NonTransactiveCommandAttribute
@@ -37,8 +41,8 @@ public class MoveDiskCommand<T extends MoveDiskParameters> extends CommandBase<T
     private VmDao vmDao;
     @Inject
     private DiskVmElementDao diskVmElementDao;
-
-    private EngineLock engineLock;
+    @Inject
+    private DiskImageDao diskImageDao;
 
     private String cachedDiskIsBeingMigratedMessage;
 
@@ -49,6 +53,21 @@ public class MoveDiskCommand<T extends MoveDiskParameters> extends CommandBase<T
 
     public MoveDiskCommand(T parameters, CommandContext cmdContext) {
         super(parameters, cmdContext);
+    }
+
+    @Override
+    protected boolean validate() {
+        DiskImage diskImage = diskImageDao.getAncestor(getParameters().getImageId());
+
+        if (diskImage == null) {
+            return failValidation(EngineMessage.ACTION_TYPE_FAILED_DISK_NOT_EXIST);
+        }
+        if (diskImage.getImageStatus() == ImageStatus.LOCKED) {
+            return failValidation(EngineMessage.ACTION_TYPE_FAILED_DISK_IS_BEING_MIGRATED,
+                    ReplacementUtils.createSetVariableString("DiskName", diskImage.getDiskAlias()));
+        }
+
+        return true;
     }
 
     @Override
@@ -69,7 +88,7 @@ public class MoveDiskCommand<T extends MoveDiskParameters> extends CommandBase<T
                     ExecutionHandler.createInternalJobContext(getContext(), getLock())));
         } else {
             Guid vmId = diskVmElements.get(0).getVmId();
-            engineLock = lockVmWithWait(vmId);
+            EngineLock engineLock = lockVmWithWait(vmId);
             setReturnValue(runInternalAction(actionType,
                     createLiveMigrateDiskParameters(getParameters(), vmId),
                     ExecutionHandler.createInternalJobContext(getContext(), engineLock)));

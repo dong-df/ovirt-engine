@@ -16,15 +16,22 @@ import org.ovirt.engine.core.bll.ValidationResult;
 import org.ovirt.engine.core.bll.provider.storage.OpenStackImageProviderProxy;
 import org.ovirt.engine.core.bll.validator.storage.DiskImagesValidator;
 import org.ovirt.engine.core.common.action.ImportRepoImageParameters;
+import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.StoragePoolStatus;
 import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.compat.Guid;
+import org.ovirt.engine.core.dao.ClusterDao;
 import org.ovirt.engine.core.dao.StoragePoolDao;
 
 /** A test case for {@link ImportRepoImageCommand} */
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class ImportRepoImageCommandTest extends ImportExportRepoImageCommandTest {
     private String repoImageId = Guid.newGuid().toString();
+
+    private Guid clusterId = Guid.newGuid();
+
+    @Mock
+    private Cluster cluster;
 
     @Mock
     private StoragePoolDao storagePoolDao;
@@ -34,6 +41,9 @@ public class ImportRepoImageCommandTest extends ImportExportRepoImageCommandTest
 
     @Mock
     protected DiskImagesValidator diskImagesValidator;
+
+    @Mock
+    private ClusterDao clusterDao;
 
     @Spy
     @InjectMocks
@@ -46,6 +56,7 @@ public class ImportRepoImageCommandTest extends ImportExportRepoImageCommandTest
         p.setSourceStorageDomainId(repoStorageDomainId);
         p.setStoragePoolId(storagePoolId);
         p.setStorageDomainId(storageDomainId);
+        p.setClusterId(clusterId);
         return p;
     }
 
@@ -56,6 +67,8 @@ public class ImportRepoImageCommandTest extends ImportExportRepoImageCommandTest
 
         when(storagePoolDao.get(storagePoolId)).thenReturn(storagePool);
         when(providerProxy.getImageAsDiskImage(repoImageId)).thenReturn(diskImage);
+        when(clusterDao.get(clusterId)).thenReturn(cluster);
+        when(cluster.getStoragePoolId()).thenReturn(storagePoolId);
 
         doReturn(true).when(cmd).validateSpaceRequirements(any());
         doReturn(diskImagesValidator).when(cmd).createDiskImagesValidator(any());
@@ -86,5 +99,22 @@ public class ImportRepoImageCommandTest extends ImportExportRepoImageCommandTest
         storagePool.setStatus(StoragePoolStatus.Maintenance);
         ValidateTestUtils.runAndAssertValidateFailure(cmd,
                 EngineMessage.ACTION_TYPE_FAILED_STORAGE_POOL_STATUS_ILLEGAL);
+    }
+
+    @Test
+    public void testValidateStorageDomainNotInDataCenter() {
+        Guid newStoragePoolId = Guid.newGuid();
+        when(cmd.getStoragePoolId()).thenReturn(newStoragePoolId);
+        when(storagePoolDao.get(newStoragePoolId)).thenReturn(storagePool);
+        ValidateTestUtils.runAndAssertValidateFailure(cmd,
+                EngineMessage.ACTION_TYPE_FAILED_STORAGE_DOMAIN_BELONGS_TO_DIFFERENT_STORAGE_POOL);
+    }
+
+    @Test
+    public void testValidateStorageDomainClusterMismatch() {
+        Guid newStoragePoolId = Guid.newGuid();
+        when(cluster.getStoragePoolId()).thenReturn(newStoragePoolId);
+        ValidateTestUtils.runAndAssertValidateFailure(cmd,
+                EngineMessage.ACTION_TYPE_FAILED_STORAGE_DOMAIN_AND_CLUSTER_IN_DIFFERENT_POOL);
     }
 }

@@ -1,27 +1,20 @@
 #
 # ovirt-engine-setup -- ovirt engine setup
-# Copyright (C) 2013-2017 Red Hat, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Copyright oVirt Authors
+# SPDX-License-Identifier: Apache-2.0
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 #
 
 
 """ovirt-provider-ovn plugin."""
 
 import base64
+import errno
 import gettext
 import os
 import random
+import stat
 import string
 import uuid
 
@@ -62,7 +55,9 @@ OvnDbConfig = namedtuple(
         'protocol',
         'command',
         'key_file',
-        'cert_file'
+        'cert_file',
+        'ssl_protocol',
+        'ciphers'
     ]
 )
 
@@ -73,6 +68,9 @@ class Plugin(plugin.PluginBase):
 
     CONNECTION_TCP = 'tcp'
     CONNECTION_SSL = 'ssl'
+    SSL_PROTOCOLS = 'TLSv1.2'
+    ALLOWED_CIPHERS = 'kRSA:-aDSS:-3DES:!DES:!RC4:!RC2:!IDEA:-SEED:!eNULL:' \
+                      '!aNULL:!MD5:-SHA384:-CAMELLIA:-ARIA:-AESCCM8'
 
     PROVIDER_NAME = 'ovirt-provider-ovn'
 
@@ -83,6 +81,8 @@ class Plugin(plugin.PluginBase):
         'ovn-nbctl',
         oenginecons.OvnFileLocations.OVIRT_PROVIDER_OVN_NDB_KEY,
         oenginecons.OvnFileLocations.OVIRT_PROVIDER_OVN_NDB_CERT,
+        None,
+        None
     )
 
     OVN_SOUTH_DB_CONFIG = OvnDbConfig(
@@ -92,6 +92,8 @@ class Plugin(plugin.PluginBase):
         'ovn-sbctl',
         oenginecons.OvnFileLocations.OVIRT_PROVIDER_OVN_SDB_KEY,
         oenginecons.OvnFileLocations.OVIRT_PROVIDER_OVN_SDB_CERT,
+        SSL_PROTOCOLS,
+        ALLOWED_CIPHERS,
     )
 
     def __init__(self, context):
@@ -168,10 +170,10 @@ class Plugin(plugin.PluginBase):
         self.logger.info(_('Adding default OVN provider to database'))
 
         password = (
-            self._encrypt_password(self._password)
+            self._encrypt_password(self._password).decode()
             if self._password
             else None
-        ).decode()
+        )
 
         self.environment[
             oenginecons.EngineDBEnv.STATEMENT
@@ -528,8 +530,8 @@ class Plugin(plugin.PluginBase):
                     ovn_db_config.key_file,
                     ovn_db_config.cert_file,
                     oenginecons.FileLocations.OVIRT_ENGINE_PKI_ENGINE_CA_CERT,
-                    'TLSv1.2',
-                    'HIGH',
+                    ovn_db_config.ssl_protocol or 'TLSv1.2',
+                    ovn_db_config.ciphers or 'HIGH',
                 ),
                 _(
                     'Failed to configure {name} with SSL'
@@ -757,8 +759,6 @@ class Plugin(plugin.PluginBase):
         if self.environment.get(
             OvnEnv.OVIRT_PROVIDER_ID
         ):
-            self.logger.info(_(
-                'ovirt-provider-ovn already installed, skipping.'))
             return True
         return False
 
@@ -772,19 +772,22 @@ class Plugin(plugin.PluginBase):
         ),
     )
     def _customization(self):
-        provider_installed = self._is_provider_installed()
+        self._provider_installed = self._is_provider_installed()
+        if self._provider_installed:
+            self.logger.info(_(
+                'ovirt-provider-ovn already installed, skipping.'))
         if (
             self.environment[OvnEnv.OVIRT_PROVIDER_OVN] is None and
-            not provider_installed
+            not self._provider_installed
         ):
             self.environment[OvnEnv.OVIRT_PROVIDER_OVN] = \
                 self._query_install_ovn()
 
         self._enabled = (
             self.environment[OvnEnv.OVIRT_PROVIDER_OVN] and
-            not provider_installed
+            not self._provider_installed
         )
-        if self._enabled or provider_installed:
+        if self._enabled or self._provider_installed:
             self._setup_firewalld_services()
 
     def _print_commands(self, message, commands):
@@ -855,9 +858,10 @@ class Plugin(plugin.PluginBase):
             oenginecons.Stages.CA_AVAILABLE,
             oenginecons.Stages.OVN_SERVICES_RESTART,
         ),
-        condition=lambda self: self._enabled,
+        condition=lambda self: self._enabled or self._provider_installed,
     )
     def _misc_configure_ovn_pki(self):
+        self.logger.info(_('Updating OVN SSL configuration'))
         self._configure_ovndb_north_connection()
         self._configure_ovndb_south_connection()
 
@@ -877,6 +881,53 @@ class Plugin(plugin.PluginBase):
         self._generate_client_secret()
         self._configure_ovirt_provider_ovn()
         self._upate_external_providers_keystore()
+
+    @plugin.event(
+        stage=plugin.Stages.STAGE_MISC,
+        condition=lambda self: (
+            self._provider_installed and
+            not self.environment[
+                osetupcons.CoreEnv.DEVELOPER_MODE
+            ]
+        ),
+    )
+    def _upgrade(self):
+        self._sanitize_config_file_permissions()
+
+    def _sanitize_config_file_permissions(self):
+        try:
+            current_premissions = stat.S_IMODE(
+                os.lstat(
+                    oenginecons.OvnFileLocations.
+                    OVIRT_PROVIDER_ENGINE_SETUP_CONFIG_FILE
+                ).st_mode
+            )
+            permissions_to_remove = stat.S_IRWXO | stat.S_IRWXG
+            desired_permissions = current_premissions & ~permissions_to_remove
+            if desired_permissions != current_premissions:
+                self.logger.info(_(
+                    'Removing unnecessary permissions on {file}.'
+                ).format(
+                    file=oenginecons.OvnFileLocations.
+                    OVIRT_PROVIDER_ENGINE_SETUP_CONFIG_FILE
+                ))
+                # This is not reverted on rollback.
+                os.chmod(
+                    oenginecons.OvnFileLocations.
+                    OVIRT_PROVIDER_ENGINE_SETUP_CONFIG_FILE,
+                    desired_permissions
+                )
+        except OSError as error:
+            if error.errno == errno.ENOENT:
+                self.logger.warning(_(
+                    'Unable to ensure permissions on {file}'
+                ).format(
+                    file=oenginecons.OvnFileLocations.
+                    OVIRT_PROVIDER_ENGINE_SETUP_CONFIG_FILE
+                    )
+                )
+            else:
+                raise
 
     @plugin.event(
         stage=plugin.Stages.STAGE_MISC,

@@ -6,6 +6,7 @@ import java.util.List;
 import javax.inject.Inject;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang.StringUtils;
 import org.ovirt.engine.core.bll.context.CommandContext;
 import org.ovirt.engine.core.bll.network.cluster.NetworkClusterValidatorBase;
 import org.ovirt.engine.core.bll.profiles.CpuProfileHelper;
@@ -16,9 +17,11 @@ import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.VdcObjectType;
 import org.ovirt.engine.core.common.action.ActionReturnValue;
 import org.ovirt.engine.core.common.action.ActionType;
+import org.ovirt.engine.core.common.action.ClusterOperationParameters;
 import org.ovirt.engine.core.common.action.CpuProfileParameters;
-import org.ovirt.engine.core.common.action.ManagementNetworkOnClusterOperationParameters;
 import org.ovirt.engine.core.common.businessentities.ActionGroup;
+import org.ovirt.engine.core.common.businessentities.ArchitectureType;
+import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.SupportedAdditionalClusterFeature;
 import org.ovirt.engine.core.common.businessentities.network.NetworkCluster;
@@ -26,12 +29,13 @@ import org.ovirt.engine.core.common.businessentities.profiles.CpuProfile;
 import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.common.validation.group.CreateEntity;
 import org.ovirt.engine.core.compat.Guid;
+import org.ovirt.engine.core.compat.Version;
 import org.ovirt.engine.core.dao.ClusterDao;
 import org.ovirt.engine.core.dao.ClusterFeatureDao;
 import org.ovirt.engine.core.dao.MacPoolDao;
 import org.ovirt.engine.core.dao.network.NetworkClusterDao;
 
-public class AddClusterCommand<T extends ManagementNetworkOnClusterOperationParameters>
+public class AddClusterCommand<T extends ClusterOperationParameters>
         extends ClusterOperationCommandBase<T> {
 
     public static final String DefaultNetworkDescription = "Default Management Network";
@@ -44,6 +48,8 @@ public class AddClusterCommand<T extends ManagementNetworkOnClusterOperationPara
     private ClusterDao clusterDao;
     @Inject
     private NetworkClusterDao networkClusterDao;
+    @Inject
+    private ClusterCpuFlagsManager clusterCpuFlagsManager;
 
     public AddClusterCommand(T parameters, CommandContext commandContext) {
         super(parameters, commandContext);
@@ -59,6 +65,8 @@ public class AddClusterCommand<T extends ManagementNetworkOnClusterOperationPara
     protected void executeCommand() {
         Cluster cluster = getCluster();
         cluster.setArchitecture(getArchitecture());
+        setCpuFlags();
+        setDefaultBiosType();
         setDefaultSwitchTypeIfNeeded();
         setDefaultFirewallTypeIfNeeded();
         setDefaultLogMaxMemoryUsedThresholdIfNeeded();
@@ -87,6 +95,27 @@ public class AddClusterCommand<T extends ManagementNetworkOnClusterOperationPara
 
         setActionReturnValue(cluster.getId());
         setSucceeded(true);
+    }
+
+    private void setCpuFlags() {
+        if (!StringUtils.isEmpty(getCluster().getCpuName())) {
+            clusterCpuFlagsManager.updateCpuFlags(getCluster());
+        }
+    }
+
+    private void setDefaultBiosType() {
+        Cluster cluster = getCluster();
+        if (cluster.getBiosType() != null) {
+            return;
+        }
+        if (cluster.getCompatibilityVersion() != null
+                && cluster.getCompatibilityVersion().greaterOrEquals(Version.v4_4)
+                && cluster.getArchitecture() != null
+                && cluster.getArchitecture().getFamily() == ArchitectureType.x86) {
+            cluster.setBiosType(BiosType.Q35_SEA_BIOS);
+        } else {
+            cluster.setBiosType(BiosType.I440FX_SEA_BIOS);
+        }
     }
 
     private void addDefaultCpuProfile() {
@@ -146,6 +175,8 @@ public class AddClusterCommand<T extends ManagementNetworkOnClusterOperationPara
                 && validateClusterPolicy(null)
                 && validateManagementNetwork()
                 && validate(validator.memoryOptimizationConfiguration())
+                && validate(validator.invalidBiosType())
+                && validate(validator.nonDefaultBiosType())
                 && validateDefaultNetworkProvider();
     }
 

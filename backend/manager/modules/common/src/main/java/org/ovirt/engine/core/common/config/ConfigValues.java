@@ -494,10 +494,6 @@ public enum ConfigValues {
     @TypeConverterAttribute(Integer.class)
     UserSessionTimeOutInterval(ClientAccessLevel.User),
 
-    @Reloadable
-    @TypeConverterAttribute(String.class)
-    RhevhLocalFSPath(ClientAccessLevel.Admin),
-
     @TypeConverterAttribute(String.class)
     UserDefinedVMProperties(ClientAccessLevel.User),
 
@@ -648,6 +644,10 @@ public enum ConfigValues {
     DefaultManagementNetwork,
 
     @Reloadable
+    @TypeConverterAttribute(Boolean.class)
+    VdsmUseNmstate,
+
+    @Reloadable
     @TypeConverterAttribute(String.class)
     OvirtInitialSupportedIsoVersion,
 
@@ -720,9 +720,6 @@ public enum ConfigValues {
     @TypeConverterAttribute(Integer.class)
     UploadImageXhrMaxRetries(ClientAccessLevel.Admin),
 
-    @TypeConverterAttribute(Boolean.class)
-    GetImageTicketSupported,
-
     @Reloadable
     @TypeConverterAttribute(Long.class)
     SetupNetworksPollingTimeout,
@@ -752,6 +749,9 @@ public enum ConfigValues {
 
     @TypeConverterAttribute(Integer.class)
     VmPoolMonitorMaxAttempts,
+
+    @TypeConverterAttribute(Integer.class)
+    WindowsGuestAgentUpdateCheckInternal,
 
     @TypeConverterAttribute(Integer.class)
     PayloadSize,
@@ -1144,16 +1144,22 @@ public enum ConfigValues {
     AutoStartVmsRunnerIntervalInSeconds,
 
     @TypeConverterAttribute(Integer.class)
-    RetryToRunAutoStartVmIntervalInSeconds,
+    RetryToRunAutoStartVmShortIntervalInSeconds,
+
+    @TypeConverterAttribute(Integer.class)
+    RetryToRunAutoStartVmLongIntervalInSeconds,
 
     @TypeConverterAttribute(Integer.class)
     DelayToRunAutoStartVmIntervalInSeconds,
 
     @TypeConverterAttribute(Integer.class)
-    MaxNumOfTriesToRunFailedAutoStartVm,
+    NumOfTriesToRunFailedAutoStartVmInShortIntervals,
 
     @TypeConverterAttribute(Integer.class)
     MaxNumOfSkipsBeforeAutoStartVm,
+
+    @TypeConverterAttribute(Integer.class)
+    MaxTimeAutoStartBlockedOnPriority,
 
     /**
      * Value representing maximum number of milliseconds a VM can be down during live migration.
@@ -1177,9 +1183,6 @@ public enum ConfigValues {
 
     @TypeConverterAttribute(Map.class)
     IsMigrationSupported,
-
-    @TypeConverterAttribute(Boolean.class)
-    IsHighPerformanceTypeSupported,
 
     @TypeConverterAttribute(Boolean.class)
     ScsiReservationSupported,
@@ -1379,6 +1382,9 @@ public enum ConfigValues {
     @TypeConverterAttribute(Boolean.class)
     DefaultMigrationCompression,
 
+    @TypeConverterAttribute(Boolean.class)
+    DefaultMigrationEncryption,
+
     @TypeConverterAttribute(Long.class)
     BackupCheckPeriodInHours,
 
@@ -1457,12 +1463,6 @@ public enum ConfigValues {
     ipv6IscsiSupported,
 
     @TypeConverterAttribute(Boolean.class)
-    QemuimgCommitSupported,
-
-    @TypeConverterAttribute(Boolean.class)
-    Ipv6MigrationProperlyHandled,
-
-    @TypeConverterAttribute(Boolean.class)
     CopyPreallocatedFileBasedDiskSupported,
 
     @TypeConverterAttribute(Boolean.class)
@@ -1473,12 +1473,6 @@ public enum ConfigValues {
 
     @TypeConverterAttribute(Boolean.class)
     IsDeferringFileVolumePreallocationSupported,
-
-    @TypeConverterAttribute(Boolean.class)
-    DomainXML,
-
-    @TypeConverterAttribute(Boolean.class)
-    AgentChannelNamingSupported,
 
     /**
      * Timeout in seconds for the completion of calls to external network providers.
@@ -1497,14 +1491,8 @@ public enum ConfigValues {
     @TypeConverterAttribute(Integer.class)
     ExternalNetworkProviderConnectionTimeout,
 
-    @TypeConverterAttribute(Boolean.class)
-    DestroyOnRebootSupported(ClientAccessLevel.User),
-
     @TypeConverterAttribute(Version.class)
     MultiFirewallSupportSince,
-
-    @TypeConverterAttribute(Boolean.class)
-    ReduceVolumeSupported,
 
     /**
      * Value of 'Filter' header Web-ui is supposed to send for admin users
@@ -1515,49 +1503,13 @@ public enum ConfigValues {
     AlwaysFilterResultsForWebUi(ClientAccessLevel.User),
 
     @TypeConverterAttribute(Boolean.class)
-    ContentType,
-
-    @TypeConverterAttribute(Boolean.class)
-    IsoOnDataDomain,
-
-    /**
-     * Determines if the resume behavior can be configured in this compatibility level.
-     *
-     * If the storage on which the VM has it's disks gets unavailable, the VM gets paused.
-     * The resume behavior determines what should happen in case the storage gets available again.
-     */
-    @TypeConverterAttribute(Boolean.class)
-    ResumeBehaviorSupported,
-
-    @TypeConverterAttribute(Boolean.class)
-    DefaultRouteReportedByVdsm(),
-
-    @TypeConverterAttribute(Boolean.class)
-    GlusterEventingSupported,
-
-    @TypeConverterAttribute(Boolean.class)
-    LldpInformationSupported,
-
-    @TypeConverterAttribute(Boolean.class)
     CustomBondNameSupported,
-
-    @TypeConverterAttribute(Boolean.class)
-    Ping2SupportedByVdsm,
-
-    @TypeConverterAttribute(Boolean.class)
-    ConfirmConnectivitySupportedByVdsm,
 
     /**
      * The rate (in seconds) to synchronize networks of external network providers in the background.
      */
     @TypeConverterAttribute(Integer.class)
     ExternalNetworkProviderSynchronizationRate,
-
-    @TypeConverterAttribute(Boolean.class)
-    MemoryDisksOnDifferentDomainsSupported,
-
-    @TypeConverterAttribute(Boolean.class)
-    ResetBrickSupported,
 
     @Reloadable
     @TypeConverterAttribute(Boolean.class)

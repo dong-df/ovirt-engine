@@ -86,6 +86,17 @@ public enum VMStatus implements Identifiable {
     }
 
     /**
+     * This method reflects whether the VM is qualified to start a backup operation (full/incremental).
+     * For this to be true, the VM must up.
+     *
+     * @return true if this status indicates that the VM status indicates that snapshot live merge
+     * may be possible, otherwise false
+     */
+    public boolean isQualifiedForVmBackup() {
+        return this == Up;
+    }
+
+    /**
      * This method reflects whether the VM is qualified for console connection.
      *
      * @return true if the VM status indicates that console connection may be possible, otherwise false
@@ -180,6 +191,35 @@ public enum VMStatus implements Identifiable {
      */
     public boolean isGuestCpuRunning() {
         return EnumSet.of(Up, PoweringUp).contains(this);
+    }
+
+    /**
+     * This method is used to check if HA VM is powering UP and
+     * if other HA VMs should wait for it.
+     */
+    public boolean isPoweringUpOrMigrating() {
+        switch (this) {
+        // VM is powering UP
+        case WaitForLaunch:
+        case PoweringUp:
+
+        // If there is a reason why the VM was paused,
+        // others should wait for it.
+        case Paused:
+
+        // The VM was restarted during startup,
+        case RebootInProgress:
+
+        // User can trigger a migration when the VM is 'PoweringUp'.
+        // Other VMs should wait for migration to finish.
+        case MigratingTo:
+        case MigratingFrom:
+        case RestoringState:
+            return true;
+
+        default:
+            return false;
+        }
     }
 
     /**

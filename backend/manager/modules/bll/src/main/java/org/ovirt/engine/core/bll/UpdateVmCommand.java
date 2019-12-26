@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 import javax.enterprise.inject.Instance;
@@ -27,10 +28,12 @@ import org.ovirt.engine.core.bll.quota.QuotaClusterConsumptionParameter;
 import org.ovirt.engine.core.bll.quota.QuotaConsumptionParameter;
 import org.ovirt.engine.core.bll.quota.QuotaSanityParameter;
 import org.ovirt.engine.core.bll.quota.QuotaVdsDependent;
+import org.ovirt.engine.core.bll.storage.domain.IsoDomainListSynchronizer;
 import org.ovirt.engine.core.bll.tasks.interfaces.CommandCallback;
 import org.ovirt.engine.core.bll.utils.IconUtils;
 import org.ovirt.engine.core.bll.utils.PermissionSubject;
 import org.ovirt.engine.core.bll.utils.RngDeviceUtils;
+import org.ovirt.engine.core.bll.validator.AffinityValidator;
 import org.ovirt.engine.core.bll.validator.IconValidator;
 import org.ovirt.engine.core.bll.validator.InClusterUpgradeValidator;
 import org.ovirt.engine.core.bll.validator.VmValidator;
@@ -56,6 +59,7 @@ import org.ovirt.engine.core.common.action.WatchdogParameters;
 import org.ovirt.engine.core.common.businessentities.ActionGroup;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
 import org.ovirt.engine.core.common.businessentities.BiosType;
+import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.DisplayType;
 import org.ovirt.engine.core.common.businessentities.GraphicsDevice;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
@@ -82,6 +86,8 @@ import org.ovirt.engine.core.common.businessentities.VmWatchdog;
 import org.ovirt.engine.core.common.businessentities.network.Network;
 import org.ovirt.engine.core.common.businessentities.network.VmNic;
 import org.ovirt.engine.core.common.businessentities.storage.DiskVmElement;
+import org.ovirt.engine.core.common.businessentities.storage.ImageFileType;
+import org.ovirt.engine.core.common.businessentities.storage.RepoImage;
 import org.ovirt.engine.core.common.config.Config;
 import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.errors.EngineError;
@@ -92,6 +98,7 @@ import org.ovirt.engine.core.common.migration.NoMigrationPolicy;
 import org.ovirt.engine.core.common.queries.IdQueryParameters;
 import org.ovirt.engine.core.common.queries.QueryReturnValue;
 import org.ovirt.engine.core.common.queries.QueryType;
+import org.ovirt.engine.core.common.scheduling.AffinityGroup;
 import org.ovirt.engine.core.common.utils.CompatibilityVersionUtils;
 import org.ovirt.engine.core.common.utils.HugePageUtils;
 import org.ovirt.engine.core.common.utils.Pair;
@@ -109,6 +116,8 @@ import org.ovirt.engine.core.compat.Version;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogable;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogableImpl;
+import org.ovirt.engine.core.dao.ClusterDao;
+import org.ovirt.engine.core.dao.DiskImageDao;
 import org.ovirt.engine.core.dao.DiskVmElementDao;
 import org.ovirt.engine.core.dao.LabelDao;
 import org.ovirt.engine.core.dao.VmDeviceDao;
@@ -121,6 +130,7 @@ import org.ovirt.engine.core.dao.VmTemplateDao;
 import org.ovirt.engine.core.dao.network.NetworkDao;
 import org.ovirt.engine.core.dao.network.VmNicDao;
 import org.ovirt.engine.core.dao.provider.ProviderDao;
+import org.ovirt.engine.core.dao.scheduling.AffinityGroupDao;
 import org.ovirt.engine.core.utils.ReplacementUtils;
 import org.ovirt.engine.core.vdsbroker.ResourceManager;
 import org.ovirt.engine.core.vdsbroker.monitoring.VmDevicesMonitoring;
@@ -146,7 +156,13 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
     @Inject
     private InClusterUpgradeValidator clusterUpgradeValidator;
     @Inject
+    private IsoDomainListSynchronizer isoDomainListSynchronizer;
+    @Inject
+    private DiskImageDao diskImageDao;
+    @Inject
     private VmNumaNodeDao vmNumaNodeDao;
+    @Inject
+    private ClusterDao clusterDao;
     @Inject
     private VmStaticDao vmStaticDao;
     @Inject
@@ -168,6 +184,8 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
     @Inject
     private VmTemplateDao vmTemplateDao;
     @Inject
+    private AffinityGroupDao affinityGroupDao;
+    @Inject
     private LabelDao labelDao;
     @Inject
     private NetworkHelper networkHelper;
@@ -180,12 +198,16 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
     private Instance<ConcurrentChildCommandsExecutionCallback> callbackProvider;
     @Inject
     private RngDeviceUtils rngDeviceUtils;
+    @Inject
+    private AffinityValidator affinityValidator;
 
     private VM oldVm;
     private boolean quotaSanityOnly = false;
     private VmStatic newVmStatic;
     private List<GraphicsDevice> cachedGraphics;
     private boolean isUpdateVmTemplateVersion = false;
+
+    private BiConsumer<AuditLogable, AuditLogDirector> affinityGroupLoggingMethod = (a, b) -> {};
 
     public UpdateVmCommand(T parameters, CommandContext commandContext) {
         super(parameters, commandContext);
@@ -226,7 +248,15 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
 
         updateUSB();
 
+        if (getParameters().getVmStaticData().getBiosType() == BiosType.CLUSTER_DEFAULT) {
+            getParameters().getVm().setClusterBiosType(getNewCluster().getBiosType());
+        }
+
         getVmDeviceUtils().setCompensationContext(getCompensationContextIfEnabledByCaller());
+    }
+
+    protected Cluster getNewCluster() {
+        return clusterDao.get(getParameters().getVm().getClusterId());
     }
 
     private VmPropertiesUtils getVmPropertiesUtils() {
@@ -310,7 +340,7 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
 
         updateVmNetworks();
         updateVmNumaNodes();
-        updateAffinityLabels();
+        updateAffinityGroupsAndLabels();
         if (!updateVmLease()) {
             return;
         }
@@ -566,7 +596,7 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
             log.info("BIOS chipset type has changed for VM: {} ({}), removing its unmanaged devices.",
                     getVm().getName(),
                     getVm().getId());
-            vmDeviceDao.removeAllUnmanagedDevicsByVmId(getVmId());
+            vmDeviceDao.removeAllUnmanagedDevicesByVmId(getVmId());
         }
     }
 
@@ -1096,12 +1126,6 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
                     String.format("$Ccv %s", customCompatibilityVersionFromParams));
         }
 
-        if (vmFromParams.getVmType() == VmType.HighPerformance
-                && !FeatureSupported.isHighPerformanceTypeSupported(getEffectiveCompatibilityVersion())) {
-            return failValidation(EngineMessage.ACTION_TYPE_FAILED_HIGH_PERFORMANCE_IS_NOT_SUPPORTED,
-                    String.format("$Version %s", getEffectiveCompatibilityVersion()));
-        }
-
         if (!validateCustomProperties(vmFromParams.getStaticData())) {
             return false;
         }
@@ -1224,7 +1248,7 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
             return failValidation(EngineMessage.USE_HOST_CPU_REQUESTED_ON_UNSUPPORTED_ARCH);
         }
 
-        if (!validateCPUHotplug(getParameters().getVmStaticData())) {
+        if (isHotSetEnabled() && !validateCPUHotplug(getParameters().getVmStaticData())) {
             return failValidation(EngineMessage.CPU_HOTPLUG_TOPOLOGY_INVALID);
         }
 
@@ -1376,6 +1400,7 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
         }
 
         if (FeatureSupported.isBiosTypeSupported(getCluster().getCompatibilityVersion())
+                && vmFromParams.getBiosType() != BiosType.CLUSTER_DEFAULT
                 && vmFromParams.getBiosType() != BiosType.I440FX_SEA_BIOS
                 && getCluster().getArchitecture() != ArchitectureType.undefined
                 && getCluster().getArchitecture().getFamily() != ArchitectureType.x86) {
@@ -1393,7 +1418,26 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
             }
         }
 
+        if (!validate(validateAffinityGroups())) {
+            return false;
+        }
+
+        if (!isIsoPathExists(vmFromParams.getStaticData(), getVm().getStoragePoolId())){
+            return failValidation(EngineMessage.ERROR_CANNOT_FIND_ISO_IMAGE_PATH);
+        }
+
         return true;
+    }
+
+    private boolean isIsoPathExists(VmStatic newVm, Guid storagePoolId) {
+        if (StringUtils.isEmpty(newVm.getIsoPath())) {
+            return true;
+        }
+        Guid isoDomainId = isoDomainListSynchronizer.findActiveISODomain(storagePoolId);
+        List<RepoImage> repoFilesMap =
+                isoDomainListSynchronizer.getCachedIsoListByDomainId(isoDomainId, ImageFileType.ISO);
+        repoFilesMap.addAll(diskImageDao.getIsoDisksForStoragePoolAsRepoImages(storagePoolId));
+        return repoFilesMap.stream().anyMatch(r -> r.getRepoImageId().equals(newVm.getIsoPath()));
     }
 
     @Override
@@ -1537,7 +1581,7 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
     }
 
     private boolean isChipsetChanged() {
-        return getParameters().getVm().getBiosType().getChipsetType() != getVm().getBiosType().getChipsetType();
+        return getEffectiveBiosType().getChipsetType() != getVm().getEffectiveBiosType().getChipsetType();
     }
 
     @Override
@@ -1668,20 +1712,39 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
         return clusterUpgradeValidator;
     }
 
-    private void updateAffinityLabels() {
-        List<Label> affinityLabels = getParameters().getAffinityLabels();
-        if (affinityLabels == null) {
-            // nothing to update
-            return;
-        }
-        List<Guid> labelIds = affinityLabels.stream()
-                .map(Label::getId)
-                .collect(Collectors.toList());
+    private ValidationResult validateAffinityGroups() {
+        AffinityValidator.Result result = affinityValidator.validateAffinityUpdateForVm(getClusterId(),
+                getVmId(),
+                getParameters().getAffinityGroups(),
+                getParameters().getAffinityLabels());
 
+        affinityGroupLoggingMethod = result.getLoggingMethod();
+        return result.getValidationResult();
+    }
+
+    private void updateAffinityGroupsAndLabels() {
         // Currently, this method does not use compensation to revert this operation,
         // because affinity groups are not changed when this command is called as a child of
         // UpdateClusterCommand.
-        labelDao.updateLabelsForVm(getVmId(), labelIds);
+
+        // TODO - check permissions to modify affinity groups
+        List<AffinityGroup> affinityGroups = getParameters().getAffinityGroups();
+        if (affinityGroups != null) {
+            affinityGroupLoggingMethod.accept(this, auditLogDirector);
+            affinityGroupDao.setAffinityGroupsForVm(getVmId(),
+                    affinityGroups.stream()
+                            .map(AffinityGroup::getId)
+                            .collect(Collectors.toList()));
+        }
+
+        // TODO - check permissions to modify labels
+        List<Label> affinityLabels = getParameters().getAffinityLabels();
+        if (affinityLabels != null) {
+            List<Guid> labelIds = affinityLabels.stream()
+                    .map(Label::getId)
+                    .collect(Collectors.toList());
+            labelDao.updateLabelsForVm(getVmId(), labelIds);
+        }
     }
 
     @Override

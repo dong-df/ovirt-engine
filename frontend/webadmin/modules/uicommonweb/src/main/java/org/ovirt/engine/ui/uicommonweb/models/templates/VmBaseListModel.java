@@ -55,6 +55,8 @@ public abstract class VmBaseListModel<E, T> extends ListWithSimpleDetailsModel<E
 
     public static final String DISK_WINDOW = "DiskWindow"; //$NON-NLS-1$
 
+    protected static final String IS_ADVANCED_MODEL_LOCAL_STORAGE_KEY = "wa_vm_dialog"; //$NON-NLS-1$
+
     private VM privatecurrentVm;
 
     public VM getcurrentVm() {
@@ -126,7 +128,15 @@ public abstract class VmBaseListModel<E, T> extends ListWithSimpleDetailsModel<E
         setWindow(model);
         model.startProgress();
         setupExportModel(model);
+        postExportGetSnapshots(selectedEntity);
+    }
 
+    protected void postExportGetSnapshots(T selectedEntity) {
+        // Override if fetching snapshots is needed
+        postExportInitStorageDomains(selectedEntity);
+    }
+
+    protected void postExportInitStorageDomains(T selectedEntity) {
         AsyncDataProvider.getInstance().getStorageDomainList(new AsyncQuery<>(
                 storageDomains -> {
                     List<StorageDomain> filteredStorageDomains = new ArrayList<>();
@@ -274,7 +284,7 @@ public abstract class VmBaseListModel<E, T> extends ListWithSimpleDetailsModel<E
         model.setIsNew(true);
         model.getVmType().setSelectedItem(vmtype);
         model.setCustomPropertiesKeysList(AsyncDataProvider.getInstance().getCustomPropertiesList());
-        model.setIsAdvancedModeLocalStorageKey("wa_vm_dialog"); //$NON-NLS-1$
+        model.setIsAdvancedModeLocalStorageKey(IS_ADVANCED_MODEL_LOCAL_STORAGE_KEY);
 
         setWindow(model);
         model.initialize();
@@ -346,6 +356,8 @@ public abstract class VmBaseListModel<E, T> extends ListWithSimpleDetailsModel<E
 
         if (model.getIsNew()) {
             saveNewVm(model);
+        } else if (model.getIsClone()) {
+            cloneVM(model);
         } else {
             updateVM(model);
         }
@@ -375,6 +387,7 @@ public abstract class VmBaseListModel<E, T> extends ListWithSimpleDetailsModel<E
         parameters.setSoundDeviceEnabled(model.getIsSoundcardEnabled().getEntity());
         parameters.setVirtioScsiEnabled(model.getIsVirtioScsiEnabled().getEntity());
         parameters.setVmLargeIcon(IconUtils.filterPredefinedIcons(model.getIcon().getEntity().getIcon()));
+        parameters.setAffinityGroups(model.getAffinityGroupList().getSelectedItems());
         parameters.setAffinityLabels(model.getLabelList().getSelectedItems());
         setVmWatchdogToParams(model, parameters);
         setRngDeviceToParams(model, parameters);
@@ -386,6 +399,9 @@ public abstract class VmBaseListModel<E, T> extends ListWithSimpleDetailsModel<E
             parameters.setVmId(new Guid(model.getVmId().getEntity()));
         }
 
+        if (model.getIsClone()) {
+            parameters.setVmId(Guid.Empty);
+        }
         Frontend.getInstance().runAction(
                 model.getProvisioning().getEntity() ? ActionType.AddVmFromTemplate : ActionType.AddVm,
                 parameters,
@@ -393,7 +409,12 @@ public abstract class VmBaseListModel<E, T> extends ListWithSimpleDetailsModel<E
                 this);
     }
 
+
     protected void updateVM(UnitVmModel model){
+        // no-op by default. Override if needed.
+    }
+
+    protected void cloneVM(UnitVmModel model){
         // no-op by default. Override if needed.
     }
 
@@ -406,7 +427,7 @@ public abstract class VmBaseListModel<E, T> extends ListWithSimpleDetailsModel<E
     }
 
     protected UnitVmModelNetworkAsyncCallback createUnitVmModelNetworkAsyncCallback(VM vm, UnitVmModel model) {
-        if (vm.getVmtGuid().equals(Guid.Empty)) {
+        if (!model.getIsClone() && vm.getVmtGuid().equals(Guid.Empty)) {
             return new UnitVmModelNetworkAsyncCallback(model, addVmFromBlankTemplateNetworkManager) {
                 @Override
                 public void executed(FrontendActionAsyncResult result) {

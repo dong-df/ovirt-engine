@@ -1,18 +1,9 @@
 #
 # ovirt-engine-setup -- ovirt engine setup
-# Copyright (C) 2013-2015 Red Hat, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Copyright oVirt Authors
+# SPDX-License-Identifier: Apache-2.0
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 #
 
 
@@ -60,25 +51,33 @@ class Plugin(plugin.PluginBase):
                 name=osetupcons.FileLocations.OVIRT_SETUP_POST_INSTALL_CONFIG,
             )
         )
-        content = ['[environment:default]']
+        content = [u'[environment:default]']
         consts = []
         for constobj in self.environment[
             osetupcons.CoreEnv.SETUP_ATTRS_MODULES
         ]:
             consts.extend(constobj.__dict__['__osetup_attrs__'])
         for c in consts:
-            for k in c.__dict__.values():
-                if hasattr(k, '__osetup_attrs__'):
-                    if k.__osetup_attrs__['postinstallfile']:
-                        k = k.fget(None)
-                        if k in self.environment:
-                            v = self.environment[k]
+            for key in c.__dict__.values():
+                if hasattr(key, '__osetup_attrs__'):
+                    if key.__osetup_attrs__['postinstallfile']:
+                        key = key.fget(None)
+                        if key in self.environment:
+                            value = self.environment[key]
                             content.append(
-                                '%s=%s:%s' % (
-                                    k,
-                                    common.typeName(v),
-                                    '\n'.join(v) if isinstance(v, list)
-                                    else v,
+                                u'{key}={type}:{value}'.format(
+                                    key=key,
+                                    type=common.typeName(value),
+                                    value=(
+                                        u'\n '.join(value)
+                                        # We want the next lines to be
+                                        # indented, so that
+                                        # configparser will treat them
+                                        # as a single multi-line value.
+                                        # So we join with '\n '.
+                                        if isinstance(value, list)
+                                        else value
+                                    ),
                                 )
                             )
         self.environment[otopicons.CoreEnv.MAIN_TRANSACTION].append(

@@ -55,6 +55,7 @@ public class InstanceTypesPopupWidget extends AbstractVmPopupWidget {
                 putOne(ssoMethodNone, hiddenField()).
                 putOne(ssoMethodGuestAgent, hiddenField()).
                 putOne(hostCpuEditor, hiddenField()).
+                putOne(tscFrequencyEditor, hiddenField()).
                 putOne(templateVersionNameEditor, hiddenField()).
                 putOne(bootMenuEnabledEditor, hiddenField()).
                 putOne(serialNumberPolicyEditor, hiddenField()).
@@ -65,7 +66,9 @@ public class InstanceTypesPopupWidget extends AbstractVmPopupWidget {
                 putOne(iconTab, hiddenField()).
                 putOne(consoleDisconnectActionEditor, hiddenField()).
                 putOne(resumeBehavior, hiddenField()).
-                putOne(customCompatibilityVersionEditor, hiddenField());
+                putOne(customCompatibilityVersionEditor, hiddenField()).
+                update(affinityTab, hiddenField()).
+                putOne(profilesInstanceTypeEditor, hiddenField());
     }
 
     @Override

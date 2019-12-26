@@ -2,6 +2,7 @@ package org.ovirt.engine.api.restapi.resource;
 
 import java.util.Collection;
 
+import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Response;
 
 import org.ovirt.engine.api.model.Action;
@@ -15,11 +16,13 @@ import org.ovirt.engine.api.restapi.types.ExternalVnicProfileMappingMapper;
 import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.ImportVmTemplateFromConfParameters;
 import org.ovirt.engine.core.common.action.ImportVmTemplateParameters;
+import org.ovirt.engine.core.common.action.RemoveUnregisteredEntityParameters;
 import org.ovirt.engine.core.common.action.VmTemplateImportExportParameters;
 import org.ovirt.engine.core.common.businessentities.VmTemplate;
 import org.ovirt.engine.core.common.businessentities.network.ExternalVnicProfileMapping;
 import org.ovirt.engine.core.common.businessentities.storage.Disk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
+import org.ovirt.engine.core.common.queries.GetUnregisteredEntityQueryParameters;
 import org.ovirt.engine.core.common.queries.GetVmTemplateParameters;
 import org.ovirt.engine.core.common.queries.QueryType;
 import org.ovirt.engine.core.compat.Guid;
@@ -157,10 +160,32 @@ public class BackendStorageDomainTemplateResource
 
     @Override
     public Response remove() {
+        if (isUnregisteredTemplate()) {
+            return performAction(ActionType.RemoveUnregisteredVmTemplate,
+                    new RemoveUnregisteredEntityParameters(guid,
+                            parent.storageDomainId,
+                            getDataCenterId(parent.storageDomainId)));
+        }
+
         get();
         return performAction(ActionType.RemoveVmTemplateFromImportExport,
                 new VmTemplateImportExportParameters(guid,
                         parent.storageDomainId,
                         getDataCenterId(parent.storageDomainId)));
+    }
+
+    private boolean isUnregisteredTemplate() {
+        Template unregisteredTemplate;
+        try {
+            unregisteredTemplate = performGet(QueryType.GetUnregisteredVmTemplate,
+                    new GetUnregisteredEntityQueryParameters(parent.storageDomainId, guid));
+        } catch (WebApplicationException e) {
+            if (e.getResponse().getStatus() == Response.Status.NOT_FOUND.getStatusCode()) {
+                return false;
+            }
+            throw e;
+        }
+
+        return unregisteredTemplate != null;
     }
 }

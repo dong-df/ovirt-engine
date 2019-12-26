@@ -11,9 +11,10 @@ import org.ovirt.engine.core.common.businessentities.HostedEngineDeployConfigura
 import org.ovirt.engine.core.common.businessentities.Label;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VdsStatic;
+import org.ovirt.engine.core.common.scheduling.AffinityGroup;
 
 public class VdsOperationActionParameters extends VdsActionParameters {
-    private static final long serialVersionUID = 4156122527623908516L;
+    private static final long serialVersionUID = 4681434926930223395L;
 
     @Valid
     private VdsStatic vdsStatic;
@@ -28,6 +29,7 @@ public class VdsOperationActionParameters extends VdsActionParameters {
     private AuthenticationMethod authMethod;
     private String networkMappings;
     private HostedEngineDeployConfiguration hostedEngineDeployConfiguration;
+    private List<AffinityGroup> affinityGroups;
     private List<Label> affinityLabels;
 
     public enum AuthenticationMethod {
@@ -133,28 +135,20 @@ public class VdsOperationActionParameters extends VdsActionParameters {
         return activateHost;
     }
 
-    public String getNetworkMappings() {
-        return networkMappings;
-    }
-
-    public void setNetworkMappings(String networkMappings) {
-        this.networkMappings = networkMappings;
-    }
-
-    public void setEnableSerialConsole(boolean enableSerialConsole) {
-        this.enableSerialConsole = enableSerialConsole;
-    }
-
-    public boolean getEnableSerialConsole() {
-        return enableSerialConsole;
-    }
-
     public HostedEngineDeployConfiguration getHostedEngineDeployConfiguration() {
         return hostedEngineDeployConfiguration;
     }
 
     public void setHostedEngineDeployConfiguration(HostedEngineDeployConfiguration hostedEngineDeployConfiguration) {
         this.hostedEngineDeployConfiguration = hostedEngineDeployConfiguration;
+    }
+
+    public List<AffinityGroup> getAffinityGroups() {
+        return affinityGroups;
+    }
+
+    public void setAffinityGroups(List<AffinityGroup> affinityGroups) {
+        this.affinityGroups = affinityGroups;
     }
 
     public List<Label> getAffinityLabels() {

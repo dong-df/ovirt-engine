@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import javax.validation.Valid;
 
@@ -33,6 +34,7 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
     private Map<VmDeviceId, Map<String, String>> runtimeDeviceCustomProperties;
     private ArchitectureType clusterArch;
     private boolean nextRunConfigurationExists;
+    private Set<String> nextRunChangedFields;
     private boolean previewSnapshot;
     private LockInfo lockInfo;
     private int backgroundOperationProgress;
@@ -43,6 +45,9 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
     private Version clusterCompatibilityVersion;
     private String clusterName;
     private String clusterCpuName;
+    private String clusterCpuFlags;
+    private String clusterCpuVerb;
+    private String configuredCpuVerb;
     private Map<Guid, Disk> diskMap;
     // even this field has no setter, it can not have the final modifier because the GWT serialization mechanism
     // ignores the final fields
@@ -55,6 +60,7 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
     private boolean transparentHugePages;
     private boolean trustedService;
     private boolean hasIllegalImages;
+    private BiosType clusterBiosType;
 
     public VM() {
         this(new VmStatic(), new VmDynamic(), new VmStatistics());
@@ -78,10 +84,12 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
             VmDynamic vmDynamic,
             VmStatistics vmStatistics,
             ArchitectureType clusterArch,
-            Version clusterCompatibilityVersion) {
+            Version clusterCompatibilityVersion,
+            BiosType clusterBiosType) {
         this(vmStatic, vmDynamic, vmStatistics);
         this.clusterArch = clusterArch;
         this.clusterCompatibilityVersion = clusterCompatibilityVersion;
+        this.clusterBiosType = clusterBiosType;
     }
 
     public VmPauseStatus getVmPauseStatus() {
@@ -939,6 +947,30 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
         this.clusterName = value;
     }
 
+    public String getClusterCpuFlags() {
+        return clusterCpuFlags;
+    }
+
+    public void setClusterCpuFlags(String clusterCpuFlags) {
+        this.clusterCpuFlags = clusterCpuFlags;
+    }
+
+    public String getClusterCpuVerb() {
+        return clusterCpuVerb;
+    }
+
+    public void setClusterCpuVerb(String clusterCpuVerb) {
+        this.clusterCpuVerb = clusterCpuVerb;
+    }
+
+    public String getConfiguredCpuVerb() {
+        return configuredCpuVerb;
+    }
+
+    public void setConfiguredCpuVerb(String configuredCpuVerb) {
+        this.configuredCpuVerb = configuredCpuVerb;
+    }
+
     public String getClusterCpuName() {
         return this.clusterCpuName;
     }
@@ -1213,34 +1245,29 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
 
     @Override
     public int hashCode() {
-        final int prime = 31;
-        int result = 1;
-        long temp;
-        temp = (long)_actualDiskWithSnapthotsSize;
-        result = prime * result + (int) (temp ^ (temp >>> 32));
-        result = prime * result + ((cdPath == null) ? 0 : cdPath.hashCode());
-        result = prime * result + ((diskMap == null) ? 0 : diskMap.hashCode());
-        temp = (long)diskSize;
-        result = prime * result + (int) (temp ^ (temp >>> 32));
-        result = prime * result + ((floppyPath == null) ? 0 : floppyPath.hashCode());
-        result = prime * result + ((privateGuestAgentVersion == null) ? 0 : privateGuestAgentVersion.hashCode());
-        result = prime * result + ((runOnVdsName == null) ? 0 : runOnVdsName.hashCode());
-        result = prime * result + ((snapshots == null) ? 0 : snapshots.hashCode());
-        result = prime * result + ((spiceDriverVersion == null) ? 0 : spiceDriverVersion.hashCode());
-        result = prime * result + ((storagePoolId == null) ? 0 : storagePoolId.hashCode());
-        result = prime * result + ((storagePoolName == null) ? 0 : storagePoolName.hashCode());
-        result = prime * result + (transparentHugePages ? 1231 : 1237);
-        result =
-                prime * result + ((clusterCompatibilityVersion == null) ? 0 : clusterCompatibilityVersion.hashCode());
-        result = prime * result + ((clusterCpuName == null) ? 0 : clusterCpuName.hashCode());
-        result = prime * result + ((clusterName == null) ? 0 : clusterName.hashCode());
-        result = prime * result + ((vmDynamic == null) ? 0 : vmDynamic.hashCode());
-        result = prime * result + ((vmPoolId == null) ? 0 : vmPoolId.hashCode());
-        result = prime * result + ((vmPoolName == null) ? 0 : vmPoolName.hashCode());
-        result = prime * result + ((vmStatic == null) ? 0 : vmStatic.hashCode());
-        result = prime * result + ((vmStatistics == null) ? 0 : vmStatistics.hashCode());
-        result = prime * result + ((vmtName == null) ? 0 : vmtName.hashCode());
-        return result;
+        return Objects.hash(_actualDiskWithSnapthotsSize,
+                cdPath,
+                diskMap,
+                diskSize,
+                floppyPath,
+                privateGuestAgentVersion,
+                runOnVdsName,
+                snapshots,
+                spiceDriverVersion,
+                storagePoolId,
+                storagePoolName,
+                transparentHugePages,
+                clusterCompatibilityVersion,
+                clusterCpuName,
+                clusterCpuFlags,
+                clusterCpuVerb,
+                clusterName,
+                vmDynamic,
+                vmPoolId,
+                vmPoolName,
+                vmStatic,
+                vmStatistics,
+                vmtName);
     }
 
     public String getVmPoolName() {
@@ -1585,6 +1612,14 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
         return nextRunConfigurationExists;
     }
 
+    public void setNextRunChangedFields(Set<String> nextRunChangedFields) {
+        this.nextRunChangedFields = nextRunChangedFields;
+    }
+
+    public Set<String> getNextRunChangedFields() {
+        return nextRunChangedFields;
+    }
+
     public NumaTuneMode getNumaTuneMode() {
         return vmStatic.getNumaTuneMode();
     }
@@ -1647,6 +1682,14 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
 
     public void setMigrateCompressed(Boolean migrateCompressed) {
         vmStatic.setMigrateCompressed(migrateCompressed);
+    }
+
+    public void setMigrateEncrypted(Boolean migrateEncrypted) {
+        vmStatic.setMigrateEncrypted(migrateEncrypted);
+    }
+
+    public Boolean getMigrateEncrypted() {
+        return vmStatic.getMigrateEncrypted();
     }
 
     public LockInfo getLockInfo() {
@@ -1810,5 +1853,25 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
 
     public boolean isUsingCpuPassthrough() {
         return isUseHostCpuFlags() || Objects.equals(getCustomCpuName(), "hostPassthrough");
+    }
+
+    public BiosType getClusterBiosType() {
+        return clusterBiosType;
+    }
+
+    public void setClusterBiosType(BiosType clusterBiosType) {
+        this.clusterBiosType = clusterBiosType;
+    }
+
+    public BiosType getEffectiveBiosType() {
+        return getBiosType() != BiosType.CLUSTER_DEFAULT ? getBiosType() : getClusterBiosType();
+    }
+
+    public boolean getUseTscFrequency() {
+        return vmStatic.getUseTscFrequency();
+    }
+
+    public void setUseTscFrequency(boolean value) {
+        vmStatic.setUseTscFrequency(value);
     }
 }

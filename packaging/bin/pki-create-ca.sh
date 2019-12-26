@@ -2,27 +2,42 @@
 
 CA_DAYS="3650"
 KEYTOOL="${JAVA_HOME:-/usr}/bin/keytool"
+ENGINE_CA="ca"
 
 clean_pki_dir() {
-	for f in \
-		"${PKIDIR}/cacert.conf" \
-		"${PKIDIR}/cert.conf" \
-		"${PKIDIR}/serial.txt" \
-		"${PKIDIR}/serial.txt.old" \
-		"${PKIDIR}/database.txt" \
-		"${PKIDIR}/database.txt.old" \
-		"${PKIDIR}/database.txt.attr" \
-		"${PKIDIR}/database.txt.attr.old" \
-		"${PKIDIR}/private/ca.pem" \
-		"${PKIDIR}/ca.pem" \
-		"${PKIDIR}/certs"/*.cer \
-		"${PKIDIR}/certs"/*.pem \
-		"${PKIDIR}/keys"/*.p12 \
-		"${PKIDIR}/keys"/*.nopass \
-		"${PKIDIR}/keys/engine_id_rsa" \
-		"${PKIDIR}/requests"/*.req \
-		"${PKIDIR}/requests"/*.csr \
-	; do
+	if [ "${CA_FILE}" == "${ENGINE_CA}" ]; then
+		# engine CA is the main authority, so when renewing it,
+		# we remove all files shared with other authorities and
+		# expect to renew also all other authorities
+		files_to_clean=(
+			"${PKIDIR}/cacert.conf"
+			"${PKIDIR}/cert.conf"
+			"${PKIDIR}/serial.txt"
+			"${PKIDIR}/serial.txt.old"
+			"${PKIDIR}/database.txt"
+			"${PKIDIR}/database.txt.old"
+			"${PKIDIR}/database.txt.attr"
+			"${PKIDIR}/database.txt.attr.old"
+			"${PKIDIR}/private/${CA_FILE}.pem"
+			"${PKIDIR}/${CA_FILE}.pem"
+			"${PKIDIR}/certs"/*.cer
+			"${PKIDIR}/certs"/*.pem
+			"${PKIDIR}/keys"/*.p12
+			"${PKIDIR}/keys"/*.nopass
+			"${PKIDIR}/keys/engine_id_rsa"
+			"${PKIDIR}/requests"/*.req
+			"${PKIDIR}/requests"/*.csr
+		)
+	else
+		# when renewing non-engine CA, then we clean only private key
+		# and certificate of the relevant CA
+		files_to_clean=(
+			"${PKIDIR}/private/${CA_FILE}.pem"
+			"${PKIDIR}/${CA_FILE}.pem"
+		)
+	fi
+
+	for f in "${files_to_clean[@]}"; do
 		if [ -e "${f}" ]; then
 			common_backup "${f}"
 			rm "${f}" || \
@@ -48,22 +63,28 @@ enroll() {
 	# is in correct permissions
 	#
 
-	echo 1000 > "${PKIDIR}/serial.txt" || die "Cannot write to serial.txt"
+	if [ "${CA_FILE}" == "${ENGINE_CA}" ]; then
+		# When we renew engine CA, we need to initialize shared
+		# configuration files
+		echo 1000 > "${PKIDIR}/serial.txt" \
+			|| die "Cannot write to serial.txt"
+		touch "${PKIDIR}/database.txt" "${PKIDIR}/.rnd" \
+			|| die "Cannot write to database.txt"
+	fi
 
-	touch "${PKIDIR}/database.txt" "${PKIDIR}/.rnd" || die "Cannot write to database.txt"
 
-	touch "${PKIDIR}/private/ca.pem"
-	chmod o-rwx "${PKIDIR}/private/ca.pem" || die "Cannot set CA permissions"
+	touch "${PKIDIR}/private/${CA_FILE}.pem"
+	chmod o-rwx "${PKIDIR}/private/${CA_FILE}.pem" || die "Cannot set CA permissions"
 	openssl genrsa \
-		-out "${PKIDIR}/private/ca.pem" \
+		-out "${PKIDIR}/private/${CA_FILE}.pem" \
 		2048 \
 		|| die "Cannot generate CA key"
 	openssl req \
 		-batch \
 		-config "${PKIDIR}/cacert.conf" \
 		-new \
-		-key "${PKIDIR}/private/ca.pem" \
-		-out "${PKIDIR}/requests/ca.csr" \
+		-key "${PKIDIR}/private/${CA_FILE}.pem" \
+		-out "${PKIDIR}/requests/${CA_FILE}.csr" \
 		-subj "/" \
 		|| die "Cannot generate CA request"
 
@@ -74,10 +95,10 @@ enroll() {
 			-config openssl.conf \
 			-extfile cacert.conf \
 			-extensions v3_ca \
-			-in requests/ca.csr \
+			-in requests/${CA_FILE}.csr \
 			-notext \
-			-out ca.pem \
-			-keyfile private/ca.pem \
+			-out ${CA_FILE}.pem \
+			-keyfile private/${CA_FILE}.pem \
 			-selfsign \
 			-subj "${subject}" \
 			-utf8 \
@@ -90,14 +111,14 @@ enroll() {
 
 renew() {
 	openssl x509 \
-		-signkey "${PKIDIR}/private/ca.pem" \
-		-in "${PKIDIR}/ca.pem" \
-		-out "${PKIDIR}/ca.pem.new" \
+		-signkey "${PKIDIR}/private/${CA_FILE}.pem" \
+		-in "${PKIDIR}/${CA_FILE}.pem" \
+		-out "${PKIDIR}/${CA_FILE}.pem.new" \
 		-days "${CA_DAYS}" \
 		|| die "Cannot renew CA certificate"
 
-	common_backup "${PKIDIR}/ca.pem" || die "Cannot backup CA certificate"
-	mv "${PKIDIR}/ca.pem.new" "${PKIDIR}/ca.pem" || die "Cannot install renewed CA certificate"
+	common_backup "${PKIDIR}/${CA_FILE}.pem" || die "Cannot backup CA certificate"
+	mv "${PKIDIR}/${CA_FILE}.pem.new" "${PKIDIR}/${CA_FILE}.pem" || die "Cannot install renewed CA certificate"
 
 	return 0
 }
@@ -108,7 +129,7 @@ keystore() {
 	"${KEYTOOL}" \
 		-delete \
 		-noprompt \
-		-alias cacert \
+		-alias ${CA_FILE}cert \
 		-keystore "${PKIDIR}/.truststore" \
 		-storepass "${password}" \
 		> /dev/null 2>&1
@@ -116,9 +137,9 @@ keystore() {
 		-import \
 		-noprompt \
 		-trustcacerts \
-		-alias cacert \
+		-alias ${CA_FILE}cert \
 		-keypass "${password}" \
-		-file "${PKIDIR}/ca.pem" \
+		-file "${PKIDIR}/${CA_FILE}.pem" \
 		-keystore "${PKIDIR}/.truststore" \
 		-storepass "${password}" \
 		|| die "Keystore import failed"
@@ -128,9 +149,9 @@ keystore() {
 }
 
 cleanups() {
-	openssl x509 -in "${PKIDIR}/ca.pem" -out "${PKIDIR}/certs/ca.der" || die "Cannot read CA certificate"
-	chown --reference="${PKIDIR}/private" "${PKIDIR}/private/ca.pem" || die "Cannot set CA private key permissions"
-	chmod a+r "${PKIDIR}/ca.pem" "${PKIDIR}/certs/ca.der" || die "Cannot set CA certificate permissions"
+	openssl x509 -in "${PKIDIR}/${CA_FILE}.pem" -out "${PKIDIR}/certs/${CA_FILE}.der" || die "Cannot read CA certificate"
+	chown --reference="${PKIDIR}/private" "${PKIDIR}/private/${CA_FILE}.pem" || die "Cannot set CA private key permissions"
+	chmod a+r "${PKIDIR}/${CA_FILE}.pem" "${PKIDIR}/certs/${CA_FILE}.der" || die "Cannot set CA certificate permissions"
 	chmod a+r "${PKIDIR}/.truststore"
 }
 
@@ -141,6 +162,7 @@ Create certificate authority.
 
     --subject=subject              X.500 subject name.
     --keystore-password=password   Password for keystore.
+    --ca-file=base-file-name       CA base file name without extension.
     --renew                        Renew CA certificate.
 __EOF__
 }
@@ -153,6 +175,7 @@ cleanup() {
 
 trap cleanup 0
 RENEW=
+CA_FILE=
 while [ -n "$1" ]; do
 	x="$1"
 	v="${x#*=}"
@@ -164,6 +187,9 @@ while [ -n "$1" ]; do
 		--keystore-password=*)
 			KEYSTORE_PASSWORD="${v}"
 		;;
+		--ca-file=*)
+			CA_FILE="${v}"
+		;;
 		--renew)
 			RENEW=1
 		;;
@@ -171,7 +197,7 @@ while [ -n "$1" ]; do
 			usage
 			exit 0
 		;;
-		*)
+		--*)
 			usage
 			exit 1
 		;;
@@ -180,6 +206,7 @@ done
 
 [ -z "${RENEW}" -a -z "${SUBJECT}" ] && die "Please specify subject"
 [ -n "${KEYSTORE_PASSWORD}" ] || die "Please specify keystore password"
+[ -n "${CA_FILE}" ] || die "Please specify CA file"
 
 if [ -z "${RENEW}" ]; then
 	clean_pki_dir

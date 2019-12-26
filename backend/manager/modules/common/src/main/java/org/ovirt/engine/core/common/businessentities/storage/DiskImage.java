@@ -453,8 +453,9 @@ public class DiskImage extends DiskImageBase {
         di.actualDiskWithSnapthotsSize = diskImage.actualDiskWithSnapthotsSize;
         di.setCreationDate(new Date());
         di.setLastModified(new Date());
-        di.setActive(true);
         di.setImageStatus(ImageStatus.LOCKED);
+        di.setDiskProfileId(diskImage.getDiskProfileId());
+
         return di;
     }
 

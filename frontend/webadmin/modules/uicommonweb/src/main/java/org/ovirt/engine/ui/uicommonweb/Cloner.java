@@ -160,6 +160,7 @@ public final class Cloner {
         vm.setComment(instance.getComment());
         vm.setCustomEmulatedMachine(instance.getCustomEmulatedMachine());
         vm.setBiosType(instance.getBiosType());
+        vm.setClusterBiosType(instance.getClusterBiosType());
         vm.setCustomCpuName(instance.getCustomCpuName());
         vm.setCustomCompatibilityVersion(instance.getCustomCompatibilityVersion());
         vm.setId(instance.getId());
@@ -190,6 +191,7 @@ public final class Cloner {
         vm.setCpuProfileId(instance.getCpuProfileId());
         vm.setAutoConverge(instance.getAutoConverge());
         vm.setMigrateCompressed(instance.getMigrateCompressed());
+        vm.setMigrateEncrypted(instance.getMigrateEncrypted());
         vm.setPredefinedProperties(instance.getPredefinedProperties());
         vm.setUserDefinedProperties(instance.getUserDefinedProperties());
         vm.setCustomProperties(instance.getCustomProperties());
@@ -316,13 +318,14 @@ public final class Cloner {
         obj.setCountThreadsAsCores(instance.getCountThreadsAsCores());
         obj.setEmulatedMachine(instance.getEmulatedMachine());
         obj.setDetectEmulatedMachine(instance.isDetectEmulatedMachine());
+        obj.setBiosType(instance.getBiosType());
         obj.setArchitecture(instance.getArchitecture());
         obj.setSerialNumberPolicy(instance.getSerialNumberPolicy());
         obj.setCustomSerialNumber(instance.getCustomSerialNumber());
         obj.setFencingPolicy(new FencingPolicy(instance.getFencingPolicy()));
         obj.setAutoConverge(instance.getAutoConverge());
         obj.setMigrateCompressed(instance.getMigrateCompressed());
-
+        obj.setMigrateEncrypted(instance.getMigrateEncrypted());
         return obj;
     }
 

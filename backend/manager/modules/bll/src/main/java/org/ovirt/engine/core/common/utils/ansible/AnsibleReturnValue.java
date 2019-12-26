@@ -1,20 +1,11 @@
 /*
-Copyright (c) 2017 Red Hat, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-  http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+ * Copyright oVirt Authors
+ * SPDX-License-Identifier: Apache-2.0
 */
 
 package org.ovirt.engine.core.common.utils.ansible;
+
+import java.nio.file.Path;
 
 /**
  * A class returned by AnsibleExecutor::runCommand. It stores the return code of the ansible-playbook execution
@@ -37,6 +28,11 @@ public class AnsibleReturnValue {
      */
     private String stderr;
 
+    /**
+     * Log file of playbook execution. It is only set if user enabled logging
+     */
+    private Path logFile;
+
     public AnsibleReturnValue(AnsibleReturnCode ansibleReturnCode) {
         this(ansibleReturnCode, null);
     }
@@ -58,6 +54,10 @@ public class AnsibleReturnValue {
         return stderr;
     }
 
+    public Path getLogFile() {
+        return logFile;
+    }
+
     public void setAnsibleReturnCode(AnsibleReturnCode ansibleReturnCode) {
         this.ansibleReturnCode = ansibleReturnCode;
     }
@@ -68,5 +68,9 @@ public class AnsibleReturnValue {
 
     public void setStderr(String stderr) {
         this.stderr = stderr;
+    }
+
+    public void setLogFile(Path logFile) {
+        this.logFile = logFile;
     }
 }

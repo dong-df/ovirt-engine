@@ -1,18 +1,9 @@
 #
 # ovirt-engine-setup -- ovirt engine setup
-# Copyright (C) 2017 Red Hat, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Copyright oVirt Authors
+# SPDX-License-Identifier: Apache-2.0
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 #
 
 
@@ -171,6 +162,40 @@ class Plugin(plugin.PluginBase):
                     )
                 )
 
+    def _checkHostType(self):
+        statement = database.Statement(
+            dbenvkeys=oenginecons.Const.ENGINE_DB_ENV_KEYS,
+            environment=self.environment,
+        )
+        hosts = statement.execute(
+            statement="""
+                            select
+                                vds_name, vds_type
+                            from
+                                vds_static
+                            where
+                                vds_type = 2;
+                """,
+            ownConnection=True,
+            transaction=False,
+        )
+        if hosts:
+            names = [
+                host['vds_name']
+                for host in hosts
+            ]
+            raise RuntimeError(
+                _(
+                    'Cannot upgrade engine because legacy node hosts are not '
+                    'supported anymore, but some legacy nodes are still '
+                    'present in your setup: {}. '
+                    'Please remove those hosts from your setup and try to '
+                    'upgrade again.'
+                ).format(
+                    names
+                )
+            )
+
     @plugin.event(
         stage=plugin.Stages.STAGE_VALIDATION,
         after=(
@@ -186,6 +211,7 @@ class Plugin(plugin.PluginBase):
     def _validation(self):
         self._checkSupportedVersionsPresent()
         self._checkCompatibilityVersion()
+        self._checkHostType()
 
 
 # vim: expandtab tabstop=4 shiftwidth=4

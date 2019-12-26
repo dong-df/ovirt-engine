@@ -1,18 +1,9 @@
 #
 # ovirt-engine-setup -- ovirt engine setup
-# Copyright (C) 2014-2017 Red Hat, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Copyright oVirt Authors
+# SPDX-License-Identifier: Apache-2.0
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 #
 
 
@@ -173,6 +164,10 @@ class FileLocations(object):
         OVIRT_ENGINE_PKIDIR,
         'ca.pem',
     )
+    OVIRT_ENGINE_PKI_ENGINE_QEMU_CA_CERT = os.path.join(
+        OVIRT_ENGINE_PKIDIR,
+        'qemu-ca.pem',
+    )
     OVIRT_ENGINE_PKI_LOCAL_WEBSOCKET_PROXY_CERT = os.path.join(
         OVIRT_ENGINE_PKICERTSDIR,
         'websocket-proxy.cer',
@@ -200,6 +195,10 @@ class FileLocations(object):
     OVIRT_ENGINE_PKI_ENGINE_CA_KEY = os.path.join(
         OVIRT_ENGINE_PKIPRIVATEDIR,
         'ca.pem',
+    )
+    OVIRT_ENGINE_PKI_ENGINE_QEMU_CA_KEY = os.path.join(
+        OVIRT_ENGINE_PKIPRIVATEDIR,
+        'qemu-ca.pem',
     )
     OVIRT_ENGINE_CRYPTO_TOOL = os.path.join(
         OVIRT_ENGINE_BINDIR,
@@ -238,9 +237,42 @@ class FileLocations(object):
         'iso',
     )
 
+    ANSIBLE_RUNNER_SERVICE_SELINUX = os.path.join(
+        OVIRT_ENGINE_DATADIR,
+        'selinux',
+    )
+
+    ANSIBLE_RUNNER_SERVICE_CONF = os.path.join(
+        SYSCONFDIR,
+        'ansible-runner-service',
+        'config.yaml',
+    )
+
+    ANSIBLE_RUNNER_SERVICE_PROJECT = os.path.join(
+        OVIRT_ENGINE_DATADIR,
+        'ansible-runner-service-project',
+    )
+
     DIR_HTTPD = os.path.join(
-        osetupcons.FileLocations.SYSCONFDIR,
+        SYSCONFDIR,
         'httpd',
+    )
+
+    DIR_WWW = os.path.join(
+        LOCALSTATEDIR,
+        'www',
+    )
+
+    HTTPD_RUNNER_WSGI_SCRIPT = os.path.join(
+        DIR_WWW,
+        'runnner',
+        'runner.wsgi',
+    )
+
+    HTTPD_CONF_ANSIBLE_RUNNER_SERVICE = os.path.join(
+        DIR_HTTPD,
+        'conf.d',
+        'zz-ansible-runner-service.conf',
     )
 
     HTTPD_CONF_OVIRT_ENGINE = os.path.join(
@@ -340,6 +372,8 @@ class Defaults(object):
 
     DEFAULT_CLEAR_TASKS_WAIT_PERIOD = 20
 
+    DEFAULT_ANSIBLE_RUNNER_SERVICE_PORT = '50001'
+
     DEFAULT_DB_HOST = 'localhost'
     DEFAULT_DB_PORT = 5432
     DEFAULT_DB_DATABASE = 'engine'
@@ -381,6 +415,7 @@ class Stages(object):
     MEMORY_CHECK = 'osetup.memory.check'
 
     CA_AVAILABLE = 'osetup.pki.ca.available'
+    QEMU_CA_AVAILABLE = 'osetup.pki.qemu.ca.available'
 
     POSTGRES_PROVISIONING_ALLOWED = 'osetup.engine.provisioning.pgsql.allow'
     NFS_CONFIG_ALLOWED = 'osetup.engine.system.nfs.allow'
@@ -395,6 +430,16 @@ class Stages(object):
     OVN_PROVIDER_OVN_DB = 'osetup.ovn.provider.db'
 
     MAC_POOL_DB = 'osetup.macpool.db'
+
+
+def _pki_ca_uri(uri, resource):
+    return (
+        '%s/services/pki-resource?'
+        'resource=%s&'
+        'format=X509-PEM-CA'
+    ) % (
+        uri, resource,
+    )
 
 
 @util.export
@@ -412,13 +457,8 @@ class Const(object):
     ISO_DOMAIN_IMAGE_UID = '11111111-1111-1111-1111-111111111111'
 
     ENGINE_URI = '/ovirt-engine'
-    ENGINE_PKI_CA_URI = (
-        '%s/services/pki-resource?'
-        'resource=ca-certificate&'
-        'format=X509-PEM-CA'
-    ) % (
-        ENGINE_URI,
-    )
+    ENGINE_PKI_CA_URI = _pki_ca_uri(ENGINE_URI, 'ca-certificate')
+    ENGINE_PKI_QEMU_CA_URI = _pki_ca_uri(ENGINE_URI, 'qemu-ca-certificate')
 
     ENGINE_DB_BACKUP_PREFIX = 'engine'
 

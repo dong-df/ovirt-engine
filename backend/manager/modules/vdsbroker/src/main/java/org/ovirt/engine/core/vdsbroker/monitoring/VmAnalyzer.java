@@ -4,7 +4,7 @@ import static java.lang.Math.abs;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static org.ovirt.engine.core.utils.CollectionUtils.nullToEmptyList;
-import static org.ovirt.engine.core.utils.ObjectIdentityChecker.getChangedFields;
+import static org.ovirt.engine.core.utils.ObjectIdentityChecker.isAnyFieldChanged;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -16,6 +16,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -45,7 +46,6 @@ import org.ovirt.engine.core.common.vdscommands.VDSCommandType;
 import org.ovirt.engine.core.common.vdscommands.VDSParametersBase;
 import org.ovirt.engine.core.common.vdscommands.VDSReturnValue;
 import org.ovirt.engine.core.compat.Guid;
-import org.ovirt.engine.core.compat.Version;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogableBase;
 import org.ovirt.engine.core.dao.VdsDynamicDao;
@@ -88,16 +88,16 @@ public class VmAnalyzer {
     private List<VmNetworkInterface> ifaces;
 
     private static final int TO_MEGA_BYTES = 1024;
-    /** names of fields in {@link org.ovirt.engine.core.common.businessentities.VmDynamic} that are not changed by VDSM */
-    private static final List<String> UNCHANGEABLE_FIELDS_BY_VDSM;
+    /** names of fields in {@link org.ovirt.engine.core.common.businessentities.VmDynamic} that may change by VDSM */
+    private static final Set<String> CHANGEABLE_FIELDS_BY_VDSM;
     private static final Logger log = LoggerFactory.getLogger(VmAnalyzer.class);
 
     static {
-        List<String> tmpList = Arrays.stream(VmDynamic.class.getDeclaredFields())
-                .filter(field -> field.isAnnotationPresent(UnchangeableByVdsm.class))
+        Set<String> tmpList = Arrays.stream(VmDynamic.class.getDeclaredFields())
+                .filter(field -> !field.isAnnotationPresent(UnchangeableByVdsm.class))
                 .map(Field::getName)
-                .collect(Collectors.toList());
-        UNCHANGEABLE_FIELDS_BY_VDSM = Collections.unmodifiableList(tmpList);
+                .collect(Collectors.toSet());
+        CHANGEABLE_FIELDS_BY_VDSM = Collections.unmodifiableSet(tmpList);
     }
 
     private AuditLogDirector auditLogDirector;
@@ -408,6 +408,7 @@ public class VmAnalyzer {
                         alreadyDown ? dbVm.getExitStatus() : exitStatus,
                         alreadyDown ? dbVm.getExitMessage() : exitMessage,
                         alreadyDown ? dbVm.getExitReason() : vmExitReason);
+                dbVm.setStopReason(getVmManager().getStopReason(getVmId()));
             }
             saveDynamic(dbVm);
             resetVmStatistics();
@@ -701,18 +702,12 @@ public class VmAnalyzer {
             dbVm.setIp(extractVmIps(vmGuestAgentNics));
         }
 
-        // check if dynamic data changed - update cache and DB
-        List<String> changedFields = getChangedFields(dbVm, vdsmVm.getVmDynamic());
-        // remove all fields that should not be checked:
-        changedFields.removeAll(UNCHANGEABLE_FIELDS_BY_VDSM);
-
         if (vdsmVm.getVmDynamic().getStatus() != VMStatus.Up) {
-            changedFields.remove(VmDynamic.APPLICATIONS_LIST_FIELD_NAME);
             vdsmVm.getVmDynamic().setAppList(dbVm.getAppList());
         }
 
         // if something relevant changed
-        if (!changedFields.isEmpty()) {
+        if (isAnyFieldChanged(dbVm, vdsmVm.getVmDynamic(), CHANGEABLE_FIELDS_BY_VDSM)) {
             dbVm.updateRuntimeData(vdsmVm.getVmDynamic(), vdsManager.getVdsId());
             saveDynamic(dbVm);
         }
@@ -898,9 +893,7 @@ public class VmAnalyzer {
     private void updateVmStatistics() {
         statistics = getVmManager().getStatistics();
         Integer reportedMigrationProgress = vdsmVm.getVmStatistics().getMigrationProgressPercent();
-        boolean updateMigrationProgress = reportedMigrationProgress == null ||
-                // since 4.1 we rely on getting migration progress via events, see VmMigrationProgressMonitoring
-                getVmManager().getClusterCompatibilityVersion().less(Version.v4_1);
+        boolean updateMigrationProgress = reportedMigrationProgress == null;
         statistics.updateRuntimeData(
                 vdsmVm.getVmStatistics(),
                 getVmManager().getNumOfCpus(),

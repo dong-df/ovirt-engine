@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -68,6 +69,7 @@ import org.ovirt.engine.core.common.vdscommands.MigrateVDSCommandParameters;
 import org.ovirt.engine.core.common.vdscommands.VDSCommandType;
 import org.ovirt.engine.core.common.vdscommands.VDSReturnValue;
 import org.ovirt.engine.core.compat.Guid;
+import org.ovirt.engine.core.compat.Version;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
 import org.ovirt.engine.core.dao.DiskDao;
 import org.ovirt.engine.core.dao.VdsDao;
@@ -244,8 +246,10 @@ public class MigrateVmCommand<T extends MigrateVmParameters> extends RunVmComman
             getParameters().setTotalMigrationTime(new Date());
             getParameters().resetStartTime();
 
+            BooleanSupplier attachMBSDisks =  () -> managedBlockStorageCommandUtil
+                    .attachManagedBlockStorageDisks(getVm(), vmHandler, getDestinationVds(), true);
             if (unplugPassthroughNics() && connectLunDisks(getDestinationVdsId()) &&
-                    attachManagedBlockDiskToDest() &&
+                    attachOrDetachMBSFromDest(attachMBSDisks) &&
                     migrateVm()) {
                 ExecutionHandler.setAsyncJob(getExecutionContext(), true);
                 return true;
@@ -376,6 +380,7 @@ public class MigrateVmCommand<T extends MigrateVmParameters> extends RunVmComman
 
         Boolean autoConverge = getAutoConverge();
         Boolean migrateCompressed = getMigrateCompressed();
+        Boolean migrateEncrypted = getMigrateEncrypted();
         Boolean enableGuestEvents = null;
         Integer maxIncomingMigrations = null;
         Integer maxOutgoingMigrations = null;
@@ -410,6 +415,7 @@ public class MigrateVmCommand<T extends MigrateVmParameters> extends RunVmComman
                 getMaximumMigrationDowntime(),
                 autoConverge,
                 migrateCompressed,
+                migrateEncrypted,
                 getDestinationVds().getConsoleAddress(),
                 maxBandwidth,
                 convergenceSchedule,
@@ -537,6 +543,11 @@ public class MigrateVmCommand<T extends MigrateVmParameters> extends RunVmComman
         try {
             //this will clean all VF reservations made in {@link #initVdss}.
             cleanupPassthroughVnics(getDestinationVdsId());
+            BooleanSupplier detachMBSDisk = () -> managedBlockStorageCommandUtil
+                    .disconnectManagedBlockStorageDisks(getVm(), vmHandler, true);
+            if (!attachOrDetachMBSFromDest(detachMBSDisk)) {
+                log.error("Failed to detach managed block disks from destination host");
+            }
         } finally {
             super.runningFailed();
         }
@@ -595,6 +606,27 @@ public class MigrateVmCommand<T extends MigrateVmParameters> extends RunVmComman
         return Config.getValue(ConfigValues.DefaultMigrationCompression);
     }
 
+    private Boolean getMigrateEncrypted() {
+        Version version = getVm().getCompatibilityVersion();
+        if (version == null) {
+            return null;
+        }
+
+        if (!FeatureSupported.isMigrateEncryptedSupported(version)) {
+            return null;
+        }
+
+        if (getVm().getMigrateEncrypted() != null) {
+            return getVm().getMigrateEncrypted();
+        }
+
+        if (getCluster().getMigrateEncrypted() != null) {
+            return getCluster().getMigrateEncrypted();
+        }
+
+        return Config.getValue(ConfigValues.DefaultMigrationEncryption);
+    }
+
     private int getMaximumMigrationDowntime() {
         if (getVm().getMigrationDowntime() != null) {
             return getVm().getMigrationDowntime();
@@ -630,21 +662,9 @@ public class MigrateVmCommand<T extends MigrateVmParameters> extends RunVmComman
             if (migrationDestinationIpv4Address != null) {
                 return migrationDestinationIpv4Address;
             }
-            final String migrationDestinationIpv6Address =
-                    findValidMigrationIpAddress(migrationNetwork, VdsNetworkInterface::getIpv6Address, "v6");
-            if (migrationDestinationIpv6Address != null) {
-                return formatIpv6AddressForUri(migrationDestinationIpv6Address);
-            }
+            return findValidMigrationIpAddress(migrationNetwork, VdsNetworkInterface::getIpv6Address, "v6");
         }
         return null;
-    }
-
-    private String formatIpv6AddressForUri(String migrationDestinationIpv6Address) {
-        if (FeatureSupported.isIpv6MigrationProperlyHandled(getCluster().getCompatibilityVersion())) {
-            return migrationDestinationIpv6Address;
-        } else {
-            return String.format("[%s]", migrationDestinationIpv6Address);
-        }
     }
 
     private String findValidMigrationIpAddress(Network migrationNetwork,
@@ -715,13 +735,13 @@ public class MigrateVmCommand<T extends MigrateVmParameters> extends RunVmComman
         return nic.getStatistics().getStatus() == InterfaceStatus.UP;
     }
 
-    private boolean attachManagedBlockDiskToDest() {
+    private boolean attachOrDetachMBSFromDest(BooleanSupplier supplier) {
+        vmHandler.updateDisksFromDb(getVm());
         if (DisksFilter.filterManagedBlockStorageDisks(getVm().getDiskList()).isEmpty()) {
             return true;
         }
 
-        return managedBlockStorageCommandUtil
-                .attachManagedBlockStorageDisks(getVm(), vmHandler, getDestinationVds(), true);
+        return supplier.getAsBoolean();
     }
 
     /**
@@ -776,6 +796,10 @@ public class MigrateVmCommand<T extends MigrateVmParameters> extends RunVmComman
 
         if (vm == null) {
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_VM_NOT_FOUND);
+        }
+
+        if (isVmDuringBackup()) {
+            return failValidation(EngineMessage.ACTION_TYPE_FAILED_VM_IS_DURING_BACKUP);
         }
 
         if (!canRunActionOnNonManagedVm()) {
@@ -1005,5 +1029,4 @@ public class MigrateVmCommand<T extends MigrateVmParameters> extends RunVmComman
             super.reportCompleted();
         }
     }
-
 }

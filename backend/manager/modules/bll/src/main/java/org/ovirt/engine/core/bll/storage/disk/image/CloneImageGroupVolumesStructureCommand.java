@@ -24,12 +24,14 @@ import org.ovirt.engine.core.common.action.CloneImageGroupVolumesStructureComman
 import org.ovirt.engine.core.common.action.CreateVolumeContainerCommandParameters;
 import org.ovirt.engine.core.common.businessentities.StorageDomainStatic;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
+import org.ovirt.engine.core.common.businessentities.storage.Image;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeFormat;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeType;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dao.DiskImageDao;
 import org.ovirt.engine.core.dao.ImageDao;
 import org.ovirt.engine.core.dao.StorageDomainStaticDao;
+import org.ovirt.engine.core.utils.CollectionUtils;
 
 @InternalCommandAttribute
 @NonTransactiveCommandAttribute
@@ -57,7 +59,12 @@ public class CloneImageGroupVolumesStructureCommand<T extends CloneImageGroupVol
 
     @Override
     protected void executeCommand() {
-        List<DiskImage> images = diskImageDao.getAllSnapshotsForImageGroup(getParameters().getImageGroupID());
+        // If we are copying a template we will get the same disk multiple times
+        List<DiskImage> images = diskImageDao.getAllSnapshotsForImageGroup(getParameters().getImageGroupID())
+                .stream()
+                .filter(CollectionUtils.distinctByKey(DiskImage::getImageId))
+                .collect(Collectors.toList());
+
         ImagesHandler.sortImageList(images);
         getParameters().setImageIds(ImagesHandler.getDiskImageIds(images));
         prepareWeights();
@@ -71,8 +78,15 @@ public class CloneImageGroupVolumesStructureCommand<T extends CloneImageGroupVol
         }
 
         Double imageWeight = 1d / getParameters().getImageIds().size();
+        List<Guid> imageIds = getParameters().getDestImages().isEmpty() ?
+                getParameters().getImageIds() :
+                getParameters().getDestImages()
+                        .stream()
+                        .map(d -> d.getImageId())
+                        .collect(Collectors.toList());
+
         Map<String, Double> weightDivision =
-                getParameters().getImageIds().stream().collect(Collectors.toMap(Guid::toString, z -> imageWeight));
+                imageIds.stream().collect(Collectors.toMap(Guid::toString, z -> imageWeight));
 
         getParameters()
                 .setOperationsJobWeight(commandsWeightsUtils.adjust(weightDivision, getParameters().getJobWeight()));
@@ -94,48 +108,66 @@ public class CloneImageGroupVolumesStructureCommand<T extends CloneImageGroupVol
             return false;
         }
 
-        Guid imageId = getParameters().getImageIds().get(completedChildren);
+        Guid imageId = getParameters().getDestImages().isEmpty() ?
+                getParameters().getImageIds().get(completedChildren) :
+                getParameters().getDestImages().get(completedChildren).getImageId();
         log.info("Starting child command {} of {}, image '{}'",
                 completedChildren + 1,
                 getParameters().getImageIds().size(),
                 imageId);
 
-        createImage(diskImageDao.getSnapshotById(imageId));
+        if (!getParameters().getDestImages().isEmpty()) {
+            createImage(getParameters().getDestImages().get(completedChildren), completedChildren);
+        } else {
+            createImage(diskImageDao.getSnapshotById(imageId), completedChildren);
+        }
         return true;
     }
 
     private Guid determineSourceImageGroup(DiskImage image) {
         if (Guid.Empty.equals(image.getParentId())) {
             return Guid.Empty;
+        } else if (image.getImageTemplateId().equals(image.getParentId())) {
+            return imageDao.get(image.getImageTemplateId()).getDiskId();
+        } else if (!getParameters().getDestImages().isEmpty()) {
+            return getParameters().getDestImageGroupId();
         }
 
-        return image.getImageTemplateId().equals(image.getParentId()) ?
-                imageDao.get(image.getImageTemplateId()).getDiskId()
-                : getParameters().getImageGroupID();
+        return getParameters().getImageGroupID();
 
     }
 
-    private void createImage(DiskImage image) {
+    private void createImage(DiskImage image, int imageIndex) {
         VolumeFormat volumeFormat = determineVolumeFormat(getParameters().getDestDomain(),
                 image.getVolumeFormat(),
                 image.getVolumeType());
+
+        Image innerImage = image.getImage();
+        if (!getParameters().getDestImages().isEmpty()) {
+            innerImage = diskImageDao.getSnapshotById(getParameters().getImageIds()
+                    .get(imageIndex))
+                    .getImage();
+        }
+
+        Long initialSize = imagesHandler.determineImageInitialSize(innerImage,
+                volumeFormat,
+                getParameters().getStoragePoolId(),
+                getParameters().getSrcDomain(),
+                getParameters().getDestDomain(),
+                getParameters().getImageGroupID());
+
         CreateVolumeContainerCommandParameters parameters = new CreateVolumeContainerCommandParameters(
                 getParameters().getStoragePoolId(),
                 getParameters().getDestDomain(),
                 determineSourceImageGroup(image),
                 image.getParentId(),
-                getParameters().getImageGroupID(),
+                getParameters().getDestImageGroupId(),
                 image.getImageId(),
                 volumeFormat,
                 image.getVolumeType(),
                 getParameters().getDescription(),
                 image.getSize(),
-                imagesHandler.determineImageInitialSize(image.getImage(),
-                        volumeFormat,
-                        getParameters().getStoragePoolId(),
-                        getParameters().getSrcDomain(),
-                        getParameters().getDestDomain(),
-                        getParameters().getImageGroupID()));
+                initialSize);
 
         parameters.setEndProcedure(EndProcedure.COMMAND_MANAGED);
         parameters.setParentCommand(getActionType());

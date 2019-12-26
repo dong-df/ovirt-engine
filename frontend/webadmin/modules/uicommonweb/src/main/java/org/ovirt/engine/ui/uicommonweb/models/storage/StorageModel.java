@@ -46,8 +46,6 @@ public class StorageModel extends Model {
 
     private StorageModelBehavior behavior;
 
-    private String localFSPath;
-
     /**
      * Gets or sets the storage being edited. Null if it's a new one.
      */
@@ -296,8 +294,6 @@ public class StorageModel extends Model {
         getDiscardAfterDelete().getEntityChangedEvent().addListener(this);
         setBackup(new EntityModel<>(false));
         getBackup().setIsAvailable(false);
-
-        localFSPath = (String) AsyncDataProvider.getInstance().getConfigValuePreConverted(ConfigValues.RhevhLocalFSPath);
     }
 
     @Override
@@ -396,7 +392,7 @@ public class StorageModel extends Model {
             if (host != null) {
                 getCurrentStorageItem().getUpdateCommand().execute();
 
-                String prefix = host.isOvirtVintageNode() ? localFSPath : ""; //$NON-NLS-1$
+                String prefix = ""; //$NON-NLS-1$
                 if (!StringHelper.isNullOrEmpty(prefix)) {
                     getStorageModels().stream()
                             .filter(item -> item instanceof LocalStorageModel)
@@ -564,7 +560,8 @@ public class StorageModel extends Model {
 
                 formats.add(StorageFormatType.V3);
                 formats.add(StorageFormatType.V4);
-                selectItem = StorageFormatType.V4;
+                formats.add(StorageFormatType.V5);
+                selectItem = StorageFormatType.V5;
             }
         }
 
@@ -650,8 +647,13 @@ public class StorageModel extends Model {
                 new NotEmptyValidation(), new IntegerValidation(0, StorageConstants.LOW_SPACE_THRESHOLD)
         });
 
+        int maxAllowedSpace = Integer.MAX_VALUE;
+
+        if (!isNewStorage() && getStorage().getTotalDiskSize() != 0 ) {
+            maxAllowedSpace = getStorage().getTotalDiskSize();
+        }
         getCriticalSpaceActionBlocker().validateEntity(new IValidation[] {
-                new NotEmptyValidation(), new IntegerValidation(0, Integer.MAX_VALUE)
+                new NotEmptyValidation(), new IntegerValidation(0, maxAllowedSpace)
         });
 
         getWarningLowConfirmedSpaceIndicator().validateEntity(new IValidation[]{
@@ -711,21 +713,21 @@ public class StorageModel extends Model {
         return behavior;
     }
 
-    private int getWarningLowSpaceIndicatorValue() {
+    private Integer  getWarningLowSpaceIndicatorValue() {
         if (isNewStorage()) {
             return (Integer) AsyncDataProvider.getInstance().getConfigValuePreConverted(ConfigValues.WarningLowSpaceIndicator);
         }
         return getStorage().getWarningLowSpaceIndicator();
     }
 
-    private int getCriticalSpaceThresholdValue() {
+    private Integer getCriticalSpaceThresholdValue() {
         if (isNewStorage()) {
             return (Integer) AsyncDataProvider.getInstance().getConfigValuePreConverted(ConfigValues.CriticalSpaceActionBlocker);
         }
         return getStorage().getCriticalSpaceActionBlocker();
     }
 
-    private int getWarningLowConfirmedSpaceIndicatorValue() {
+    private Integer getWarningLowConfirmedSpaceIndicatorValue() {
         if (isNewStorage()) {
             return (Integer) AsyncDataProvider.getInstance().getConfigValuePreConverted(ConfigValues.WarningLowSpaceIndicator);
         }

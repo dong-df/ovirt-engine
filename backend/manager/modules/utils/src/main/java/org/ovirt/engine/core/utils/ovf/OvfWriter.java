@@ -78,7 +78,7 @@ public abstract class OvfWriter implements IOvfBuilder {
     }
 
     protected long bytesToGigabyte(long bytes) {
-        return bytes / 1024 / 1024 / 1024;
+        return (long) Math.ceil(bytes / Math.pow(1024, 3));
     }
 
     @Override
@@ -290,6 +290,10 @@ public abstract class OvfWriter implements IOvfBuilder {
 
         if (vmBase.getMigrateCompressed() != null) {
             _writer.writeElement(IS_MIGRATE_COMPRESSED, String.valueOf(vmBase.getMigrateCompressed()));
+        }
+
+        if (vmBase.getMigrateEncrypted() != null) {
+            _writer.writeElement(IS_MIGRATE_ENCRYPTED, String.valueOf(vmBase.getMigrateEncrypted()));
         }
 
         if (vmBase.getMigrationPolicyId() != null) {

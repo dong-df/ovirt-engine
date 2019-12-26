@@ -3,6 +3,7 @@ package org.ovirt.engine.core.bll;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import javax.inject.Inject;
 
@@ -21,7 +22,7 @@ import org.ovirt.engine.core.common.errors.EngineError;
 import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.common.locks.LockingGroup;
 import org.ovirt.engine.core.common.utils.Pair;
-import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandBuilder;
+import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandConfig;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleConstants;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleExecutor;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleReturnCode;
@@ -93,6 +94,11 @@ public class RemoveVdsCommand<T extends RemoveVdsParameters> extends VdsCommand<
     }
 
     @Override
+    protected LockProperties getLockProperties() {
+        return LockProperties.create(Scope.Command).withWaitTimeout(TimeUnit.MINUTES.toMillis(1));
+    }
+
+    @Override
     protected void executeCommand() {
         /**
          * If upserver is null and force action is true, then don't try for gluster host remove, simply remove the host
@@ -130,30 +136,41 @@ public class RemoveVdsCommand<T extends RemoveVdsParameters> extends VdsCommand<
 
     @SuppressWarnings("unchecked")
     private void runAnsibleRemovePlaybook() {
-        AuditLogable logable = new AuditLogableImpl();
-        logable.setVdsName(getVds().getName());
-        logable.setVdsId(getVds().getId());
-        logable.setCorrelationId(getCorrelationId());
+        VDS vds = getVds();
+        AuditLogable auditable = new AuditLogableImpl();
+        auditable.setVdsName(vds.getName());
+        auditable.setVdsId(vds.getId());
+        auditable.setCorrelationId(getCorrelationId());
 
         try {
-            AnsibleCommandBuilder command = new AnsibleCommandBuilder()
-                .hostnames(getVds().getHostName())
+            AnsibleCommandConfig commandConfig = new AnsibleCommandConfig()
+                .hosts(vds)
                 .playbook(AnsibleConstants.HOST_REMOVE_PLAYBOOK);
 
-            auditLogDirector.log(logable, AuditLogType.VDS_ANSIBLE_HOST_REMOVE_STARTED);
+            auditLogDirector.log(auditable, AuditLogType.VDS_ANSIBLE_HOST_REMOVE_STARTED);
 
-            AnsibleReturnValue ansibleReturnValue = ansibleExecutor.runCommand(command);
-            logable.addCustomValue("LogFile", command.logFile().getAbsolutePath());
+            AnsibleReturnValue ansibleReturnValue = ansibleExecutor.runCommand(commandConfig);
 
-            if (ansibleReturnValue.getAnsibleReturnCode() != AnsibleReturnCode.OK) {
-                auditLogDirector.log(logable, AuditLogType.VDS_ANSIBLE_HOST_REMOVE_FAILED);
+            auditable.addCustomValue("LogFile", ansibleReturnValue.getLogFile().toString());
+
+            AnsibleReturnCode ansibleReturnCode = ansibleReturnValue.getAnsibleReturnCode();
+            if (ansibleReturnCode == AnsibleReturnCode.OK
+                    // we did best to remove it and if it failed ... so be it bugzilla: 1707451
+                    || isUnreachableHostDown(vds.getStatus(), ansibleReturnCode)) {
+                auditLogDirector.log(auditable, AuditLogType.VDS_ANSIBLE_HOST_REMOVE_FINISHED);
             } else {
-                auditLogDirector.log(logable, AuditLogType.VDS_ANSIBLE_HOST_REMOVE_FINISHED);
+                auditLogDirector.log(auditable, AuditLogType.VDS_ANSIBLE_HOST_REMOVE_FAILED);
             }
         } catch (Exception e) {
-            logable.addCustomValue("Message", e.getMessage());
-            auditLogDirector.log(logable, AuditLogType.VDS_ANSIBLE_HOST_REMOVE_EXECUTION_FAILED);
+            auditable.addCustomValue("Message", e.getMessage());
+            auditLogDirector.log(auditable, AuditLogType.VDS_ANSIBLE_HOST_REMOVE_EXECUTION_FAILED);
         }
+    }
+
+    private boolean isUnreachableHostDown(VDSStatus vdsStatus, AnsibleReturnCode returnCode) {
+        return (returnCode == AnsibleReturnCode.UNREACHABLE
+                || returnCode == AnsibleReturnCode.PARSE_ERROR) // due: https://github.com/ansible/ansible/issues/19720
+                && vdsStatus == VDSStatus.Down;
     }
 
     @Override

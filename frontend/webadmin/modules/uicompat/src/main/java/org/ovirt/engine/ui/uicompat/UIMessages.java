@@ -381,6 +381,8 @@ public interface UIMessages extends Messages {
 
     String bracketsWithGB(int value);
 
+    String criticalSpaceActionBlockerBiggerThanStorageDomain(int value);
+
     String confirmDeleteFenceAgent(String agentDisplayString);
 
     String confirmDeleteAgentGroup(String agents);
@@ -424,5 +426,21 @@ public interface UIMessages extends Messages {
     String biosTypeSupportedForX86Only();
 
     String glusterPeerNotMatchingHostFingerprint(String hostAddress, String glusterPeerAddress);
-}
 
+    String noTemplateNameDuplicatesAllowed();
+
+    String noVmNameDuplicatesAllowed();
+
+    String vmName(String vmName);
+
+    String hostName(String hostName);
+
+    String labelName(String labelName);
+
+    String availableInVersionOrHigher(String version);
+
+    String compareStorageFormatToDataCenterWarningMessage(String dataCenterName, String storageDomainName,
+            String storageDomainFormat, String dcVersion);
+
+    String compareMultipleStorageFormatsToDataCenterWarningMessage(String dataCenterName, String storageDomainNames);
+}
