@@ -23,6 +23,7 @@ import org.ovirt.engine.core.bll.context.CommandContext;
 import org.ovirt.engine.core.bll.hostdev.HostDeviceManager;
 import org.ovirt.engine.core.bll.job.ExecutionContext;
 import org.ovirt.engine.core.bll.job.ExecutionHandler;
+import org.ovirt.engine.core.bll.kubevirt.KubevirtMonitoring;
 import org.ovirt.engine.core.bll.quota.QuotaClusterConsumptionParameter;
 import org.ovirt.engine.core.bll.quota.QuotaConsumptionParameter;
 import org.ovirt.engine.core.bll.quota.QuotaVdsDependent;
@@ -47,18 +48,23 @@ import org.ovirt.engine.core.common.action.ProcessDownVmParameters;
 import org.ovirt.engine.core.common.action.RunVmParams;
 import org.ovirt.engine.core.common.action.RunVmParams.RunVmFlow;
 import org.ovirt.engine.core.common.action.VmLeaseParameters;
+import org.ovirt.engine.core.common.action.VmNumaNodeOperationParameters;
 import org.ovirt.engine.core.common.asynctasks.EntityInfo;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
 import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.BootSequence;
+import org.ovirt.engine.core.common.businessentities.CpuPinningPolicy;
+import org.ovirt.engine.core.common.businessentities.DisplayType;
 import org.ovirt.engine.core.common.businessentities.GraphicsInfo;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
 import org.ovirt.engine.core.common.businessentities.InitializationType;
 import org.ovirt.engine.core.common.businessentities.Snapshot;
 import org.ovirt.engine.core.common.businessentities.Snapshot.SnapshotType;
 import org.ovirt.engine.core.common.businessentities.StorageDomain;
+import org.ovirt.engine.core.common.businessentities.UsbPolicy;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VMStatus;
+import org.ovirt.engine.core.common.businessentities.VdsCpuUnit;
 import org.ovirt.engine.core.common.businessentities.VdsNumaNode;
 import org.ovirt.engine.core.common.businessentities.VmDevice;
 import org.ovirt.engine.core.common.businessentities.VmDeviceGeneralType;
@@ -67,6 +73,7 @@ import org.ovirt.engine.core.common.businessentities.VmPayload;
 import org.ovirt.engine.core.common.businessentities.VmPool;
 import org.ovirt.engine.core.common.businessentities.VmPoolType;
 import org.ovirt.engine.core.common.businessentities.VmRngDevice;
+import org.ovirt.engine.core.common.businessentities.VmType;
 import org.ovirt.engine.core.common.businessentities.storage.Disk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.ImageFileType;
@@ -77,6 +84,8 @@ import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.common.job.Job;
 import org.ovirt.engine.core.common.job.Step;
 import org.ovirt.engine.core.common.job.StepEnum;
+import org.ovirt.engine.core.common.utils.CpuPinningHelper;
+import org.ovirt.engine.core.common.utils.VmCpuCountHelper;
 import org.ovirt.engine.core.common.utils.VmDeviceType;
 import org.ovirt.engine.core.common.validation.group.StartEntity;
 import org.ovirt.engine.core.common.vdscommands.CreateVDSCommandParameters;
@@ -129,6 +138,8 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
     @Inject
     private HostDeviceManager hostDeviceManager;
 
+    @Inject
+    private KubevirtMonitoring kubevirt;
     @Inject
     private HostLocking hostLocking;
     @Inject
@@ -376,10 +387,23 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
 
     @Override
     protected void executeVmCommand() {
-        getVmManager().setPowerOffTimeout(System.nanoTime());
-        setActionReturnValue(VMStatus.Down);
-        initVm();
-        perform();
+        switch (getVm().getOrigin()) {
+        case KUBEVIRT:
+            runKubevirtVm();
+            break;
+        default:
+            getVmManager().setPowerOffTimeout(System.nanoTime());
+            setActionReturnValue(VMStatus.Down);
+            initVm();
+            perform();
+        }
+    }
+
+    private void runKubevirtVm() {
+        kubevirt.start(getVm());
+        getVm().setStatus(VMStatus.WaitForLaunch);
+        getVmManager().update(getVm().getDynamicData());
+        setSucceeded(true);
     }
 
     @Override
@@ -486,9 +510,13 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
             return getVm().getIsoPath();
         }
 
-        String guestToolPath = guestToolsVersionTreatment();
-        if (guestToolPath != null) {
-            return guestToolPath;
+        if (FeatureSupported.isWindowsGuestToolsSupported(getVm().getCompatibilityVersion())) {
+            // Auto-attaching WGT is removed since 4.4.
+            String guestToolPath = guestToolsVersionTreatment(isoDomainListSynchronizer.getRegexToolPattern());
+
+            if (guestToolPath != null) {
+                return guestToolPath;
+            }
         }
 
         return getVm().getIsoPath();
@@ -579,6 +607,10 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
 
     protected VMStatus createVm() {
         updateCdPath();
+        // set the path for windows guest tools secondary cd-rom
+        if (getParameters().isAttachWgt()) {
+            getVm().setWgtCdPath(cdPathWindowsToLinux(guestToolsVersionTreatment(vmHandler.getRegexVirtIoIsoPattern())));
+        }
 
         if (!StringUtils.isEmpty(getParameters().getFloppyPath())) {
             getVm().setFloppyPath(cdPathWindowsToLinux(getParameters().getFloppyPath()));
@@ -632,12 +664,15 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
         }
         parameters.setPassthroughVnicToVfMap(flushPassthroughVnicToVfMap());
         if (initializationType == InitializationType.Sysprep
-                && osRepository.isWindows(getVm().getVmOsId())
+                && osRepository.isSysprep(getVm().getVmOsId())
                 && (getVm().getFloppyPath() == null || "".equals(getVm().getFloppyPath()))) {
             parameters.setInitializationType(InitializationType.Sysprep);
         }
-        if (initializationType == InitializationType.CloudInit && !osRepository.isWindows(getVm().getVmOsId())) {
+        if (initializationType == InitializationType.CloudInit && osRepository.isCloudInit(getVm().getVmOsId())) {
             parameters.setInitializationType(InitializationType.CloudInit);
+        }
+        if (initializationType == InitializationType.Ignition && osRepository.isIgnition(getVm().getVmOsId())) {
+            parameters.setInitializationType(InitializationType.Ignition);
         }
         return parameters;
     }
@@ -726,9 +761,11 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
             return;
         }
 
+        getVmManager().resetExternalDataStatus();
         fetchVmDisksFromDb();
         updateVmDevicesOnRun();
         updateGraphicsAndDisplayInfos();
+        updateUsbController();
 
         getVm().setRunAndPause(getParameters().getRunAndPause() == null ? getVm().isRunAndPause() : getParameters().getRunAndPause());
 
@@ -778,7 +815,26 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
     }
 
     protected String getEffectiveEmulatedMachine() {
-        return EmulatedMachineUtils.getEffective(getVm().getStaticData(), this::getCluster);
+        return EmulatedMachineUtils.getEffective(getVm(), this::getCluster);
+    }
+
+    private void updateUsbController() {
+        if (getVm().getClusterArch().getFamily() == ArchitectureType.ppc
+                && getVm().getUsbPolicy() == UsbPolicy.DISABLED
+                && getVm().getVmType() == VmType.HighPerformance) {
+            if (getVm().getDefaultDisplayType() != DisplayType.none) {
+                // if the VM is set with a console, let libvirt add a corresponding usb controller needed
+                // for input devices (to make the console usable)
+                getVmDeviceUtils().removeUsbControllers(getVm().getId());
+                return;
+            }
+            // otherwise, make sure that headless VM is set with disabled USB controller
+            if (!getVmDeviceUtils().isUsbControllerDisabled(getVm().getId())) {
+                getVmDeviceUtils().removeUsbControllers(getVm().getId());
+                getVmDeviceUtils().addDisableUsbControllers(getVm().getId());
+                return;
+            }
+        }
     }
 
     /**
@@ -833,14 +889,18 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
     protected void updateVmInit() {
         if (getParameters().getInitializationType() == null) {
             vmHandler.updateVmInitFromDB(getVm().getStaticData(), false);
-            if (!getVm().isInitialized() && getVm().getVmInit() != null) {
-                if (osRepository.isWindows(getVm().getVmOsId())) {
+            if (!getVm().isInitialized() && getVm().getVmInit() != null || getParameters().isInitialize()) {
+                if (osRepository.isSysprep(getVm().getVmOsId())) {
                     if (!isPayloadExists(VmDeviceType.FLOPPY)) {
                         initializationType = InitializationType.Sysprep;
                     }
                 } else {
                     if (!isPayloadExists(VmDeviceType.CDROM)) {
-                        initializationType = InitializationType.CloudInit;
+                        if(osRepository.isCloudInit(getVm().getVmOsId())) {
+                            initializationType = InitializationType.CloudInit;
+                        } else {
+                            initializationType = InitializationType.Ignition;
+                        }
                     }
                 }
             }
@@ -852,6 +912,9 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
                     isPayloadExists(VmDeviceType.FLOPPY)) {
                 vmPayload = null;
             } else if (getParameters().getInitializationType() == InitializationType.CloudInit &&
+                    isPayloadExists(VmDeviceType.CDROM)) {
+                vmPayload = null;
+            } else if (getParameters().getInitializationType() == InitializationType.Ignition &&
                     isPayloadExists(VmDeviceType.CDROM)) {
                 vmPayload = null;
             }
@@ -894,7 +957,19 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
             getVm().setUseHostCpuFlags(true);
         }
 
+        addCpuAndNumaPinning();
+        setDedicatedCpus();
+
         return true;
+    }
+
+    private void setDedicatedCpus() {
+        if (getVm().getCpuPinningPolicy() != CpuPinningPolicy.DEDICATED) {
+            return;
+        }
+        List<VdsCpuUnit> vdsCpuUnits = getVdsManager().getCpuTopology().stream()
+                .filter(cpu -> cpu.getVmIds().contains(getVmId())).sorted().collect(Collectors.toList());
+        getVm().setCurrentCpuPinning(CpuPinningHelper.createCpuPinning(vdsCpuUnits));
     }
 
     private void warnIfVmNotFitInNumaNode() {
@@ -911,7 +986,7 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
         List<VdsNumaNode> hostNodes = vdsNumaNodeDao.getAllVdsNumaNodeByVdsId(getVdsId());
         boolean vmFitsToSomeNumaNode = hostNodes.stream()
                 .filter(node -> getVm().getMemSizeMb() <= node.getMemTotal())
-                .anyMatch(node -> getVm().getNumOfCpus() <= node.getCpuIds().size());
+                .anyMatch(node -> VmCpuCountHelper.getDynamicNumOfCpu(getVm()) <= node.getCpuIds().size());
 
         if (!vmFitsToSomeNumaNode) {
             addCustomValue("HostName", getVdsName());
@@ -923,7 +998,7 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
      * If vds version greater then vm's and vm not running with cd and there is appropriate RhevAgentTools image -
      * add it to vm as cd.
      */
-    private String guestToolsVersionTreatment() {
+    private String guestToolsVersionTreatment(String regex) {
         boolean attachCd = false;
         String selectedCd = "";
         List<RepoImage> repoFilesData = diskImageDao.getIsoDisksForStoragePoolAsRepoImages(getVm().getStoragePoolId());
@@ -932,19 +1007,9 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
 
             // get cluster version of the vm tools
             Version vmToolsClusterVersion = null;
-            Version guestTools = null;
-            if (getVm().getHasAgent()) {
-                Version clusterVer = getVm().getPartialVersion();
-                if (new Version("4.4").equals(clusterVer)) {
-                    vmToolsClusterVersion = new Version("2.1");
-                } else {
-                    vmToolsClusterVersion = clusterVer;
-                }
-            } else {
-                guestTools = new Version(vmHandler.currentOvirtGuestAgentVersion(getVm()));
-                if (!guestTools.isNotValid()) {
-                    vmToolsClusterVersion = new Version(guestTools.getMajor(), guestTools.getMinor());
-                }
+            Version guestTools = new Version(vmHandler.currentOvirtGuestAgentVersion(getVm()));
+            if (!guestTools.isNotValid()) {
+                vmToolsClusterVersion = new Version(guestTools.getMajor(), guestTools.getMinor());
             }
 
             // Fetch cached Iso files from active Iso domain.
@@ -957,16 +1022,16 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
                 String fileName = repo.getRepoImageName() == null ?
                         StringUtils.defaultString(repo.getRepoImageId(), "") : repo.getRepoImageName();
                 Matcher matchToolPattern =
-                        Pattern.compile(isoDomainListSynchronizer.getRegexToolPattern()).matcher(fileName.toLowerCase());
+                        Pattern.compile(regex).matcher(fileName.toLowerCase());
                 if (matchToolPattern.find()) {
                     // Get cluster version and tool version of Iso tool.
                     Version clusterVer = new Version(matchToolPattern.group(IsoDomainListSynchronizer.TOOL_CLUSTER_LEVEL));
                     int toolVersion = Integer.parseInt(matchToolPattern.group(IsoDomainListSynchronizer.TOOL_VERSION));
 
                     if (clusterVer.compareTo(getVm().getCompatibilityVersion()) <= 0) {
-                        if ((bestClusterVer == null)
-                                || (clusterVer.compareTo(bestClusterVer) > 0)
-                                || (clusterVer.equals(bestClusterVer) && toolVersion > bestToolVer)) {
+                        if (bestClusterVer == null
+                                || clusterVer.compareTo(bestClusterVer) > 0
+                                || clusterVer.equals(bestClusterVer) && toolVersion > bestToolVer) {
                             bestToolVer = toolVersion;
                             bestClusterVer = clusterVer;
                             selectedCd = fileName;
@@ -978,10 +1043,7 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
             if (bestClusterVer != null
                 && (vmToolsClusterVersion == null
                     || vmToolsClusterVersion.compareTo(bestClusterVer) < 0
-                    || (vmToolsClusterVersion.equals(bestClusterVer) && getVm().getHasAgent()
-                        && getVm().getGuestAgentVersion().getBuild() < bestToolVer)
-                    || (guestTools != null
-                        && vmToolsClusterVersion.equals(bestClusterVer) && guestTools.getBuild() < bestToolVer))) {
+                    || vmToolsClusterVersion.equals(bestClusterVer) && guestTools.getBuild() < bestToolVer)) {
                 // Vm has no tools or there are new tools
                 attachCd = true;
             }
@@ -1056,16 +1118,17 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
             return false;
         }
 
-        boolean isWindowsOs = osRepository.isWindows(getVm().getVmOsId());
+        boolean isCloudInitEnabled = !getVm().isInitialized() && getVm().getVmInit() != null && osRepository.isCloudInit(getVm().getVmOsId()) ||
+                getParameters().getInitializationType() == InitializationType.CloudInit;
 
-        boolean isCloudInitEnabled = (!getVm().isInitialized() && getVm().getVmInit() != null && !isWindowsOs) ||
-                (getParameters().getInitializationType() == InitializationType.CloudInit);
+        boolean isIgnitionEnabled = !getVm().isInitialized() && getVm().getVmInit() != null && osRepository.isIgnition(getVm().getVmOsId()) ||
+                getParameters().getInitializationType() == InitializationType.Ignition;
 
-        if (isCloudInitEnabled && hasMaximumNumberOfDisks()) {
+        if ((isCloudInitEnabled || isIgnitionEnabled) && hasMaximumNumberOfDisks()) {
             return failValidation(EngineMessage.VMPAYLOAD_CDROM_OR_CLOUD_INIT_MAXIMUM_DEVICES);
         }
 
-        if (!validate(vmHandler.isCpuSupported(
+        if (getVm().getCustomCpuName() == null && !validate(vmHandler.isCpuSupported(
                 getVm().getVmOsId(),
                 getVm().getCompatibilityVersion(),
                 getCluster().getCpuName()))) {
@@ -1086,13 +1149,31 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
         }
 
         if (FeatureSupported.isBiosTypeSupported(getCluster().getCompatibilityVersion())
-                && getVm().getBiosType() != BiosType.CLUSTER_DEFAULT
                 && getVm().getBiosType() != BiosType.I440FX_SEA_BIOS
                 && getCluster().getArchitecture().getFamily() != ArchitectureType.x86) {
             return failValidation(EngineMessage.NON_DEFAULT_BIOS_TYPE_FOR_X86_ONLY);
         }
 
+        if (!getVm().getStatus().equals(VMStatus.Paused) && isVmDuringBackup()) {
+            return failValidation(EngineMessage.ACTION_TYPE_FAILED_VM_IS_DURING_BACKUP);
+        }
+
         return true;
+    }
+
+    private void addCpuAndNumaPinning() {
+        if (getVm().getCpuPinningPolicy() == CpuPinningPolicy.RESIZE_AND_PIN_NUMA) {
+            vmHandler.updateCpuAndNumaPinning(getVm(), getVdsId());
+
+            List<VmNumaNode> newVmNumaList = getVm().getvNumaNodeList();
+            VmNumaNodeOperationParameters params =
+                    new VmNumaNodeOperationParameters(getVm(), new ArrayList<>(newVmNumaList));
+
+            if (!backend.runInternalAction(ActionType.SetVmNumaNodes, params).getSucceeded()) {
+                auditLogDirector.log(this, AuditLogType.NUMA_UPDATE_VM_NUMA_NODE_FAILED);
+                throw new EngineException(EngineError.FAILED_NUMA_UPDATE);
+            }
+        }
     }
 
     protected void checkVmLeaseStorageDomain() {
@@ -1350,7 +1431,9 @@ public class RunVmCommand<T extends RunVmParams> extends RunVmCommandBase<T>
         list.add(new QuotaClusterConsumptionParameter(getVm().getQuotaId(),
                 QuotaConsumptionParameter.QuotaAction.CONSUME,
                 getVm().getClusterId(),
-                getVm().getCpuPerSocket() * getVm().getNumOfSockets(),
+                VmCpuCountHelper.isDynamicCpuTopologySet(getVm()) ?
+                        getVm().getCurrentCoresPerSocket() * getVm().getCurrentSockets() :
+                        getVm().getCpuPerSocket() * getVm().getNumOfSockets(),
                 getVm().getMemSizeMb()));
         return list;
     }

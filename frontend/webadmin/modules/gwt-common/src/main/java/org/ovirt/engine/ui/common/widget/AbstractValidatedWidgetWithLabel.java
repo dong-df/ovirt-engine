@@ -1,5 +1,7 @@
 package org.ovirt.engine.ui.common.widget;
 
+import static java.util.Collections.emptyList;
+
 import java.util.List;
 
 import org.gwtbootstrap3.client.ui.constants.ColumnSize;
@@ -17,6 +19,7 @@ import org.ovirt.engine.ui.uicommonweb.HasCleanup;
 import com.google.gwt.core.client.GWT;
 import com.google.gwt.core.client.Scheduler;
 import com.google.gwt.dom.client.Element;
+import com.google.gwt.dom.client.Style.Display;
 import com.google.gwt.event.dom.client.HasAllKeyHandlers;
 import com.google.gwt.event.dom.client.KeyDownEvent;
 import com.google.gwt.event.dom.client.KeyDownHandler;
@@ -354,15 +357,21 @@ public abstract class AbstractValidatedWidgetWithLabel<T, W extends EditorWidget
 
     @Override
     public void markAsValid() {
-        if (editorStateValid) {
-            super.markAsValid();
+        if (!editorStateValid) {
+            // prevent overriding editor-level validation
+            return;
         }
+        super.markAsValid();
         label.setEnabled(true);
         contentWidgetContainerTooltip.setText(contentWidgetContainerConfiguredTooltip);
     }
 
     @Override
     public void markAsInvalid(List<String> validationHints) {
+        if (!editorStateValid) {
+            // if both editor-level and model-level validation failed then prefer editor-level
+            return;
+        }
         super.markAsInvalid(validationHints);
         String tooltipText = getValidationTooltipText(validationHints);
         label.disable(tooltipText);
@@ -452,6 +461,15 @@ public abstract class AbstractValidatedWidgetWithLabel<T, W extends EditorWidget
         getFormLabel().asWidget().setVisible(false);
     }
 
+    // sometimes hideLabel() results in broken layout, in that case setting Display.NONE could help
+    public void setLabelDisplay(Display display) {
+        getFormLabel().asWidget().getElement().getStyle().setDisplay(display);
+    }
+
+    public void clearLabelDisplay() {
+        getFormLabel().asWidget().getElement().getStyle().clearDisplay();
+    }
+
     public VisibilityRenderer getRenderer() {
         return renderer;
     }
@@ -468,19 +486,20 @@ public abstract class AbstractValidatedWidgetWithLabel<T, W extends EditorWidget
         ValueChangeEvent.fire(getContentWidget(), getContentWidget().getValue());
     }
 
-    protected void handleInvalidState() {
-        editorStateValid = false;
+    protected List<String> getValidationHints() {
+        return emptyList();
     }
 
     private void addStateUpdateHandler() {
         this.getContentWidget().asWidget().addHandler(event -> {
             if (event.isValid()) {
-                //Mark the editor as valid.
+                // Mark the editor as valid.
                 editorStateValid = true;
                 markAsValid();
             } else {
-                //Mark the editor as invalid.
-                handleInvalidState();
+                // Mark the editor as invalid.
+                markAsInvalid(getValidationHints());
+                editorStateValid = false;
             }
         }, EditorStateUpdateEvent.getType());
     }

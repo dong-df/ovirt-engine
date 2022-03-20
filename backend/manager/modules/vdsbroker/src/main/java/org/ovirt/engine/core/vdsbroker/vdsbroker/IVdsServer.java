@@ -1,6 +1,7 @@
 package org.ovirt.engine.core.vdsbroker.vdsbroker;
 
 import java.security.cert.Certificate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
@@ -8,6 +9,8 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.http.impl.client.CloseableHttpClient;
+import org.ovirt.engine.core.common.action.VmExternalDataKind;
+import org.ovirt.engine.core.common.businessentities.storage.ImageTicket;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterHookContentInfoReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterHooksListReturn;
@@ -22,6 +25,7 @@ import org.ovirt.engine.core.vdsbroker.gluster.GlusterVDOVolumeListReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeGeoRepConfigList;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeGeoRepStatus;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeGeoRepStatusDetail;
+import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeGlobalOptionsInfoReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeOptionsInfoReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeProfileInfoReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeSnapshotConfigReturn;
@@ -33,10 +37,12 @@ import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumesHealInfoReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumesListReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.OneStorageDeviceReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.StorageDeviceListReturn;
-import org.ovirt.engine.core.vdsbroker.irsbroker.GetDisksListReturn;
 import org.ovirt.engine.core.vdsbroker.irsbroker.OneUuidReturn;
 import org.ovirt.engine.core.vdsbroker.irsbroker.StatusReturn;
 import org.ovirt.engine.core.vdsbroker.irsbroker.StoragePoolInfo;
+import org.ovirt.engine.core.vdsbroker.irsbroker.UUIDListReturn;
+import org.ovirt.engine.core.vdsbroker.irsbroker.VmBackupInfo;
+import org.ovirt.engine.core.vdsbroker.irsbroker.VmCheckpointIds;
 import org.ovirt.vdsm.jsonrpc.client.BrokerCommandCallback;
 
 @SuppressWarnings("rawtypes")
@@ -49,7 +55,7 @@ public interface IVdsServer {
 
     OneVmReturn create(Map createInfo);
 
-    StatusOnlyReturn copyData(String jobId, Map src, Map dst);
+    StatusOnlyReturn copyData(String jobId, Map src, Map dst, boolean copyBitmaps, boolean legal);
 
     StatusOnlyReturn updateVolume(String jobId, Map<?, ?> volumeInfo, Map<?, ?> volumeAttributes);
 
@@ -57,13 +63,15 @@ public interface IVdsServer {
 
     StatusOnlyReturn reduceDomain(String jobId, Map<String, Object> reduceParams);
 
-    StatusOnlyReturn mergeSubchain(String jobId, Map<String, Object> subchainInfo);
+    StatusOnlyReturn mergeSubchain(String jobId, Map<String, Object> subchainInfo, boolean mergeBitmaps);
 
     StatusOnlyReturn destroy(String vmId);
 
     StatusOnlyReturn shutdown(String vmId, String timeout, String message);
 
     StatusOnlyReturn shutdown(String vmId, String timeout, String message, boolean reboot);
+
+    StatusOnlyReturn reset(String vmId);
 
     StatusOnlyReturn setDestroyOnReboot(String vmId);
 
@@ -91,8 +99,7 @@ public interface IVdsServer {
 
     StatusOnlyReturn setHaMaintenanceMode(String mode, boolean enabled);
 
-    StatusOnlyReturn add_image_ticket(String ticketId, String[] ops, long timeout, long size,
-                                      String url, String filename, boolean sparse, String transferId);
+    StatusOnlyReturn add_image_ticket(ImageTicket ticket);
 
     StatusOnlyReturn remove_image_ticket(String ticketId);
 
@@ -107,6 +114,8 @@ public interface IVdsServer {
     VMInfoListReturn getVmStats(String vmId);
 
     VMInfoListReturn getAllVmStats();
+
+    VmExternalDataReturn getVmExternalData(String vmId, VmExternalDataKind kind, boolean forceUpdate);
 
     HostDevListReturn hostDevListByCaps();
 
@@ -250,11 +259,11 @@ public interface IVdsServer {
      */
     FutureTask<Map<String, Object>> timeBoundPollConfirmConnectivity(long timeout, TimeUnit unit);
 
-    StatusOnlyReturn snapshot(String vmId, Map<String, String>[] disks);
+    StatusOnlyReturn snapshot(String vmId, Map<String, String>[] disks, String jobUUID, int timeout);
 
-    StatusOnlyReturn snapshot(String vmId, Map<String, String>[] disks, String memory);
+    StatusOnlyReturn snapshot(String vmId, Map<String, String>[] disks, String memory, String jobUUID, int timeout);
 
-    StatusOnlyReturn snapshot(String vmId, Map<String, String>[] disks, String memory, boolean frozen);
+    StatusOnlyReturn snapshot(String vmId, Map<String, String>[] disks, String memory, boolean frozen, String jobUUID, int timeout);
 
     ImageSizeReturn diskSizeExtend(String vmId, Map<String, String> diskParams, String newSize);
 
@@ -281,6 +290,8 @@ public interface IVdsServer {
     StatusOnlyReturn glusterVolumeReset(String volumeName, String volumeOption, Boolean force);
 
     GlusterVolumeOptionsInfoReturn glusterVolumeSetOptionsList();
+
+    GlusterVolumeGlobalOptionsInfoReturn glusterVolumeGlobalOptionsGet();
 
     GlusterTaskInfoReturn glusterVolumeRemoveBricksStart(String volumeName,
             String[] brickList,
@@ -524,15 +535,23 @@ public interface IVdsServer {
 
     StatusOnlyReturn thaw(String vmId);
 
-    GetDisksListReturn startVmBackup(String vmId, Map<String, Object> backupConfig);
+    VmBackupInfo startVmBackup(String vmId, Map<String, Object> backupConfig);
 
     StatusOnlyReturn stopVmBackup(String vmId, String backupId);
 
-    GetDisksListReturn vmBackupInfo(String vmId, String backupId);
+    VmBackupInfo vmBackupInfo(String vmId, String backupId, String checkpointId);
 
-    StatusOnlyReturn redefineVmCheckpoints(String vmId, Map<String, Object>[] checkpoints);
+    VmCheckpointIds redefineVmCheckpoints(String vmId, Collection<Map<String, Object>> checkpoints);
 
-    StatusOnlyReturn deleteVmCheckpoints(String vmId, String[] checkpointIds);
+    VmCheckpointIds deleteVmCheckpoints(String vmId, String[] checkpointIds);
+
+    UUIDListReturn listVmCheckpoints(String vmId);
+
+    StatusOnlyReturn addBitmap(String jobId, Map<String, Object> volInfo, String bitmapName);
+
+    StatusOnlyReturn removeBitmap(String jobId, Map<String, Object> volInfo, String bitmapName);
+
+    StatusOnlyReturn clearBitmaps(String jobId, Map<String, Object> volInfo);
 
     NbdServerURLReturn startNbdServer(String serverId, Map<String, Object> nbdServerConfig);
 
@@ -546,6 +565,13 @@ public interface IVdsServer {
 
     VolumeInfoReturn getVolumeInfo(String sdUUID, String spUUID, String imgUUID, String volUUID);
 
+    MeasureReturn measureVolume(String sdUUID,
+            String spUUID,
+            String imgUUID,
+            String volUUID,
+            int dstVolFormat,
+            boolean withBacking);
+
     QemuImageInfoReturn getQemuImageInfo(String sdUUID, String spUUID, String imgUUID, String volUUID);
 
     StatusOnlyReturn glusterStopProcesses();
@@ -554,7 +580,7 @@ public interface IVdsServer {
 
     StatusOnlyReturn amendVolume(String jobId, Map<String, Object> volInfo, Map<String, Object> volAttr);
 
-    StatusOnlyReturn sealDisks(String templateId, String jobId, String storagePoolId, List<Map<String, Object>> images);
+    StatusOnlyReturn sealDisks(String vmId, String jobId, String storagePoolId, List<Map<String, Object>> images);
 
     DomainXmlListReturn dumpxmls(List<String> vmIds);
 
@@ -572,4 +598,11 @@ public interface IVdsServer {
     DeviceInfoReturn attachManagedBlockStorageVolume(Guid volumeId, Map<String, Object> connectionInfo);
 
     StatusOnlyReturn detachManagedBlockStorageVolume(Guid volumeId);
+
+    VDSInfoReturn getLeaseStatus(String leaseUUID, String sdUUID);
+
+    StatusOnlyReturn fenceLeaseJob(String leaseUUID, String sdUUID, Map<String, Object> leaseMetadata);
+
+    ScreenshotInfoReturn createScreenshot(String vmId);
+
 }

@@ -10,7 +10,7 @@ import java.util.Set;
 
 import javax.validation.Valid;
 
-import org.codehaus.jackson.annotate.JsonIgnore;
+import org.ovirt.engine.core.common.action.VmExternalDataKind;
 import org.ovirt.engine.core.common.businessentities.network.VmNetworkInterface;
 import org.ovirt.engine.core.common.businessentities.storage.Disk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
@@ -19,6 +19,8 @@ import org.ovirt.engine.core.common.locks.LockInfo;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.compat.StringHelper;
 import org.ovirt.engine.core.compat.Version;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, HasStoragePool, HasErrata, Nameable, Commented {
     private static final long serialVersionUID = -4078140531074414263L;
@@ -52,6 +54,7 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
     // even this field has no setter, it can not have the final modifier because the GWT serialization mechanism
     // ignores the final fields
     private String cdPath;
+    private String wgtCdPath;
     private String floppyPath;
     private double _actualDiskWithSnapthotsSize;
     private double diskSize;
@@ -61,6 +64,12 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
     private boolean trustedService;
     private boolean hasIllegalImages;
     private BiosType clusterBiosType;
+    @TransientField
+    private boolean differentTimeZone;
+    private Map<VmExternalDataKind, String> vmExternalData;
+
+    @TransientField
+    private boolean vnicsOutOfSync;
 
     public VM() {
         this(new VmStatic(), new VmDynamic(), new VmStatistics());
@@ -73,6 +82,7 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
         this.setvNumaNodeList(new ArrayList<VmNumaNode>());
         this.setDiskMap(new HashMap<Guid, Disk>());
         this.setCdPath("");
+        this.setWgtCdPath("");
         this.setFloppyPath("");
         this.setDiskSize(0);
         snapshots = new ArrayList<>();
@@ -242,14 +252,6 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
         this.vmStatic.setCustomEmulatedMachine(value);
     }
 
-    public BiosType getBiosType() {
-        return this.vmStatic.getBiosType();
-    }
-
-    public void setBiosType(BiosType biosType) {
-        this.vmStatic.setBiosType(biosType);
-    }
-
     public String getStopReason() {
         return this.vmDynamic.getStopReason();
     }
@@ -264,14 +266,6 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
 
     public void setNumOfMonitors(int value) {
         this.vmStatic.setNumOfMonitors(value);
-    }
-
-    public boolean getSingleQxlPci() {
-        return this.vmStatic.getSingleQxlPci();
-    }
-
-    public void setSingleQxlPci(boolean value) {
-        this.vmStatic.setSingleQxlPci(value);
     }
 
     public boolean getAllowConsoleReconnect() {
@@ -297,6 +291,16 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
     public int getNumOfCpus(boolean countThreadsAsCPU) {
         return this.vmStatic.getNumOfCpus(countThreadsAsCPU);
     }
+
+    public int getCurrentNumOfCpus() {
+        return getCurrentNumOfCpus(true);
+    }
+
+    public int getCurrentNumOfCpus(boolean countThreadsAsCPU) {
+        return this.getCurrentCoresPerSocket() * this.getCurrentSockets()
+                * (countThreadsAsCPU ? this.getCurrentThreadsPerCore() : 1);
+    }
+
     /**
      * This method is created for SOAP serialization of primitives that are readonly but sent by the client. The setter
      * implementation is empty and the field is not being changed.
@@ -352,10 +356,6 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
 
     @JsonIgnore
     public void setDedicatedVmForVdsList(List<Guid> value) {
-        vmStatic.setDedicatedVmForVdsList(value);
-    }
-
-    public void setDedicatedVmForVdsList(Guid value) {
         vmStatic.setDedicatedVmForVdsList(value);
     }
 
@@ -1198,12 +1198,52 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
         cdPath = value;
     }
 
+    public String getWgtCdPath() {
+        return wgtCdPath;
+    }
+
+    public void setWgtCdPath(String value) {
+        wgtCdPath = value;
+    }
+
     public String getFloppyPath() {
         return floppyPath;
     }
 
     public void setFloppyPath(String value) {
         floppyPath = value;
+    }
+
+    public String getCurrentCpuPinning() {
+        return this.vmDynamic.getCurrentCpuPinning();
+    }
+
+    public void setCurrentCpuPinning(String cpuPinning) {
+        this.vmDynamic.setCurrentCpuPinning(cpuPinning);
+    }
+
+    public int getCurrentSockets() {
+        return this.vmDynamic.getCurrentSockets();
+    }
+
+    public void setCurrentSockets(int sockets) {
+        this.vmDynamic.setCurrentSockets(sockets);
+    }
+
+    public int getCurrentCoresPerSocket() {
+        return this.vmDynamic.getCurrentCoresPerSocket();
+    }
+
+    public void setCurrentCoresPerSocket(int cores) {
+        this.vmDynamic.setCurrentCoresPerSocket(cores);
+    }
+
+    public int getCurrentThreadsPerCore() {
+        return this.vmDynamic.getCurrentThreadsPerCore();
+    }
+
+    public void setCurrentThreadsPerCore(int threads) {
+        this.vmDynamic.setCurrentThreadsPerCore(threads);
     }
 
     public Boolean isRunAndPause() {
@@ -1267,7 +1307,8 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
                 vmPoolName,
                 vmStatic,
                 vmStatistics,
-                vmtName);
+                vmtName,
+                wgtCdPath);
     }
 
     public String getVmPoolName() {
@@ -1297,11 +1338,6 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
 
     public void setGuestAgentVersion(Version value) {
         privateGuestAgentVersion = value;
-    }
-
-    public Version getPartialVersion() {
-        Version initial = getGuestAgentVersion();
-        return initial == null ? null : new Version(initial.getMajor(), initial.getMinor());
     }
 
     public boolean getHasAgent() {
@@ -1620,14 +1656,6 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
         return nextRunChangedFields;
     }
 
-    public NumaTuneMode getNumaTuneMode() {
-        return vmStatic.getNumaTuneMode();
-    }
-
-    public void setNumaTuneMode(NumaTuneMode numaTuneMode) {
-        vmStatic.setNumaTuneMode(numaTuneMode);
-    }
-
     public void setvNumaNodeList(List<VmNumaNode> vNumaNodeList) {
         vmStatic.setvNumaNodeList(vNumaNodeList);
     }
@@ -1692,6 +1720,14 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
         return vmStatic.getMigrateEncrypted();
     }
 
+    public Integer getParallelMigrations() {
+        return vmStatic.getParallelMigrations();
+    }
+
+    public void setParallelMigrations(Integer parallelMigrations) {
+        vmStatic.setParallelMigrations(parallelMigrations);
+    }
+
     public LockInfo getLockInfo() {
         return lockInfo;
     }
@@ -1724,6 +1760,14 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
         vmStatistics.setGuestMemoryFree(guestMemoryFree);
     }
 
+    public Long getGuestMemoryUnused() {
+        return vmStatistics.getGuestMemoryUnused();
+    }
+
+    public void setGuestMemoryUnused(Long guestMemoryUnused) {
+        vmStatistics.setGuestMemoryUnused(guestMemoryUnused);
+    }
+
     public Guid getProviderId() {
         return vmStatic.getProviderId();
     }
@@ -1737,6 +1781,14 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
 
     public void setConsoleDisconnectAction(ConsoleDisconnectAction consoleDisconnectAction) {
         vmStatic.setConsoleDisconnectAction(consoleDisconnectAction);
+    }
+
+    public int getConsoleDisconnectActionDelay() {
+        return vmStatic.getConsoleDisconnectActionDelay();
+    }
+
+    public void setConsoleDisconnectActionDelay(int consoleDisconnectActionDelay) {
+        vmStatic.setConsoleDisconnectActionDelay(consoleDisconnectActionDelay);
     }
 
     public int getBackgroundOperationProgress() {
@@ -1839,8 +1891,16 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
         return vmStatic.isMultiQueuesEnabled();
     }
 
+    public int getVirtioScsiMultiQueues() {
+        return vmStatic.getVirtioScsiMultiQueues();
+    }
+
     public void setMultiQueuesEnabled(boolean multiQueuesEnabled) {
         vmStatic.setMultiQueuesEnabled(multiQueuesEnabled);
+    }
+
+    public void setVirtioScsiMultiQueues(int virtioScsiMultiQueues) {
+        vmStatic.setVirtioScsiMultiQueues(virtioScsiMultiQueues);
     }
 
     public String getRuntimeName() {
@@ -1863,8 +1923,12 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
         this.clusterBiosType = clusterBiosType;
     }
 
-    public BiosType getEffectiveBiosType() {
-        return getBiosType() != BiosType.CLUSTER_DEFAULT ? getBiosType() : getClusterBiosType();
+    public void setBiosType(BiosType type) {
+        vmStatic.setBiosType(type);
+    }
+
+    public BiosType getBiosType() {
+        return vmStatic.getBiosType();
     }
 
     public boolean getUseTscFrequency() {
@@ -1873,5 +1937,75 @@ public class VM implements Queryable, BusinessEntityWithStatus<Guid, VMStatus>, 
 
     public void setUseTscFrequency(boolean value) {
         vmStatic.setUseTscFrequency(value);
+    }
+
+    public String getNamespace() {
+        return vmStatic.getNamespace();
+    }
+
+    public void setNamespace(String namespace) {
+        vmStatic.setNamespace(namespace);
+    }
+
+    @Override
+    public boolean isManaged() {
+        // TODO: think of a better way to distinguish that from #isManagedVm
+        return vmStatic.isManaged();
+    }
+
+    public boolean isDifferentTimeZone() {
+        return differentTimeZone;
+    }
+
+    public void setDifferentTimeZone(boolean differentTimeZone) {
+        this.differentTimeZone = differentTimeZone;
+    }
+
+    public Guid getSmallIconId() {
+        return vmStatic.getSmallIconId();
+    }
+
+    public void setSmallIconId(Guid smallIconId) {
+        vmStatic.setSmallIconId(smallIconId);
+    }
+
+    public Guid getLargeIconId() {
+        return vmStatic.getLargeIconId();
+    }
+
+    public void setLargeIconId(Guid largeIconId) {
+        vmStatic.setLargeIconId(largeIconId);
+    }
+
+    public Map<VmExternalDataKind, String> getVmExternalData() {
+        return vmExternalData;
+    }
+
+    public void setVmExternalData(Map<VmExternalDataKind, String> vmExternalData) {
+        this.vmExternalData = vmExternalData;
+    }
+
+    public boolean isVnicsOutOfSync() {
+        return vnicsOutOfSync;
+    }
+
+    public void setVnicsOutOfSync(boolean vnicsOutOfSync) {
+        this.vnicsOutOfSync = vnicsOutOfSync;
+    }
+
+    public boolean isBalloonEnabled() {
+        return vmStatic.isBalloonEnabled();
+    }
+
+    public void setBalloonEnabled(boolean balloonEnabled) {
+        vmStatic.setBalloonEnabled(balloonEnabled);
+    }
+
+    public CpuPinningPolicy getCpuPinningPolicy() {
+        return vmStatic.getCpuPinningPolicy();
+    }
+
+    public void setCpuPinningPolicy(CpuPinningPolicy cpuPinningPolicy) {
+        vmStatic.setCpuPinningPolicy(cpuPinningPolicy);
     }
 }

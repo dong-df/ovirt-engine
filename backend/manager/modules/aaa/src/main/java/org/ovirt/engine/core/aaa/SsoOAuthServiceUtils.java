@@ -24,7 +24,6 @@ import javax.net.ssl.TrustManagerFactory;
 import javax.servlet.http.HttpServletRequest;
 
 import org.apache.commons.codec.binary.Base64;
-import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
@@ -34,16 +33,18 @@ import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.message.BasicNameValuePair;
-import org.codehaus.jackson.map.DeserializationConfig;
-import org.codehaus.jackson.map.ObjectMapper;
 import org.ovirt.engine.api.extensions.ExtMap;
 import org.ovirt.engine.api.extensions.aaa.Authz;
 import org.ovirt.engine.core.aaa.filters.FiltersHelper;
 import org.ovirt.engine.core.utils.EngineLocalConfig;
 import org.ovirt.engine.core.utils.serialization.json.JsonExtMapMixIn;
+import org.ovirt.engine.core.uutils.IOUtils;
 import org.ovirt.engine.core.uutils.net.HttpClientBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class SsoOAuthServiceUtils {
     private static final Logger log = LoggerFactory.getLogger(SsoOAuthServiceUtils.class);
@@ -57,14 +58,13 @@ public class SsoOAuthServiceUtils {
 
     static {
         // Remember to close the client when going down:
-        Runtime.getRuntime().addShutdownHook(
-                new Thread(() -> IOUtils.closeQuietly(client))
-        );
+        Runtime.getRuntime()
+                .addShutdownHook(
+                        new Thread(() -> IOUtils.closeQuietly(client)));
         mapper = new ObjectMapper()
-                .configure(DeserializationConfig.Feature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-                .enableDefaultTyping(ObjectMapper.DefaultTyping.OBJECT_AND_NON_CONCRETE);
-        mapper.getDeserializationConfig().addMixInAnnotations(ExtMap.class, JsonExtMapMixIn.class);
-        mapper.getSerializationConfig().addMixInAnnotations(ExtMap.class, JsonExtMapMixIn.class);
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        mapper.activateDefaultTyping(mapper.getPolymorphicTypeValidator())
+                .addMixIn(ExtMap.class, JsonExtMapMixIn.class);
     }
 
     public static Map<String, Object> authenticate(HttpServletRequest req, String scope) {

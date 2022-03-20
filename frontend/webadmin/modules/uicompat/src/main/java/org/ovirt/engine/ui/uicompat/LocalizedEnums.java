@@ -7,6 +7,8 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String NonOperationalReason___GENERAL();
 
+    String NonOperationalReason___CPU_TYPE_UNSUPPORTED_IN_THIS_CLUSTER_VERSION();
+
     String NonOperationalReason___CPU_TYPE_INCOMPATIBLE_WITH_CLUSTER();
 
     String NonOperationalReason___STORAGE_DOMAIN_UNREACHABLE();
@@ -47,11 +49,9 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String NonOperationalReason___HOST_FEATURES_INCOMPATIBILE_WITH_CLUSTER();
 
-    String NonOperationalReason___LIBRBD_PACKAGE_NOT_AVAILABLE();
-
     String NonOperationalReason___VDS_CANNOT_CONNECT_TO_GLUSTERFS();
 
-    String NonOperationalReason___LIBVIRT_SECRETS_REGISTRATION_FAILURE();
+    String NonOperationalReason___KUBEVIRT_NOT_SCHEDULABLE();
 
     String UsbPolicy___ENABLED_NATIVE();
 
@@ -138,6 +138,8 @@ public interface LocalizedEnums extends ConstantsWithLookup {
     String ActionGroup___CONFIGURE_VM_STORAGE();
 
     String ActionGroup___REBOOT_VM();
+
+    String ActionGroup___RESET_VM();
 
     String ActionGroup___STOP_VM();
 
@@ -576,6 +578,12 @@ public interface LocalizedEnums extends ConstantsWithLookup {
     String AuditLogType__GLUSTER_WEBHOOK_ADD_FAILED();
 
     String AuditLogType__GLUSTER_WEBHOOK_ADDED();
+
+    String AuditLogType___FAULTY_MULTIPATHS_ON_HOST();
+
+    String AuditLogType___NO_FAULTY_MULTIPATHS_ON_HOST();
+
+    String AuditLogType___MULTIPATH_DEVICES_WITHOUT_VALID_PATHS_ON_HOST();
 
     String ActionType___ActivateVds();
 
@@ -1253,6 +1261,14 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String ConsoleDisconnectAction___REBOOT();
 
+    String CpuPinningPolicy___NONE();
+
+    String CpuPinningPolicy___MANUAL();
+
+    String CpuPinningPolicy___RESIZE_AND_PIN_NUMA();
+
+    String CpuPinningPolicy___DEDICATED();
+
     String SerialNumberPolicy___HOST_ID();
 
     String SerialNumberPolicy___VM_ID();
@@ -1261,11 +1277,23 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String ArchitectureType___undefined();
 
+    String FipsMode___UNDEFINED();
+
+    String FipsMode___DISABLED();
+
+    String FipsMode___ENABLED();
+
     String HostedEngineDeployConfiguration$Action___NONE();
 
     String HostedEngineDeployConfiguration$Action___DEPLOY();
 
     String HostedEngineDeployConfiguration$Action___UNDEPLOY();
+
+    String ReplaceHostConfiguration$Action___NONE();
+
+    String ReplaceHostConfiguration$Action___SAMEFQDN();
+
+    String ReplaceHostConfiguration$Action___DIFFERENTFQDN();
 
     String AuditLogType___MAC_ADDRESS_IS_EXTERNAL();
 
@@ -1374,6 +1402,8 @@ public interface LocalizedEnums extends ConstantsWithLookup {
     String StorageFormatType___V3();
 
     String StorageFormatType___V4();
+
+    String StorageFormatType___V5();
 
     String VolumeFormat___COW();
 
@@ -1489,12 +1519,16 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String OriginType___KVM();
 
+    String OriginType___KUBEVIRT();
+
     @Deprecated
     String VmInterfaceType___rtl8139_pv();
 
     String VmInterfaceType___rtl8139();
 
     String VmInterfaceType___e1000();
+
+    String VmInterfaceType___e1000e();
 
     String VmInterfaceType___pv();
 
@@ -1517,8 +1551,6 @@ public interface LocalizedEnums extends ConstantsWithLookup {
     String StorageDomainType___ImportExport();
 
     String StorageDomainType___Image();
-
-    String StorageDomainType___Volume();
 
     String StorageDomainType___ManagedBlockStorage();
 
@@ -1636,6 +1668,8 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String ProviderType___VMWARE();
 
+    String ProviderType___KUBEVIRT();
+
     String ProviderType___OPENSTACK_NETWORK();
 
     String ProviderType___EXTERNAL_NETWORK();
@@ -1647,8 +1681,6 @@ public interface LocalizedEnums extends ConstantsWithLookup {
     String ExternalNetworkPluginType___OVIRT_PROVIDER_OVN();
 
     String ProviderType___OPENSTACK_IMAGE();
-
-    String ProviderType___OPENSTACK_VOLUME();
 
     String GlusterVolumeType___DISTRIBUTE();
 
@@ -1702,6 +1734,14 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String MigrationBandwidthLimitType___CUSTOM();
 
+    String ParallelMigrationsType___AUTO();
+
+    String ParallelMigrationsType___AUTO_PARALLEL();
+
+    String ParallelMigrationsType___DISABLED();
+
+    String ParallelMigrationsType___CUSTOM();
+
     String ImageInfoModel$QemuCompat___V2();
 
     String ImageInfoModel$QemuCompat___V3();
@@ -1724,6 +1764,8 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String DiskContentType___HOSTED_ENGINE_CONFIGURATION();
 
+    String DiskContentType___BACKUP_SCRATCH();
+
     String VmResumeBehavior___AUTO_RESUME();
 
     String VmResumeBehavior___LEAVE_PAUSED();
@@ -1736,8 +1778,6 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String ActionType___ResetGlusterVolumeBrick();
 
-    String BiosType___CLUSTER_DEFAULT();
-
     String BiosType___I440FX_SEA_BIOS();
 
     String BiosType___Q35_OVMF();
@@ -1749,5 +1789,11 @@ public interface LocalizedEnums extends ConstantsWithLookup {
     String CloudInitNetworkProtocol___ENI();
 
     String CloudInitNetworkProtocol___OPENSTACK_METADATA();
+
+    String VirtioMultiQueueType___DISABLED();
+
+    String VirtioMultiQueueType___AUTOMATIC();
+
+    String VirtioMultiQueueType___CUSTOM();
 }
 

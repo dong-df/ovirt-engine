@@ -9,7 +9,6 @@ import org.ovirt.engine.core.common.businessentities.StorageDomain;
 import org.ovirt.engine.core.common.businessentities.StoragePool;
 import org.ovirt.engine.core.common.businessentities.StoragePoolStatus;
 import org.ovirt.engine.core.common.businessentities.VmDeviceId;
-import org.ovirt.engine.core.common.businessentities.storage.CinderDisk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskStorageType;
 import org.ovirt.engine.core.common.businessentities.storage.DiskVmElement;
@@ -121,20 +120,12 @@ public class NewDiskModel extends AbstractDiskModel {
     }
 
     @Override
-    protected CinderDisk getCinderDisk() {
-        return new CinderDisk();
-    }
-
-    @Override
     protected ManagedBlockStorageDisk getManagedBlockDisk() {
         return new ManagedBlockStorageDisk();
     }
 
     @Override
     public void flush() {
-        if (!validate()) {
-            return;
-        }
         super.flush();
         switch (getDiskStorageType().getEntity()) {
             case LUN:
@@ -142,12 +133,6 @@ public class NewDiskModel extends AbstractDiskModel {
                 LUNs luns = getSanStorageModelBase().getAddedLuns().get(0).getEntity();
                 luns.setLunType(getStorageType().getSelectedItem());
                 lunDisk.setLun(luns);
-                break;
-            case CINDER:
-                CinderDisk cinderDisk = (CinderDisk) getDisk();
-                cinderDisk.setSizeInGigabytes(getSize().getEntity());
-                cinderDisk.setVolumeFormat(VolumeFormat.RAW);
-                cinderDisk.setCinderVolumeType(getCinderVolumeType().getSelectedItem());
                 break;
             default:
                 DiskImage diskImage = (DiskImage) getDisk();
@@ -166,7 +151,7 @@ public class NewDiskModel extends AbstractDiskModel {
 
     @Override
     public void store(IFrontendActionAsyncCallback callback) {
-        if (getProgress() != null || !validate()) {
+        if (getProgress() != null) {
             return;
         }
 

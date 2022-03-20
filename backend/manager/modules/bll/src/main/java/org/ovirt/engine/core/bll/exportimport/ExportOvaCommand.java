@@ -13,6 +13,7 @@ import org.ovirt.engine.core.bll.context.CommandContext;
 import org.ovirt.engine.core.bll.validator.HostValidator;
 import org.ovirt.engine.core.bll.validator.storage.StoragePoolValidator;
 import org.ovirt.engine.core.common.VdcObjectType;
+import org.ovirt.engine.core.common.action.ActionParametersBase;
 import org.ovirt.engine.core.common.action.ActionReturnValue;
 import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.CreateOvaParameters;
@@ -28,11 +29,15 @@ import org.ovirt.engine.core.common.utils.ansible.AnsibleCommandConfig;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleConstants;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleExecutor;
 import org.ovirt.engine.core.common.utils.ansible.AnsibleReturnCode;
+import org.ovirt.engine.core.dao.VmDeviceDao;
+import org.ovirt.engine.core.utils.EngineLocalConfig;
 
 public abstract class ExportOvaCommand<T extends ExportOvaParameters> extends CommandBase<T> {
 
     @Inject
     private AnsibleExecutor ansibleExecutor;
+    @Inject
+    private VmDeviceDao vmDeviceDao;
 
     public ExportOvaCommand(T parameters, CommandContext cmdContext) {
         super(parameters, cmdContext);
@@ -89,10 +94,12 @@ public abstract class ExportOvaCommand<T extends ExportOvaParameters> extends Co
     }
 
     private ValidationResult validateTargetFolder() {
+        int timeout = EngineLocalConfig.getInstance().getInteger("ANSIBLE_PLAYBOOK_EXEC_DEFAULT_TIMEOUT");
         AnsibleCommandConfig commandConfig = new AnsibleCommandConfig()
                 .hosts(getVds())
                 .variable("target_directory", getParameters().getDirectory())
                 .variable("validate_only", "True")
+                .variable("ansible_timeout", timeout)
                 // /var/log/ovirt-engine/ova/ovirt-export-ova-validate-ansible-{hostname}-{correlationid}-{timestamp}.log
                 .logFileDirectory(CreateOvaCommand.CREATE_OVA_LOG_DIRECTORY)
                 .logFilePrefix("ovirt-export-ova-validate-ansible")
@@ -126,6 +133,9 @@ public abstract class ExportOvaCommand<T extends ExportOvaParameters> extends Co
         parameters.setDisks(getDisks());
         parameters.setProxyHostId(getParameters().getProxyHostId());
         parameters.setDirectory(getParameters().getDirectory());
+        parameters.setParentCommand(getActionType());
+        parameters.setParentParameters(getParameters());
+        parameters.setEndProcedure(ActionParametersBase.EndProcedure.COMMAND_MANAGED);
         parameters.setName(getParameters().getName());
         return parameters;
     }

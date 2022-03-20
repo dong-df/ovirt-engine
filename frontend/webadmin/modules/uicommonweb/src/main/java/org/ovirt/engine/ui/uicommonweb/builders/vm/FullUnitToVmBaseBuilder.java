@@ -17,11 +17,9 @@ public class FullUnitToVmBaseBuilder<T extends VmBase> extends CompositeSyncBuil
     public FullUnitToVmBaseBuilder() {
         super(
                 new CommonUnitToVmBaseBuilder(),
-                new DedicatedVmForVdsUnitToVmBaseBuilder(),
-                new MigrationOptionsUnitToVmBaseBuilder(),
                 new NameUnitToVmBaseBuilder(),
-                new UsbPolicyUnitToVmBaseBuilder(),
-                new MultiQueuesVmBaseBuilder()
+                new DedicatedVmForVdsUnitToVmBaseBuilder(),
+                new KernelParamsUnitToVmBaseBuilder()
         );
     }
 }

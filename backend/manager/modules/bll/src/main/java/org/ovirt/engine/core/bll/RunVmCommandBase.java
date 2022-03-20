@@ -33,6 +33,7 @@ import org.ovirt.engine.core.common.businessentities.OpenstackNetworkProviderPro
 import org.ovirt.engine.core.common.businessentities.Provider;
 import org.ovirt.engine.core.common.businessentities.StorageServerConnections;
 import org.ovirt.engine.core.common.businessentities.VDS;
+import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VMStatus;
 import org.ovirt.engine.core.common.businessentities.VmDeviceId;
 import org.ovirt.engine.core.common.businessentities.VmStatic;
@@ -53,11 +54,13 @@ import org.ovirt.engine.core.common.vdscommands.StorageServerConnectionManagemen
 import org.ovirt.engine.core.common.vdscommands.VDSCommandType;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dao.StorageServerConnectionDao;
+import org.ovirt.engine.core.dao.VmDao;
 import org.ovirt.engine.core.dao.network.VnicProfileDao;
 import org.ovirt.engine.core.dao.provider.HostProviderBindingDao;
 import org.ovirt.engine.core.dao.provider.ProviderDao;
 import org.ovirt.engine.core.utils.threadpool.ThreadPoolUtil;
 import org.ovirt.engine.core.vdsbroker.ResourceManager;
+import org.ovirt.engine.core.vdsbroker.VdsManager;
 import org.ovirt.engine.core.vdsbroker.VdsMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -97,6 +100,8 @@ public abstract class RunVmCommandBase<T extends VmOperationParameterBase> exten
     private ProviderProxyFactory providerProxyFactory;
     @Inject
     private HostProviderBindingDao hostProviderBindingDao;
+    @Inject
+    private VmDao vmDao;
 
     protected RunVmCommandBase(Guid commandId) {
         super(commandId);
@@ -187,6 +192,8 @@ public abstract class RunVmCommandBase<T extends VmOperationParameterBase> exten
                 jobRepository.closeCompletedJobSteps(job.getId(), JobExecutionStatus.FAILED);
             }
         }
+        // Re-initiate the VM configuration in order to persist it on re-run attempts.
+        init();
         executeAction();
     }
 
@@ -220,6 +227,11 @@ public abstract class RunVmCommandBase<T extends VmOperationParameterBase> exten
     @Override
     public void runningSucceded() {
         try {
+            VM vm = getVm();
+            if (!vm.isInitialized()) {
+                vmDao.saveIsInitialized(vm.getId(), true);
+            }
+            vm.setInitialized(true);
             decreasePendingVm();
             setSucceeded(true);
             setActionReturnValue(VMStatus.Up);
@@ -386,4 +398,9 @@ public abstract class RunVmCommandBase<T extends VmOperationParameterBase> exten
             }
         }
     }
+
+    protected VdsManager getVdsManager() {
+        return resourceManager.getVdsManager(getVdsId());
+    }
+
 }

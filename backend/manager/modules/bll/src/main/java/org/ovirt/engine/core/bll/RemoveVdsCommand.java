@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import javax.inject.Inject;
 
@@ -14,9 +15,12 @@ import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.action.LockProperties;
 import org.ovirt.engine.core.common.action.LockProperties.Scope;
 import org.ovirt.engine.core.common.action.RemoveVdsParameters;
+import org.ovirt.engine.core.common.businessentities.MigrationSupport;
 import org.ovirt.engine.core.common.businessentities.StoragePool;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VDSStatus;
+import org.ovirt.engine.core.common.businessentities.VM;
+import org.ovirt.engine.core.common.businessentities.VmDeviceGeneralType;
 import org.ovirt.engine.core.common.businessentities.gluster.GlusterServerInfo;
 import org.ovirt.engine.core.common.errors.EngineError;
 import org.ovirt.engine.core.common.errors.EngineMessage;
@@ -37,10 +41,12 @@ import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogable;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogableImpl;
 import org.ovirt.engine.core.dao.StorageDomainDao;
 import org.ovirt.engine.core.dao.StoragePoolDao;
-import org.ovirt.engine.core.dao.VdsDao;
+import org.ovirt.engine.core.dao.TagDao;
 import org.ovirt.engine.core.dao.VdsDynamicDao;
 import org.ovirt.engine.core.dao.VdsStaticDao;
 import org.ovirt.engine.core.dao.VdsStatisticsDao;
+import org.ovirt.engine.core.dao.VmDao;
+import org.ovirt.engine.core.dao.VmDeviceDao;
 import org.ovirt.engine.core.dao.VmStaticDao;
 import org.ovirt.engine.core.dao.gluster.GlusterBrickDao;
 import org.ovirt.engine.core.dao.gluster.GlusterHooksDao;
@@ -56,21 +62,25 @@ public class RemoveVdsCommand<T extends RemoveVdsParameters> extends VdsCommand<
     private VDS upServer;
 
     @Inject
-    private GlusterServerDao glusterServerDao;
-    @Inject
-    private StoragePoolDao storagePoolDao;
-    @Inject
-    private StorageDomainDao storageDomainDao;
-    @Inject
     private VdsStaticDao vdsStaticDao;
     @Inject
     private VdsDynamicDao vdsDynamicDao;
     @Inject
     private VdsStatisticsDao vdsStatisticsDao;
     @Inject
-    private VdsDao vdsDao;
+    private TagDao tagDao;
+    @Inject
+    private GlusterServerDao glusterServerDao;
+    @Inject
+    private StoragePoolDao storagePoolDao;
+    @Inject
+    private StorageDomainDao storageDomainDao;
     @Inject
     private VmStaticDao vmStaticDao;
+    @Inject
+    private VmDao vmDao;
+    @Inject
+    private VmDeviceDao vmDeviceDao;
     @Inject
     private GlusterBrickDao glusterBrickDao;
     @Inject
@@ -100,6 +110,13 @@ public class RemoveVdsCommand<T extends RemoveVdsParameters> extends VdsCommand<
 
     @Override
     protected void executeCommand() {
+        if (isForceRemovalOfUnmanagedHost(getVds())) {
+            removeHostFromDB(getVdsId());
+            removeVdsFromCollection();
+            setSucceeded(true);
+            return;
+        }
+
         /**
          * If upserver is null and force action is true, then don't try for gluster host remove, simply remove the host
          * entry from database.
@@ -123,15 +140,24 @@ public class RemoveVdsCommand<T extends RemoveVdsParameters> extends VdsCommand<
         }
 
         TransactionSupport.executeInNewTransaction(() -> {
-            removeVdsStatisticsFromDb();
-            removeVdsDynamicFromDb();
-            removeVdsStaticFromDb();
+            removeHostFromDB(getVdsId());
             return null;
         });
 
         removeVdsFromCollection();
         runAnsibleRemovePlaybook();
         setSucceeded(true);
+    }
+
+    private void removeHostFromDB(Guid hostId) {
+        vdsStatisticsDao.remove(hostId);
+        tagDao.detachVdsFromAllTags(hostId);
+        vdsDynamicDao.remove(hostId);
+        vdsStaticDao.remove(hostId);
+    }
+
+    private boolean isForceRemovalOfUnmanagedHost(VDS vds) {
+        return !vds.isManaged() && isInternalExecution();
     }
 
     @SuppressWarnings("unchecked")
@@ -144,8 +170,8 @@ public class RemoveVdsCommand<T extends RemoveVdsParameters> extends VdsCommand<
 
         try {
             AnsibleCommandConfig commandConfig = new AnsibleCommandConfig()
-                .hosts(vds)
-                .playbook(AnsibleConstants.HOST_REMOVE_PLAYBOOK);
+                    .hosts(vds)
+                    .playbook(AnsibleConstants.HOST_REMOVE_PLAYBOOK);
 
             auditLogDirector.log(auditable, AuditLogType.VDS_ANSIBLE_HOST_REMOVE_STARTED);
 
@@ -161,6 +187,10 @@ public class RemoveVdsCommand<T extends RemoveVdsParameters> extends VdsCommand<
             } else {
                 auditLogDirector.log(auditable, AuditLogType.VDS_ANSIBLE_HOST_REMOVE_FAILED);
             }
+
+            if (ansibleReturnCode == AnsibleReturnCode.UNREACHABLE) {
+                auditLogDirector.log(auditable, AuditLogType.VDS_ANSIBLE_HOST_REMOVE_NO_SUCCESS);
+            }
         } catch (Exception e) {
             auditable.addCustomValue("Message", e.getMessage());
             auditLogDirector.log(auditable, AuditLogType.VDS_ANSIBLE_HOST_REMOVE_EXECUTION_FAILED);
@@ -175,37 +205,73 @@ public class RemoveVdsCommand<T extends RemoveVdsParameters> extends VdsCommand<
 
     @Override
     protected boolean validate() {
-        boolean returnValue = canRemoveVds(getVdsId(), getReturnValue().getValidationMessages());
-        StoragePool storagePool = storagePoolDao.getForVds(getParameters().getVdsId());
+        VDS vds = getVds();
+        if (vds == null) {
+            return failValidation(EngineMessage.VDS_INVALID_SERVER_ID);
+        }
 
-        if (returnValue && storagePool != null && storagePool.isLocal()) {
-            if (!storageDomainDao.getAllForStoragePool(storagePool.getId()).isEmpty()) {
-                returnValue = failValidation(EngineMessage.VDS_CANNOT_REMOVE_HOST_WITH_LOCAL_STORAGE);
+        if (isForceRemovalOfUnmanagedHost(vds)) {
+            return true;
+        }
+
+        if (!statusLegalForRemove(vds)) {
+            return failValidation(EngineMessage.VDS_CANNOT_REMOVE_VDS_STATUS_ILLEGAL);
+        }
+
+        if (vds.getVmCount() > 0) {
+            return failValidation(EngineMessage.VDS_CANNOT_REMOVE_VDS_DETECTED_RUNNING_VM);
+        }
+
+        List<VM> vms = vmDao.getAllPinnedToHost(vds.getId());
+        if (!vms.isEmpty()) {
+            List<String> vmNamesPinnedToHost = vms.stream()
+                    .filter(vm -> vm.getMigrationSupport() == MigrationSupport.PINNED_TO_HOST)
+                    .map(VM::getName)
+                    .collect(Collectors.toList());
+            if (!vmNamesPinnedToHost.isEmpty()) {
+                return failValidation(EngineMessage.ACTION_TYPE_FAILED_DETECTED_PINNED_VMS,
+                        String.format("$VmNames %s", StringUtils.join(vmNamesPinnedToHost, ',')));
+            }
+
+            List<String> vmNamesWithHostDevices = vms.stream()
+                    .filter(this::isVmAssignedWithHostDevices)
+                    .map(VM::getName)
+                    .collect(Collectors.toList());
+            if (!vmNamesWithHostDevices.isEmpty()) {
+                return failValidation(EngineMessage.ACTION_TYPE_FAILED_DETECTED_ASSIGNED_HOST_DEVICES,
+                        String.format("$VmNames %s", StringUtils.join(vmNamesWithHostDevices, ',')));
             }
         }
 
+        StoragePool storagePool = storagePoolDao.getForVds(getParameters().getVdsId());
+        if (storagePool != null && storagePool.isLocal()
+                && !storageDomainDao.getAllForStoragePool(storagePool.getId()).isEmpty()) {
+            return failValidation(EngineMessage.VDS_CANNOT_REMOVE_HOST_WITH_LOCAL_STORAGE);
+        }
+
         // Perform volume bricks on server and up server null check
-        if (returnValue && isGlusterEnabled()) {
+        if (isGlusterEnabled()) {
             upServer = glusterUtil.getUpServer(getClusterId());
             if (!getParameters().isForceAction()) {
                 // fail if host has bricks on a volume
                 if (hasVolumeBricksOnServer()) {
-                    returnValue = failValidation(EngineMessage.VDS_CANNOT_REMOVE_HOST_HAVING_GLUSTER_VOLUME);
-                } else if (upServer == null && clusterHasMultipleHosts()) {
+                    return failValidation(EngineMessage.VDS_CANNOT_REMOVE_HOST_HAVING_GLUSTER_VOLUME);
+                }
+                if (upServer == null && clusterHasMultipleHosts()) {
                     // fail if there is no up server in cluster, and if host being removed is not
                     // the last server in cluster
                     addValidationMessageVariable("clusterName", getCluster().getName());
-                    returnValue = failValidation(EngineMessage.ACTION_TYPE_FAILED_NO_UP_SERVER_FOUND);
+                    return failValidation(EngineMessage.ACTION_TYPE_FAILED_NO_UP_SERVER_FOUND);
                 }
             } else {
                 // if force, cannot remove only if there are bricks on server and there is an up server.
                 if (hasVolumeBricksOnServer() && upServer != null) {
-                    returnValue = failValidation(EngineMessage.VDS_CANNOT_REMOVE_HOST_HAVING_GLUSTER_VOLUME);
+                    return failValidation(EngineMessage.VDS_CANNOT_REMOVE_HOST_HAVING_GLUSTER_VOLUME);
                 }
             }
         }
 
-        return returnValue;
+        return true;
     }
 
     @Override
@@ -214,56 +280,28 @@ public class RemoveVdsCommand<T extends RemoveVdsParameters> extends VdsCommand<
         addValidationMessage(EngineMessage.VAR__TYPE__HOST);
     }
 
+    private boolean isVmAssignedWithHostDevices(VM vm) {
+        return !vmDeviceDao.getVmDeviceByVmIdAndType(vm.getId(), VmDeviceGeneralType.HOSTDEV).isEmpty();
+    }
+
     @Override
     public AuditLogType getAuditLogTypeValue() {
         return getSucceeded() ? AuditLogType.USER_REMOVE_VDS : errorType;
     }
 
     private boolean statusLegalForRemove(VDS vds) {
-        return (vds.getStatus() == VDSStatus.NonResponsive) || (vds.getStatus() == VDSStatus.Maintenance)
-                || (vds.getStatus() == VDSStatus.Down) || (vds.getStatus() == VDSStatus.Unassigned)
-                || (vds.getStatus() == VDSStatus.InstallFailed) || (vds.getStatus() == VDSStatus.PendingApproval) || (vds
-                    .getStatus() == VDSStatus.NonOperational) || (vds.getStatus() == VDSStatus.InstallingOS);
+        return vds.getStatus() == VDSStatus.NonResponsive
+                || vds.getStatus() == VDSStatus.Maintenance
+                || vds.getStatus() == VDSStatus.Down
+                || vds.getStatus() == VDSStatus.Unassigned
+                || vds.getStatus() == VDSStatus.InstallFailed
+                || vds.getStatus() == VDSStatus.PendingApproval
+                || vds.getStatus() == VDSStatus.NonOperational
+                || vds.getStatus() == VDSStatus.InstallingOS;
     }
 
     private void removeVdsFromCollection() {
         runVdsCommand(VDSCommandType.RemoveVds, new RemoveVdsVDSCommandParameters(getVdsId()));
-    }
-
-    private void removeVdsStaticFromDb() {
-        vdsStaticDao.remove(getVdsId());
-    }
-
-    private void removeVdsDynamicFromDb() {
-        vdsDynamicDao.remove(getVdsId());
-    }
-
-    private void removeVdsStatisticsFromDb() {
-        vdsStatisticsDao.remove(getVdsId());
-    }
-
-    private boolean canRemoveVds(Guid vdsId, List<String> text) {
-        boolean returnValue = true;
-        // check if vds id is valid
-        VDS vds = vdsDao.get(vdsId);
-        if (vds == null) {
-            text.add(EngineMessage.VDS_INVALID_SERVER_ID.toString());
-            returnValue = false;
-        } else if (!statusLegalForRemove(vds)) {
-            text.add(EngineMessage.VDS_CANNOT_REMOVE_VDS_STATUS_ILLEGAL.toString());
-            returnValue = false;
-        } else if (vds.getVmCount() > 0) {
-            text.add(EngineMessage.VDS_CANNOT_REMOVE_VDS_DETECTED_RUNNING_VM.toString());
-            returnValue = false;
-        } else {
-            List<String> vmNamesPinnedToHost = vmStaticDao.getAllNamesPinnedToHost(vdsId);
-            if (!vmNamesPinnedToHost.isEmpty()) {
-                text.add(EngineMessage.ACTION_TYPE_FAILED_DETECTED_PINNED_VMS.toString());
-                text.add(String.format("$VmNames %s", StringUtils.join(vmNamesPinnedToHost, ',')));
-                returnValue = false;
-            }
-        }
-        return returnValue;
     }
 
     private boolean isGlusterEnabled() {

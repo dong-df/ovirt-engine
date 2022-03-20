@@ -9,9 +9,9 @@ import org.ovirt.engine.core.common.job.JobExecutionStatus;
 import org.ovirt.engine.ui.common.auth.CurrentUser;
 import org.ovirt.engine.ui.common.uicommon.model.OptionsProvider;
 import org.ovirt.engine.ui.common.utils.WebUtils;
-import org.ovirt.engine.ui.uicommonweb.models.OptionsModel;
 import org.ovirt.engine.ui.uicommonweb.models.events.AlertListModel;
 import org.ovirt.engine.ui.uicommonweb.models.events.EventListModel;
+import org.ovirt.engine.ui.uicommonweb.models.options.OptionsModel;
 import org.ovirt.engine.ui.uicompat.Event;
 import org.ovirt.engine.ui.uicompat.EventArgs;
 import org.ovirt.engine.ui.uicompat.IEventListener;
@@ -40,8 +40,6 @@ import com.gwtplatform.mvp.client.proxy.RevealRootPopupContentEvent;
 public class HeaderPresenterWidget extends PresenterWidget<HeaderPresenterWidget.ViewDef> {
 
     public interface ViewDef extends View {
-
-        HasClickHandlers getConfigureLink();
 
         HasClickHandlers getAboutLink();
 

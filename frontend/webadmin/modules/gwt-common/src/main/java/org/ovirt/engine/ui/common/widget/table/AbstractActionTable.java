@@ -1,9 +1,10 @@
 package org.ovirt.engine.ui.common.widget.table;
 
+import static org.ovirt.engine.ui.common.widget.table.AbstractActionTable.ColumnSortListHelper.moveHeaderSortState;
+
 import java.util.List;
 
 import org.gwtbootstrap3.client.ui.AnchorListItem;
-import org.gwtbootstrap3.client.ui.Button;
 import org.gwtbootstrap3.client.ui.Divider;
 import org.gwtbootstrap3.client.ui.DropDownHeader;
 import org.gwtbootstrap3.client.ui.DropDownMenu;
@@ -18,6 +19,7 @@ import org.ovirt.engine.ui.common.widget.action.AbstractActionPanel;
 import org.ovirt.engine.ui.common.widget.action.ActionButtonDefinition;
 import org.ovirt.engine.ui.common.widget.action.UiMenuBarButtonDefinition;
 import org.ovirt.engine.ui.common.widget.label.NoItemsLabel;
+import org.ovirt.engine.ui.common.widget.table.column.AbstractTextColumn;
 import org.ovirt.engine.ui.common.widget.table.header.SafeHtmlHeader;
 import org.ovirt.engine.ui.uicommonweb.UICommand;
 import org.ovirt.engine.ui.uicommonweb.models.OvirtSelectionModel;
@@ -28,15 +30,14 @@ import com.google.gwt.dom.client.BrowserEvents;
 import com.google.gwt.dom.client.Style.Position;
 import com.google.gwt.dom.client.Style.Unit;
 import com.google.gwt.dom.client.TableRowElement;
-import com.google.gwt.event.dom.client.ClickEvent;
 import com.google.gwt.event.dom.client.ContextMenuEvent;
 import com.google.gwt.event.dom.client.DoubleClickEvent;
 import com.google.gwt.event.dom.client.KeyCodes;
 import com.google.gwt.event.dom.client.KeyDownEvent;
 import com.google.gwt.safehtml.shared.SafeHtml;
 import com.google.gwt.uibinder.client.UiField;
-import com.google.gwt.uibinder.client.UiHandler;
 import com.google.gwt.user.cellview.client.Column;
+import com.google.gwt.user.cellview.client.ColumnSortList;
 import com.google.gwt.user.cellview.client.DataGrid.Resources;
 import com.google.gwt.user.cellview.client.HasKeyboardSelectionPolicy.KeyboardSelectionPolicy;
 import com.google.gwt.user.cellview.client.LoadingStateChangeEvent.LoadingState;
@@ -56,8 +57,6 @@ import com.google.gwt.view.client.SelectionModel;
  * <p>
  * Subclasses are free to style the UI, given that they declare:
  * <ul>
- * <li>{@link #prevPageButton} widget representing the "previous page" button
- * <li>{@link #nextPageButton} widget representing the "next page" button
  * <li>{@link #tableContainer} widget for displaying the actual table
  * </ul>
  *
@@ -88,14 +87,6 @@ public abstract class AbstractActionTable<E, T> extends AbstractActionPanel<T> i
     }
 
     private static final CommonApplicationConstants constants = AssetProvider.getConstants();
-
-    @UiField
-    @WithElementId
-    public Button prevPageButton;
-
-    @UiField
-    @WithElementId
-    public Button nextPageButton;
 
     @UiField
     public FlowPanel tableContainer;
@@ -257,13 +248,6 @@ public abstract class AbstractActionTable<E, T> extends AbstractActionPanel<T> i
     }
 
     protected void updateTableControls() {
-        prevPageButton.setEnabled(getDataProvider().canGoBack());
-        nextPageButton.setEnabled(getDataProvider().canGoForward());
-    }
-
-    public void showPagingButtons() {
-        prevPageButton.setVisible(true);
-        nextPageButton.setVisible(true);
     }
 
     public void showSelectionCountTooltip() {
@@ -395,16 +379,6 @@ public abstract class AbstractActionTable<E, T> extends AbstractActionPanel<T> i
 
     public void setWidth(String width) {
         table.setWidth(width);
-    }
-
-    @UiHandler("prevPageButton")
-    public void handlePrevPageButtonClick(ClickEvent event) {
-        getDataProvider().goBack();
-    }
-
-    @UiHandler("nextPageButton")
-    public void handleNextPageButtonClick(ClickEvent event) {
-        getDataProvider().goForward();
     }
 
     public void setColumnWidth(Column<T, ?> column, String width) {
@@ -575,7 +549,6 @@ public abstract class AbstractActionTable<E, T> extends AbstractActionPanel<T> i
      * Rebuilds context menu items to match the action button list.
      * @param dropDownMenu The menu bar to populate.
      * @param actions A list of {@code ActionButtonDefinition}s used to populate the {@code MenuBar}.
-     * @param popupPanel The pop-up panel containing the {@code MenuBar}.
      * @param removeOldItems A flag to indicate if we should remove old items.
      * @return A {@code MenuBar} containing all the action buttons as menu items.
      */
@@ -612,7 +585,7 @@ public abstract class AbstractActionTable<E, T> extends AbstractActionPanel<T> i
     /**
      * Close all other open bootstrap popups by removing the 'open' class from them.
      */
-    private native void closeOtherPopups() /*-{
+    protected native void closeOtherPopups() /*-{
         $wnd.jQuery(".open").removeClass("open");
     }-*/;
 
@@ -634,4 +607,91 @@ public abstract class AbstractActionTable<E, T> extends AbstractActionPanel<T> i
         this.menuContainer.removeStyleName(OPEN);
     }
 
+    public void hideColumnByDefault(Column<T, ?> column) {
+        table.markColumnAsHiddenByDefault(column);
+        if (!table.isVisibleOnUserRequest(column)) {
+            table.setColumnVisible(column, false);
+        }
+    }
+
+    /**
+     * Moves visual header sort state (arrows visible in the table header).
+     * <p>
+     * Note that underlying model is not affected. Primary use case: 2 view columns backed by the same model column.
+     * </p>
+     *
+     * @param from
+     *            source of the sort state
+     * @param to
+     *            target column that should receive the sort state
+     */
+    public void moveSortHeaderState(AbstractTextColumn<?> from,
+            AbstractTextColumn<?> to) {
+        moveHeaderSortState(table.getColumnSortList(), from, to);
+    }
+
+    public static class ColumnSortListHelper {
+
+        /**
+         * Moves sort state taken from source column to target column.
+         * <p>
+         * The source sort state is cleared. The target state is overridden. Not sortable or null columns are treated as
+         * non-existing columns and are ignored.
+         * </p>
+         *
+         * @param sortList
+         *            list that will be operated on
+         * @param from
+         *            source of sort state
+         * @param to
+         *            target to which sort state will be copied
+         */
+        public static void moveHeaderSortState(ColumnSortList sortList,
+                AbstractTextColumn<?> from,
+                AbstractTextColumn<?> to) {
+            int existingToIndex = findInColumnSortList(sortList, to);
+            int existingFromIndex = findInColumnSortList(sortList, from);
+
+            if (existingToIndex != -1) {
+                // reset target sort state to none
+                sortList.remove(sortList.get(existingToIndex));
+            }
+
+            if (existingFromIndex != -1) {
+                ColumnSortList.ColumnSortInfo existingFrom = sortList.get(existingFromIndex);
+                if (to != null && to.isSortable()) {
+                    // take the sort index previously occupied by the source and it's sort direction
+                    sortList.insert(existingFromIndex, new ColumnSortList.ColumnSortInfo(to, existingFrom.isAscending()));
+                }
+                // remove the source
+                sortList.remove(existingFrom);
+            }
+        }
+
+        /**
+         * Returns the index of <code>column</code> inside <code>sortList</code>.
+         * <p>
+         * Null column or sortList are treated as not found columns.
+         * </p>
+         *
+         * @param sortList
+         *            list that will be traversed
+         * @param column
+         *            column to be searched
+         * @return index or <code>-1</code> if <column>column</column> was not found
+         */
+        public static int findInColumnSortList(ColumnSortList sortList, AbstractTextColumn<?> column) {
+            if (sortList == null || column == null) {
+                return -1;
+            }
+
+            for (int i = 0; i < sortList.size(); i++) {
+                ColumnSortList.ColumnSortInfo sortInfo = sortList.get(i);
+                if (column.equals(sortInfo.getColumn())) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+    }
 }

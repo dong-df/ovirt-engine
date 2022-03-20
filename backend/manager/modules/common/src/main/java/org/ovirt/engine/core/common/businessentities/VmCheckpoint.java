@@ -19,6 +19,10 @@ public class VmCheckpoint implements Queryable, BusinessEntity<Guid> {
 
     private Date creationDate;
 
+    private VmCheckpointState state;
+
+    private String description;
+
     private List<DiskImage> disks;
 
     public Guid getId() {
@@ -53,6 +57,22 @@ public class VmCheckpoint implements Queryable, BusinessEntity<Guid> {
         this.creationDate = creationDate;
     }
 
+    public VmCheckpointState getState() {
+        return state;
+    }
+
+    public void setState(VmCheckpointState state) {
+        this.state = state;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
     public List<DiskImage> getDisks() {
         return disks;
     }
@@ -67,7 +87,9 @@ public class VmCheckpoint implements Queryable, BusinessEntity<Guid> {
                 id,
                 vmId,
                 parentId,
-                creationDate
+                creationDate,
+                state,
+                description
         );
     }
 
@@ -83,7 +105,9 @@ public class VmCheckpoint implements Queryable, BusinessEntity<Guid> {
         return Objects.equals(id, other.id)
                 && Objects.equals(vmId, other.vmId)
                 && Objects.equals(parentId, other.parentId)
-                && Objects.equals(creationDate, other.creationDate);
+                && Objects.equals(creationDate, other.creationDate)
+                && Objects.equals(state, other.state)
+                && Objects.equals(description, other.description);
     }
 
     @Override

@@ -153,6 +153,8 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
 
     private boolean vncEncryptionEnabled;
 
+    private FipsMode fipsMode;
+
     /**
      * How max sum of bandwidths of both outgoing and incoming migrations on one host are limited
      */
@@ -168,10 +170,12 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
     @Min(1)
     private Integer customMigrationNetworkBandwidth;
 
+    private Integer parallelMigrations;
     private Guid migrationPolicyId;
     private Guid macPoolId;
     private Guid defaultNetworkProviderId;
     private String hostNamesOutOfSync;
+    private boolean managed;
 
     public Cluster() {
         migrateOnError = MigrateOnErrorOptions.YES;
@@ -181,8 +185,10 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
         additionalRngSources = new HashSet<>();
         fencingPolicy = new FencingPolicy();
         addtionalFeaturesSupported = new HashSet<>();
+        enableKsm = true;
         ksmMergeAcrossNumaNodes = true;
         migrationBandwidthLimitType = MigrationBandwidthLimitType.DEFAULT;
+        parallelMigrations = 0;
         requiredSwitchTypeForCluster = SwitchType.LEGACY;
         logMaxMemoryUsedThresholdType = LogMaxMemoryUsedThresholdType.PERCENTAGE;
         description = "";
@@ -190,6 +196,9 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
         cpuName = "";
         vncEncryptionEnabled = true;
         hostNamesOutOfSync = "";
+        managed = true;
+        enableBallooning = true;
+        fipsMode = FipsMode.UNDEFINED;
     }
 
     @Override
@@ -616,6 +625,16 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
         this.migrationBandwidthLimitType = migrationBandwidthLimitType;
     }
 
+    @Override
+    public Integer getParallelMigrations() {
+        return parallelMigrations;
+    }
+
+    @Override
+    public void setParallelMigrations(Integer parallelMigrations) {
+        this.parallelMigrations = parallelMigrations;
+    }
+
     public Guid getMigrationPolicyId() {
         return migrationPolicyId;
     }
@@ -713,6 +732,23 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
     }
 
     @Override
+    public boolean isManaged() {
+        return managed;
+    }
+
+    public void setManaged(boolean managed) {
+        this.managed = managed;
+    }
+
+    public FipsMode getFipsMode() {
+        return fipsMode;
+    }
+
+    public void setFipsMode(FipsMode fipsMode) {
+        this.fipsMode = fipsMode;
+    }
+
+    @Override
     public int hashCode() {
         return Objects.hash(
                 id,
@@ -764,7 +800,9 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
                 logMaxMemoryUsedThreshold,
                 logMaxMemoryUsedThresholdType,
                 vncEncryptionEnabled,
-                hostNamesOutOfSync
+                hostNamesOutOfSync,
+                managed,
+                fipsMode
         );
     }
 
@@ -830,7 +868,9 @@ public class Cluster implements Queryable, BusinessEntity<Guid>, HasStoragePool,
                 && Objects.equals(logMaxMemoryUsedThreshold, other.logMaxMemoryUsedThreshold)
                 && logMaxMemoryUsedThresholdType == other.logMaxMemoryUsedThresholdType
                 && vncEncryptionEnabled == other.vncEncryptionEnabled
-                && Objects.equals(hostNamesOutOfSync, other.hostNamesOutOfSync);
+                && Objects.equals(hostNamesOutOfSync, other.hostNamesOutOfSync)
+                && managed == other.managed
+                && fipsMode == other.fipsMode;
     }
 
     @Override

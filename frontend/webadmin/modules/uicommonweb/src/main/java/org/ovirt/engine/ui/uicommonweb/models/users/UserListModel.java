@@ -193,7 +193,8 @@ public class UserListModel extends ListWithSimpleDetailsModel<Void, DbUser> impl
                     userId);
         }
         for (Guid grpId : grpIds) {
-            AsyncDataProvider.getInstance().getAttachedTagsToUserGroup(new AsyncQuery<>(
+            AsyncDataProvider.getInstance()
+                    .getAttachedTagsToUserGroup(new AsyncQuery<>(
                             returnValue -> {
 
                                 allAttachedTags.addAll(returnValue);
@@ -203,7 +204,7 @@ public class UserListModel extends ListWithSimpleDetailsModel<Void, DbUser> impl
                                 }
 
                             }),
-                    grpId);
+                            grpId);
         }
     }
 
@@ -295,17 +296,14 @@ public class UserListModel extends ListWithSimpleDetailsModel<Void, DbUser> impl
 
         UICommand addCommand = new UICommand("OnAdd", this); //$NON-NLS-1$
         addCommand.setTitle(ConstantsManager.getInstance().getConstants().add());
-        model.getCommands().add(addCommand);
+        model.addCommandOperatingOnSelectedItems(addCommand);
 
         UICommand addAndCloseCommand = new UICommand("OnAddAndClose", this); //$NON-NLS-1$
         addAndCloseCommand.setTitle(ConstantsManager.getInstance().getConstants().addAndClose());
         addAndCloseCommand.setIsDefault(true);
-        model.getCommands().add(addAndCloseCommand);
+        model.addCommandOperatingOnSelectedItems(addAndCloseCommand);
 
-        UICommand closeCommand = new UICommand("Cancel", this); //$NON-NLS-1$
-        closeCommand.setTitle(ConstantsManager.getInstance().getConstants().close());
-        closeCommand.setIsCancel(true);
-        model.getCommands().add(closeCommand);
+        model.addCancelCommand(this);
     }
 
     public UserOrGroup getUserOrGroup() {
@@ -346,7 +344,8 @@ public class UserListModel extends ListWithSimpleDetailsModel<Void, DbUser> impl
 
     @Override
     protected void syncSearch() {
-        SearchParameters tempVar = new SearchParameters(applySortOptions(getModifiedSearchString()), SearchType.DBUser,
+        SearchParameters tempVar = new SearchParameters(applySortOptions(getModifiedSearchString()),
+                SearchType.DBUser,
                 isCaseSensitiveSearch());
         tempVar.setMaxCount(getSearchPageSize());
         super.syncSearch(QueryType.Search, tempVar);
@@ -382,7 +381,8 @@ public class UserListModel extends ListWithSimpleDetailsModel<Void, DbUser> impl
         }
 
         if (model.getSelectedItems() == null) {
-            cancel();
+            model.setIsValid(false);
+            model.setMessage(ConstantsManager.getInstance().getConstants().selectUserOrGroup());
             return;
         }
 
@@ -391,6 +391,12 @@ public class UserListModel extends ListWithSimpleDetailsModel<Void, DbUser> impl
             if (dbUserEntity.getIsSelected()) {
                 selectedItems.add(dbUserEntity);
             }
+        }
+
+        if(selectedItems.isEmpty()){
+            model.setIsValid(false);
+            model.setMessage(ConstantsManager.getInstance().getConstants().selectUserOrGroup());
+            return;
         }
 
         List<ActionType> actionsList = new ArrayList<>(selectedItems.size());
@@ -418,7 +424,7 @@ public class UserListModel extends ListWithSimpleDetailsModel<Void, DbUser> impl
         IFrontendActionAsyncCallback lastCallback = result -> {
             AdElementListModel localModel = (AdElementListModel) result.getState();
             localModel.stopProgress();
-            //Refresh user list.
+            // Refresh user list.
             syncSearch();
             if (closeWindow) {
                 cancel();
@@ -427,16 +433,24 @@ public class UserListModel extends ListWithSimpleDetailsModel<Void, DbUser> impl
 
         Collection<EntityModel<DbUser>> currentItems = model.getItems();
         List<IFrontendActionAsyncCallback> callbacksList = new ArrayList<>(selectedItems.size());
-        for (EntityModel<DbUser> user: selectedItems) {
+        for (EntityModel<DbUser> user : selectedItems) {
             callbacksList.add(nopCallback);
             currentItems.remove(user);
         }
         callbacksList.remove(callbacksList.size() - 1);
         callbacksList.add(lastCallback);
 
-        //Refresh display
+        // Refresh display
         model.setItems(null);
         model.setItems(currentItems);
+
+        // this panel  allows adding multiple user/groups one by one without being closed
+        // in order to keep model's state in sync we need to explicitly restore its 'entry' state
+        // Perhaps there is a better way to achieve it ie. hook it at the re-render?
+        model.setSelectedItems(null);
+        model.setIsValid(true);
+        model.setMessage(null);
+
         Frontend.getInstance().runMultipleActions(actionsList, parametersList, callbacksList, lastCallback, model);
     }
 
@@ -454,7 +468,7 @@ public class UserListModel extends ListWithSimpleDetailsModel<Void, DbUser> impl
         }
 
         IFrontendMultipleActionAsyncCallback lastCallback = result -> Scheduler.get().scheduleDeferred(() -> {
-            //Refresh user list.
+            // Refresh user list.
             syncSearch();
             cancel();
         });

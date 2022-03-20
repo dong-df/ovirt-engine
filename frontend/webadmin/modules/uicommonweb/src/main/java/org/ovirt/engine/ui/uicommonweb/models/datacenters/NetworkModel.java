@@ -95,6 +95,7 @@ public abstract class NetworkModel extends Model implements HasValidatedTabs {
     private ListModel<PortSecuritySelectorValue> portSecuritySelector;
     private EntityModel<Integer> mtu;
     private EntityModel<Boolean> privateIsVmNetwork;
+    private EntityModel<Boolean> portIsolation;
     private ListModel<HostNetworkQos> qos;
     private DnsConfigurationModel dnsConfigurationModel;
     private ListModel<StoragePool> privateDataCenters;
@@ -170,8 +171,7 @@ public abstract class NetworkModel extends Model implements HasValidatedTabs {
         setIsVmNetwork(isVmNetwork);
         isVmNetwork.getEntityChangedEvent().addListener((ev, sender, args) -> toggleProfilesAvailability());
 
-        EntityModel<Boolean> publicUse = new EntityModel<>();
-        publicUse.setEntity(true);
+        setPortIsolation(new EntityModel<>(false));
 
         setProfiles(new NetworkProfilesModel());
         List<VnicProfileModel> profiles = new LinkedList<>();
@@ -249,7 +249,7 @@ public abstract class NetworkModel extends Model implements HasValidatedTabs {
             @Override
             public void eventRaised(Event<? extends EventArgs> ev, Object sender, EventArgs args) {
                 String defaultProfileName = defaultProfile.getName().getEntity();
-                if ((defaultProfileName != null) && (!defaultProfileName.equals(getName().getEntity()))) {
+                if (defaultProfileName != null && !defaultProfileName.equals(getName().getEntity())) {
                     getName().getEntityChangedEvent().removeListener(networkNameListener);
                     defaultProfile.getName().getEntityChangedEvent().removeListener(this);
                 }
@@ -397,6 +397,14 @@ public abstract class NetworkModel extends Model implements HasValidatedTabs {
         privateIsVmNetwork = value;
     }
 
+    public EntityModel<Boolean> getPortIsolation() {
+        return portIsolation;
+    }
+
+    public void setPortIsolation(EntityModel<Boolean> portIsolation) {
+        this.portIsolation = portIsolation;
+    }
+
     public ListModel<HostNetworkQos> getQos() {
         return qos;
     }
@@ -539,8 +547,8 @@ public abstract class NetworkModel extends Model implements HasValidatedTabs {
     }
 
     private void updateVlanChangeabilityAndValue() {
-        boolean changeable = !getExternal().getEntity() || (getConnectedToPhysicalNetwork().getEntity()
-                && getUsePhysicalNetworkFromCustom().getEntity());
+        boolean changeable = !getExternal().getEntity() || getConnectedToPhysicalNetwork().getEntity()
+                && getUsePhysicalNetworkFromCustom().getEntity();
 
         getHasVLanTag().setEntity(changeable && getHasVLanTag().getEntity());
         getHasVLanTag().setIsChangeable(changeable);
@@ -690,6 +698,8 @@ public abstract class NetworkModel extends Model implements HasValidatedTabs {
             HostNetworkQos qos = getQos().getSelectedItem();
             network.setQosId(qos == EMPTY_HOST_NETWORK_QOS ? null : qos.getId());
         }
+
+        network.setPortIsolation(getPortIsolation().getEntity());
     }
 
     protected abstract void executeSave();

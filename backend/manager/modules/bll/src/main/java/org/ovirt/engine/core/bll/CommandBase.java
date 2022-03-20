@@ -7,7 +7,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
@@ -19,7 +18,6 @@ import javax.inject.Inject;
 import javax.inject.Named;
 import javax.transaction.Status;
 import javax.transaction.SystemException;
-import javax.transaction.Transaction;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
@@ -172,7 +170,7 @@ public abstract class CommandBase<T extends ActionParametersBase>
 
     @Named
     @Inject
-    private Predicate<Guid> isSystemSuperUserPredicate;
+    private Predicate<DbUser> isSystemSuperUserPredicate;
 
     /** Indicates whether the acquired locks should be released after the execute method or not */
     private boolean releaseLocksAtEndOfExecute = true;
@@ -331,6 +329,7 @@ public abstract class CommandBase<T extends ActionParametersBase>
             return NoOpCompensationContext.getInstance();
         }
 
+        setCompensationPhaseEndCommand();
         return createDefaultCompensationContext();
     }
 
@@ -350,6 +349,11 @@ public abstract class CommandBase<T extends ActionParametersBase>
      */
     protected boolean isCompensationEnabledByCaller() {
         return getParameters().isCompensationEnabled();
+    }
+
+    private void setCompensationPhaseEndCommand() {
+        getParameters().setCompensationPhaseEndCommand(
+                getCommandCompensationPhase() == CommandCompensationPhase.END_COMMAND);
     }
 
     /**
@@ -521,8 +525,8 @@ public abstract class CommandBase<T extends ActionParametersBase>
             } catch (TransactionRolledbackLocalException e) {
                 log.info("endAction: Transaction was aborted in {}", this.getClass().getName());
             } finally {
-                endStepsAndJobIfNeeded();
                 freeLockEndAction();
+                endStepsAndJobIfNeeded();
                 // NOTE: this update persists updates made during the endSuccessfully()/endWithFailure() execution.
                 // The update is done intentionally after the freeLock() call, change with care.
                 updateCommandIfNeeded();
@@ -602,7 +606,7 @@ public abstract class CommandBase<T extends ActionParametersBase>
     public void handleChildCommands() {
         if (getCallback() != null) {
             List<Guid> childCommands = commandCoordinatorUtil.getChildCommandIds(getCommandId());
-            List<ActionParametersBase> parameters = new LinkedList<>();
+            ArrayList<ActionParametersBase> parameters = new ArrayList<>();
             for (Guid id : childCommands) {
                 CommandBase<?> command = commandCoordinatorUtil.retrieveCommand(id);
                 if (command.getParameters().getEndProcedure() == EndProcedure.PARENT_MANAGED
@@ -792,27 +796,12 @@ public abstract class CommandBase<T extends ActionParametersBase>
     }
 
     private boolean internalValidate() {
-        boolean returnValue = false;
+        boolean isValid = false;
         try {
-            Transaction transaction = null;
-            if (!isValidateSupportsTransaction()) {
-                transaction = TransactionSupport.suspend();
-            }
-            try {
-                returnValue =
-                        isUserAuthorizedToRunAction() && validateInputs() && acquireLock()
-                                && validate()
-                                && internalValidateAndSetQuota();
-                if (!returnValue && getReturnValue().getValidationMessages().size() > 0) {
-                    log.warn("Validation of action '{}' failed for user {}. Reasons: {}",
-                            getActionType(), getUserName(),
-                            StringUtils.join(getReturnValue().getValidationMessages(), ','));
-                }
-            } finally {
-                if (transaction != null) {
-                    TransactionSupport.resume(transaction);
-                }
-            }
+            isValid = isValidateSupportsTransaction() ?
+                    internalValidateInTransaction() :
+                    TransactionSupport.executeInSuppressed(this::internalValidateInTransaction);
+
         } catch (DataAccessException dataAccessEx) {
             log.error("Data access error during ValidateFailure.", dataAccessEx);
             addValidationMessage(EngineMessage.CAN_DO_ACTION_DATABASE_CONNECTION_FAILURE);
@@ -820,12 +809,29 @@ public abstract class CommandBase<T extends ActionParametersBase>
             log.error("Error during ValidateFailure.", ex);
             addValidationMessage(EngineMessage.CAN_DO_ACTION_GENERAL_FAILURE);
         } finally {
-            if (!returnValue) {
+            if (!isValid) {
                 setCommandStatus(CommandStatus.ENDED_WITH_FAILURE);
                 freeLock();
             }
         }
-        return returnValue;
+        return isValid;
+    }
+
+    private boolean internalValidateInTransaction() {
+        boolean isValid = isUserAuthorizedToRunAction()
+                && validateInputs()
+                && acquireLock()
+                && validate()
+                && internalValidateAndSetQuota();
+
+        if (!isValid && log.isWarnEnabled()
+                && getReturnValue().getValidationMessages().size() > 0) {
+            log.warn("Validation of action '{}' failed for user {}. Reasons: {}",
+                    getActionType(), getUserName(),
+                    StringUtils.join(getReturnValue().getValidationMessages(), ','));
+        }
+
+        return isValid;
     }
 
     private boolean internalValidateAndSetQuota() {
@@ -1157,7 +1163,7 @@ public abstract class CommandBase<T extends ActionParametersBase>
     }
 
     public boolean isSystemSuperUser() {
-        return isSystemSuperUserPredicate.test(getCurrentUser().getId());
+        return isSystemSuperUserPredicate.test(getCurrentUser());
     }
 
     private boolean executeWithoutTransaction() {
@@ -1440,15 +1446,17 @@ public abstract class CommandBase<T extends ActionParametersBase>
     }
 
     protected void log() {
-        final Transaction transaction = TransactionSupport.suspend();
-        try {
-            auditLogDirector.log(this, getAuditLogTypeValue());
-        } catch (final RuntimeException ex) {
-            log.error("Error during log command: {}. Exception {}", getClass().getName(), ex.getMessage());
-            log.debug("Exception", ex);
-        } finally {
-            TransactionSupport.resume(transaction);
-        }
+        TransactionSupport.executeInSuppressed(() -> {
+            try {
+                auditLogDirector.log(this, getAuditLogTypeValue());
+            } catch (final RuntimeException ex) {
+                log.error("Error during log command: {}: '{}'",
+                        getClass().getName(),
+                        ExceptionUtils.getRootCauseMessage(ex));
+                log.debug("Exception", ex);
+            }
+            return null;
+        });
     }
 
     private boolean getTransactive() {
@@ -1668,18 +1676,15 @@ public abstract class CommandBase<T extends ActionParametersBase>
             ActionType parentCommand,
             String description, Map<Guid, VdcObjectType> entitiesMap) {
 
-        Transaction transaction = TransactionSupport.suspend();
-
-        try {
-            return createTaskImpl(taskId, asyncTaskCreationInfo, parentCommand, description, entitiesMap);
-        } catch (RuntimeException ex) {
-            log.error("Error during createTask for command '{}': {}", getClass().getName(), ex.getMessage());
-            log.error("Exception", ex);
-        } finally {
-            TransactionSupport.resume(transaction);
-        }
-
-        return Guid.Empty;
+        return TransactionSupport.executeInSuppressed(() -> {
+            try {
+                return createTaskImpl(taskId, asyncTaskCreationInfo, parentCommand, description, entitiesMap);
+            } catch (RuntimeException ex) {
+                log.error("Error during createTask for command '{}': {}", getClass().getName(), ex.getMessage());
+                log.error("Exception", ex);
+            }
+            return Guid.Empty;
+        });
     }
 
     private Guid createTaskImpl(Guid taskId, AsyncTaskCreationInfo asyncTaskCreationInfo, ActionType parentCommand,
@@ -1936,7 +1941,7 @@ public abstract class CommandBase<T extends ActionParametersBase>
 
     private void freeLockExecute() {
         if (releaseLocksAtEndOfExecute || !getSucceeded() ||
-                (noAsyncOperations() && !(this instanceof IVdsAsyncCommand))) {
+                noAsyncOperations() && !(this instanceof IVdsAsyncCommand)) {
             freeLock();
         }
     }
@@ -2277,17 +2282,13 @@ public abstract class CommandBase<T extends ActionParametersBase>
             CommandContext cmdContext,
             boolean enableCallback,
             boolean callbackWaitingForEvent) {
-        Transaction transaction = TransactionSupport.suspend();
-        try {
+        TransactionSupport.executeInSuppressed(() -> {
             CommandEntity commandEntity =
                     buildCommandEntity(getParentParameters(parentCommand).getCommandId(), enableCallback);
             commandEntity.setWaitingForEvent(callbackWaitingForEvent);
             commandCoordinatorUtil.persistCommand(commandEntity, cmdContext);
-        } finally {
-            if (transaction != null) {
-                TransactionSupport.resume(transaction);
-            }
-        }
+            return null;
+        });
     }
 
     private CommandEntity buildCommandEntity(Guid rootCommandId, boolean enableCallback) {
@@ -2342,20 +2343,15 @@ public abstract class CommandBase<T extends ActionParametersBase>
     public void setCommandStatus(CommandStatus status, boolean updateDB) {
         this.commandStatus = status;
         if (updateDB) {
-            Transaction transaction = TransactionSupport.suspend();
-            try {
+            TransactionSupport.executeInSuppressed(() -> {
                 commandCoordinatorUtil.updateCommandStatus(getCommandId(), commandStatus);
-            } finally {
-                if (transaction != null) {
-                    TransactionSupport.resume(transaction);
-                }
-            }
+                return null;
+            });
         }
     }
 
     public void setCommandExecuted() {
-        Transaction transaction = TransactionSupport.suspend();
-        try {
+        TransactionSupport.executeInSuppressed(() -> {
             CommandEntity cmdEntity = commandCoordinatorUtil.getCommandEntity(getCommandId());
             if (cmdEntity != null) {
                 CommandEntity executedCmdEntity = buildCommandEntity(cmdEntity.getRootCommandId(),
@@ -2365,11 +2361,8 @@ public abstract class CommandBase<T extends ActionParametersBase>
                 commandCoordinatorUtil.persistCommand(executedCmdEntity, getContext());
                 commandCoordinatorUtil.updateCommandExecuted(getCommandId());
             }
-        } finally {
-            if (transaction != null) {
-                TransactionSupport.resume(transaction);
-            }
-        }
+            return null;
+        });
     }
 
     private boolean callbackTriggeredByEvent() {

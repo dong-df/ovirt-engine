@@ -1,15 +1,15 @@
 package org.ovirt.engine.core.vdsbroker.vdsbroker;
 
-import java.util.HashMap;
 import java.util.Map;
 
+import org.ovirt.engine.core.common.FeatureSupported;
+import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.vdscommands.VmBackupVDSParameters;
-import org.ovirt.engine.core.compat.Guid;
-import org.ovirt.engine.core.vdsbroker.irsbroker.GetDisksListReturn;
+import org.ovirt.engine.core.vdsbroker.irsbroker.VmBackupInfo;
 
-public class StartVmBackupVDSCommand<P extends VmBackupVDSParameters> extends VdsBrokerCommand<P> {
+public class StartVmBackupVDSCommand<P extends VmBackupVDSParameters> extends VmBackupConfigVDSCommandBase<P> {
 
-    private GetDisksListReturn disksListReturn;
+    private VmBackupInfo vmBackupInfo;
 
     public StartVmBackupVDSCommand(P parameters) {
         super(parameters);
@@ -17,43 +17,26 @@ public class StartVmBackupVDSCommand<P extends VmBackupVDSParameters> extends Vd
 
     @Override
     protected void executeVdsBrokerCommand() {
-        Guid fromCheckpointId = getParameters().getVmBackup().getFromCheckpointId();
-        Guid toCheckpointId = getParameters().getVmBackup().getToCheckpointId();
-
-        Map<String, Object> backupConfig = createBackupConfig(fromCheckpointId, toCheckpointId);
-        disksListReturn = getBroker().startVmBackup(getParameters().getVmBackup().getVmId().toString(), backupConfig);
+        Map<String, Object> backupConfig = createBackupConfig();
+        vmBackupInfo = getBroker().startVmBackup(getParameters().getVmBackup().getVmId().toString(), backupConfig);
         proceedProxyReturnValue();
-        setReturnValue(disksListReturn.getDisks());
+        setReturnValue(vmBackupInfo);
     }
 
+    @Override
+    protected String getDiskBackupMode(DiskImage diskImage) {
+        return FeatureSupported.isBackupModeAndBitmapsOperationsSupported(getVds().getClusterCompatibilityVersion()) ?
+                diskImage.getBackupMode().getName() :
+                null;
+    }
 
     @Override
     protected Object getReturnValueFromBroker() {
-        return disksListReturn;
+        return vmBackupInfo;
     }
 
     @Override
     protected Status getReturnStatus() {
-        return disksListReturn.getStatus();
-    }
-
-    private HashMap[] createDisksMap() {
-        return getParameters().getVmBackup().getDisks().stream().map(diskImage -> {
-            Map<String, String> imageParams = new HashMap<>();
-            imageParams.put(VdsProperties.DomainId, diskImage.getStorageIds().get(0).toString());
-            imageParams.put(VdsProperties.ImageId, diskImage.getId().toString());
-            imageParams.put(VdsProperties.VolumeId, diskImage.getImageId().toString());
-            return imageParams;
-        }).toArray(HashMap[]::new);
-    }
-
-    private Map<String, Object> createBackupConfig(Guid fromCheckpointId, Guid toCheckpointId) {
-        Map<String, Object> backupConfig = new HashMap<>();
-        backupConfig.put("backup_id", getParameters().getVmBackup().getId().toString());
-        backupConfig.put("disks", createDisksMap());
-        backupConfig.put("from_checkpoint_id", fromCheckpointId != null ? fromCheckpointId.toString() : null);
-        backupConfig.put("to_checkpoint_id", toCheckpointId != null ? toCheckpointId.toString() : null);
-
-        return backupConfig;
+        return vmBackupInfo.getStatus();
     }
 }

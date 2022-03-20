@@ -7,11 +7,8 @@ import java.util.Map;
 
 import org.ovirt.engine.core.bll.scheduling.policyunits.CPUPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.ClusterInMaintenanceFilterPolicyUnit;
-import org.ovirt.engine.core.bll.scheduling.policyunits.CompatibilityVersionFilterPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.CpuAndNumaPinningWeightPolicyUnit;
-import org.ovirt.engine.core.bll.scheduling.policyunits.CpuLevelFilterPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.CpuOverloadPolicyUnit;
-import org.ovirt.engine.core.bll.scheduling.policyunits.CpuPinningPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.EmulatedMachineFilterPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.EvenDistributionBalancePolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.EvenDistributionCPUWeightPolicyUnit;
@@ -20,7 +17,7 @@ import org.ovirt.engine.core.bll.scheduling.policyunits.EvenGuestDistributionBal
 import org.ovirt.engine.core.bll.scheduling.policyunits.EvenGuestDistributionWeightPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.HaReservationWeightPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.HighPerformanceCpuPolicyUnit;
-import org.ovirt.engine.core.bll.scheduling.policyunits.HostDeviceFilterPolicyUnit;
+import org.ovirt.engine.core.bll.scheduling.policyunits.HostHooksFilterPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.HostedEngineHAClusterFilterPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.HostedEngineHAClusterWeightPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.HostedEngineMemoryReservationFilterPolicyUnit;
@@ -31,7 +28,6 @@ import org.ovirt.engine.core.bll.scheduling.policyunits.MigrationTscFrequencyPol
 import org.ovirt.engine.core.bll.scheduling.policyunits.NetworkPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.NoneBalancePolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.NumaPolicyUnit;
-import org.ovirt.engine.core.bll.scheduling.policyunits.PinToHostPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.PowerSavingBalancePolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.PowerSavingCPUWeightPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.PowerSavingMemoryWeightPolicyUnit;
@@ -39,7 +35,6 @@ import org.ovirt.engine.core.bll.scheduling.policyunits.PreferredHostsWeightPoli
 import org.ovirt.engine.core.bll.scheduling.policyunits.SwapFilterPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.VmAffinityFilterPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.VmAffinityWeightPolicyUnit;
-import org.ovirt.engine.core.bll.scheduling.policyunits.VmLeasesReadyFilterPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.VmToHostAffinityFilterPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.VmToHostAffinityWeightPolicyUnit;
 import org.ovirt.engine.core.common.scheduling.ClusterPolicy;
@@ -56,13 +51,9 @@ public class InternalClusterPolicies {
                 .isDefault()
                 .setBalancer(NoneBalancePolicyUnit.class)
 
-                .addFilters(PinToHostPolicyUnit.class)
-                .addFilters(VmLeasesReadyFilterPolicyUnit.class)
                 .addFilters(CPUPolicyUnit.class)
-                .addFilters(CpuLevelFilterPolicyUnit.class)
                 .addFilters(CpuOverloadPolicyUnit.class)
                 .addFilters(EmulatedMachineFilterPolicyUnit.class)
-                .addFilters(HostDeviceFilterPolicyUnit.class)
                 .addFilters(HostedEngineHAClusterFilterPolicyUnit.class)
                 .addFilters(SwapFilterPolicyUnit.class)
                 .addFilters(MemoryPolicyUnit.class)
@@ -72,10 +63,9 @@ public class InternalClusterPolicies {
                 .addFilters(VmAffinityFilterPolicyUnit.class)
                 .addFilters(VmToHostAffinityFilterPolicyUnit.class)
                 .addFilters(NetworkPolicyUnit.class)
-                .addFilters(CpuPinningPolicyUnit.class)
-                .addFilters(CompatibilityVersionFilterPolicyUnit.class)
                 .addFilters(HostedEngineMemoryReservationFilterPolicyUnit.class)
                 .addFilters(MigrationTscFrequencyPolicyUnit.class)
+                .addFilters(HostHooksFilterPolicyUnit.class)
 
                 .addFunction(2, EvenDistributionCPUWeightPolicyUnit.class)
                 .addFunction(1, EvenDistributionMemoryWeightPolicyUnit.class)
@@ -96,13 +86,9 @@ public class InternalClusterPolicies {
                 .setBalancer(NoneBalancePolicyUnit.class)
 
                 .addFilters(ClusterInMaintenanceFilterPolicyUnit.class)
-                .addFilters(PinToHostPolicyUnit.class)
-                .addFilters(VmLeasesReadyFilterPolicyUnit.class)
                 .addFilters(CPUPolicyUnit.class)
-                .addFilters(CpuLevelFilterPolicyUnit.class)
                 .addFilters(CpuOverloadPolicyUnit.class)
                 .addFilters(EmulatedMachineFilterPolicyUnit.class)
-                .addFilters(HostDeviceFilterPolicyUnit.class)
                 .addFilters(HostedEngineHAClusterFilterPolicyUnit.class)
                 .addFilters(SwapFilterPolicyUnit.class)
                 .addFilters(MemoryPolicyUnit.class)
@@ -112,10 +98,9 @@ public class InternalClusterPolicies {
                 .addFilters(VmAffinityFilterPolicyUnit.class)
                 .addFilters(VmToHostAffinityFilterPolicyUnit.class)
                 .addFilters(NetworkPolicyUnit.class)
-                .addFilters(CpuPinningPolicyUnit.class)
-                .addFilters(CompatibilityVersionFilterPolicyUnit.class)
                 .addFilters(HostedEngineMemoryReservationFilterPolicyUnit.class)
                 .addFilters(MigrationTscFrequencyPolicyUnit.class)
+                .addFilters(HostHooksFilterPolicyUnit.class)
 
                 .addFunction(2, EvenDistributionCPUWeightPolicyUnit.class)
                 .addFunction(1, EvenDistributionMemoryWeightPolicyUnit.class)
@@ -135,13 +120,9 @@ public class InternalClusterPolicies {
                 .name("evenly_distributed")
                 .setBalancer(EvenDistributionBalancePolicyUnit.class)
 
-                .addFilters(PinToHostPolicyUnit.class)
-                .addFilters(VmLeasesReadyFilterPolicyUnit.class)
                 .addFilters(CPUPolicyUnit.class)
-                .addFilters(CpuLevelFilterPolicyUnit.class)
                 .addFilters(CpuOverloadPolicyUnit.class)
                 .addFilters(EmulatedMachineFilterPolicyUnit.class)
-                .addFilters(HostDeviceFilterPolicyUnit.class)
                 .addFilters(HostedEngineHAClusterFilterPolicyUnit.class)
                 .addFilters(SwapFilterPolicyUnit.class)
                 .addFilters(MemoryPolicyUnit.class)
@@ -151,10 +132,9 @@ public class InternalClusterPolicies {
                 .addFilters(VmAffinityFilterPolicyUnit.class)
                 .addFilters(VmToHostAffinityFilterPolicyUnit.class)
                 .addFilters(NetworkPolicyUnit.class)
-                .addFilters(CpuPinningPolicyUnit.class)
-                .addFilters(CompatibilityVersionFilterPolicyUnit.class)
                 .addFilters(HostedEngineMemoryReservationFilterPolicyUnit.class)
                 .addFilters(MigrationTscFrequencyPolicyUnit.class)
+                .addFilters(HostHooksFilterPolicyUnit.class)
 
                 .addFunction(2, EvenDistributionCPUWeightPolicyUnit.class)
                 .addFunction(1, EvenDistributionMemoryWeightPolicyUnit.class)
@@ -169,19 +149,16 @@ public class InternalClusterPolicies {
                 .set(PolicyUnitParameter.HE_SPARES_COUNT, "0")
                 .set(PolicyUnitParameter.CPU_OVERCOMMIT_DURATION_MINUTES, "2")
                 .set(PolicyUnitParameter.HIGH_UTILIZATION, "80")
+                .set(PolicyUnitParameter.VCPU_TO_PHYSICAL_CPU_RATIO, "0")
                 .register();
 
         createBuilder("5a2b0939-7d46-4b73-a469-e9c2c7fc6a53")
                 .name("power_saving")
                 .setBalancer(PowerSavingBalancePolicyUnit.class)
 
-                .addFilters(PinToHostPolicyUnit.class)
-                .addFilters(VmLeasesReadyFilterPolicyUnit.class)
                 .addFilters(CPUPolicyUnit.class)
-                .addFilters(CpuLevelFilterPolicyUnit.class)
                 .addFilters(CpuOverloadPolicyUnit.class)
                 .addFilters(EmulatedMachineFilterPolicyUnit.class)
-                .addFilters(HostDeviceFilterPolicyUnit.class)
                 .addFilters(HostedEngineHAClusterFilterPolicyUnit.class)
                 .addFilters(SwapFilterPolicyUnit.class)
                 .addFilters(MemoryPolicyUnit.class)
@@ -191,10 +168,9 @@ public class InternalClusterPolicies {
                 .addFilters(VmAffinityFilterPolicyUnit.class)
                 .addFilters(VmToHostAffinityFilterPolicyUnit.class)
                 .addFilters(NetworkPolicyUnit.class)
-                .addFilters(CpuPinningPolicyUnit.class)
-                .addFilters(CompatibilityVersionFilterPolicyUnit.class)
                 .addFilters(HostedEngineMemoryReservationFilterPolicyUnit.class)
                 .addFilters(MigrationTscFrequencyPolicyUnit.class)
+                .addFilters(HostHooksFilterPolicyUnit.class)
 
                 .addFunction(2, PowerSavingCPUWeightPolicyUnit.class)
                 .addFunction(1, PowerSavingMemoryWeightPolicyUnit.class)
@@ -216,13 +192,9 @@ public class InternalClusterPolicies {
                 .name("vm_evenly_distributed")
                 .setBalancer(EvenGuestDistributionBalancePolicyUnit.class)
 
-                .addFilters(PinToHostPolicyUnit.class)
-                .addFilters(VmLeasesReadyFilterPolicyUnit.class)
                 .addFilters(CPUPolicyUnit.class)
-                .addFilters(CpuLevelFilterPolicyUnit.class)
                 .addFilters(CpuOverloadPolicyUnit.class)
                 .addFilters(EmulatedMachineFilterPolicyUnit.class)
-                .addFilters(HostDeviceFilterPolicyUnit.class)
                 .addFilters(HostedEngineHAClusterFilterPolicyUnit.class)
                 .addFilters(SwapFilterPolicyUnit.class)
                 .addFilters(MemoryPolicyUnit.class)
@@ -232,10 +204,9 @@ public class InternalClusterPolicies {
                 .addFilters(VmAffinityFilterPolicyUnit.class)
                 .addFilters(VmToHostAffinityFilterPolicyUnit.class)
                 .addFilters(NetworkPolicyUnit.class)
-                .addFilters(CpuPinningPolicyUnit.class)
-                .addFilters(CompatibilityVersionFilterPolicyUnit.class)
                 .addFilters(HostedEngineMemoryReservationFilterPolicyUnit.class)
                 .addFilters(MigrationTscFrequencyPolicyUnit.class)
+                .addFilters(HostHooksFilterPolicyUnit.class)
 
                 .addFunction(2, EvenGuestDistributionWeightPolicyUnit.class)
                 .addFunction(99, PreferredHostsWeightPolicyUnit.class)
@@ -270,7 +241,6 @@ public class InternalClusterPolicies {
                 .addFilters(SwapFilterPolicyUnit.class)
                 .addFilters(MemoryPolicyUnit.class)
                 .addFilters(CPUPolicyUnit.class)
-                .addFilters(CpuLevelFilterPolicyUnit.class)
                 .addFilters(InClusterUpgradeFilterPolicyUnit.class)
                 .addFunction(1, InClusterUpgradeWeightPolicyUnit.class)
                 .register();

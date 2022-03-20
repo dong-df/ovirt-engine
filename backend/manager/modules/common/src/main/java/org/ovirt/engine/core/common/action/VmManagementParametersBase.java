@@ -25,7 +25,7 @@ import org.ovirt.engine.core.common.validation.group.UpdateEntity;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.compat.Version;
 
-@HostedEngineUpdate(groups = { UpdateEntity.class })
+@HostedEngineUpdate(groups = UpdateEntity.class)
 public class VmManagementParametersBase extends VmOperationParameterBase
         implements HasGraphicsDevices, HasVmIcon, HasRngDevice {
 
@@ -80,6 +80,7 @@ public class VmManagementParametersBase extends VmOperationParameterBase
     private boolean updateNuma;
     private String vmLargeIcon;
     private Version clusterLevelChangeFromVersion;
+    private Map<VmExternalDataKind, String> vmExternalData;
 
     /**
      * Extra flag to allow memory hot unplug. Memory hot unplug requires both this flag and {@link #applyChangesLater}
@@ -88,9 +89,6 @@ public class VmManagementParametersBase extends VmOperationParameterBase
      * <p>Hot unplug memory should only be allowed from REST API.</p>
      */
     private boolean memoryHotUnplugEnabled;
-
-    @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.BALLOON, type = VmDeviceType.MEMBALLOON)
-    private Boolean balloonEnabled;
 
     @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.WATCHDOG, type = VmDeviceType.WATCHDOG)
     private Optional<VmWatchdog> watchdog = new Optional<>();
@@ -106,6 +104,15 @@ public class VmManagementParametersBase extends VmOperationParameterBase
      */
     @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.SOUND, type = VmDeviceType.UNKNOWN, name="sound", isReadOnly = true)
     private Boolean soundDeviceEnabled;
+
+    /*
+     * This parameter is used to decide if to create TPM device or not if it is null then:
+     * for add vm don't add TPM device
+     * for unsupported configuration don't add TPM device
+     * for other update the current configuration will remain
+     */
+    @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.TPM, type = VmDeviceType.TPM, name="tpm")
+    private Boolean tpmEnabled;
 
     /*
      * This parameter is used to decide if to create console device or not if it is null then: for add vm don't add
@@ -133,6 +140,15 @@ public class VmManagementParametersBase extends VmOperationParameterBase
     @EditableDeviceOnVmStatusField(generalType = VmDeviceGeneralType.GRAPHICS, type = VmDeviceType.UNKNOWN,
                                    name = "graphicsProtocol")
     private Map<GraphicsType, GraphicsDevice> graphicsDevices = new HashMap<>();
+
+    /**
+     * This attribute contains information about mediated devices.
+     *
+     * Mediated device of a VM is touched only if there is an entry in this map (non-null for adding/updating,
+     * null for removing the device. If the map doesn't contain entry for a mediated device id, the corresponding
+     * mediated device is not modified.
+     */
+    private Map<Guid, Map<String, Object>> mdevs = new HashMap<>();
 
     private List<AffinityGroup> affinityGroups;
 
@@ -168,7 +184,6 @@ public class VmManagementParametersBase extends VmOperationParameterBase
 
         setSoundDeviceEnabled(baseParams.isSoundDeviceEnabled());
         setConsoleEnabled(baseParams.isConsoleEnabled());
-        setBalloonEnabled(baseParams.isBalloonEnabled());
         setVirtioScsiEnabled(baseParams.isVirtioScsiEnabled());
         setUpdateNuma(baseParams.isUpdateNuma());
         setUpdateRngDevice(baseParams.isUpdateRngDevice());
@@ -179,6 +194,7 @@ public class VmManagementParametersBase extends VmOperationParameterBase
         setAffinityLabels(baseParams.getAffinityLabels());
 
         getGraphicsDevices().putAll(baseParams.getGraphicsDevices());
+        getMdevs().putAll(baseParams.getMdevs());
         setDiskInfoDestinationMap(baseParams.getDiskInfoDestinationMap());
 
         setVmLargeIcon(baseParams.getVmLargeIcon());
@@ -246,14 +262,6 @@ public class VmManagementParametersBase extends VmOperationParameterBase
         this.clearPayload = clearPayload;
     }
 
-    public Boolean isBalloonEnabled() {
-        return balloonEnabled;
-    }
-
-    public void setBalloonEnabled(Boolean isBallonEnabled) {
-        this.balloonEnabled = isBallonEnabled;
-    }
-
     public VmWatchdog getWatchdog() {
         return watchdog.getValue();
     }
@@ -303,6 +311,14 @@ public class VmManagementParametersBase extends VmOperationParameterBase
 
     public void setSoundDeviceEnabled(boolean soundDeviceEnabled) {
         this.soundDeviceEnabled = soundDeviceEnabled;
+    }
+
+    public Boolean isTpmEnabled() {
+        return tpmEnabled;
+    }
+
+    public void setTpmEnabled(Boolean tpmEnabled) {
+        this.tpmEnabled = tpmEnabled;
     }
 
     public boolean isCopyTemplatePermissions() {
@@ -370,6 +386,10 @@ public class VmManagementParametersBase extends VmOperationParameterBase
         return graphicsDevices;
     }
 
+    public Map<Guid, Map<String, Object>> getMdevs() {
+        return mdevs;
+    }
+
     public Version getClusterLevelChangeFromVersion() {
         return clusterLevelChangeFromVersion;
     }
@@ -384,5 +404,13 @@ public class VmManagementParametersBase extends VmOperationParameterBase
 
     public void setMemoryHotUnplugEnabled(boolean memoryHotUnplugEnabled) {
         this.memoryHotUnplugEnabled = memoryHotUnplugEnabled;
+    }
+
+    public Map<VmExternalDataKind, String> getVmExternalData() {
+        return vmExternalData;
+    }
+
+    public void setVmExternalData(Map<VmExternalDataKind, String> vmExternalData) {
+        this.vmExternalData = vmExternalData;
     }
 }

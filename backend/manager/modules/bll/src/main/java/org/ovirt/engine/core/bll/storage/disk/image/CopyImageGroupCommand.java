@@ -11,9 +11,11 @@ import org.ovirt.engine.core.bll.ConcurrentChildCommandsExecutionCallback;
 import org.ovirt.engine.core.bll.InternalCommandAttribute;
 import org.ovirt.engine.core.bll.context.CommandContext;
 import org.ovirt.engine.core.bll.storage.domain.PostDeleteActionHandler;
+import org.ovirt.engine.core.bll.storage.utils.VdsCommandsHelper;
 import org.ovirt.engine.core.bll.tasks.interfaces.CommandCallback;
 import org.ovirt.engine.core.bll.validator.storage.DiskImagesValidator;
 import org.ovirt.engine.core.bll.validator.storage.DiskValidator;
+import org.ovirt.engine.core.common.FeatureSupported;
 import org.ovirt.engine.core.common.VdcObjectType;
 import org.ovirt.engine.core.common.action.ActionParametersBase;
 import org.ovirt.engine.core.common.action.ActionParametersBase.EndProcedure;
@@ -30,8 +32,10 @@ import org.ovirt.engine.core.common.businessentities.storage.Disk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskStorageType;
 import org.ovirt.engine.core.common.businessentities.storage.ImageOperation;
+import org.ovirt.engine.core.common.businessentities.storage.ImageStatus;
 import org.ovirt.engine.core.common.businessentities.storage.ImageStorageDomainMap;
 import org.ovirt.engine.core.common.businessentities.storage.ImageStorageDomainMapId;
+import org.ovirt.engine.core.common.businessentities.storage.StorageType;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeFormat;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeType;
 import org.ovirt.engine.core.common.errors.EngineException;
@@ -46,6 +50,7 @@ import org.ovirt.engine.core.dao.ImageDao;
 import org.ovirt.engine.core.dao.ImageStorageDomainMapDao;
 import org.ovirt.engine.core.dao.StorageDomainDao;
 import org.ovirt.engine.core.dao.StorageDomainStaticDao;
+import org.ovirt.engine.core.dao.VdsDao;
 
 @InternalCommandAttribute
 public class CopyImageGroupCommand<T extends MoveOrCopyImageGroupParameters> extends BaseImagesCommand<T> {
@@ -65,8 +70,12 @@ public class CopyImageGroupCommand<T extends MoveOrCopyImageGroupParameters> ext
     @Inject
     private ImageDao imageDao;
     @Inject
+    private VdsDao vdsDao;
+    @Inject
     @Typed(ConcurrentChildCommandsExecutionCallback.class)
     private Instance<ConcurrentChildCommandsExecutionCallback> callbackProvider;
+    @Inject
+    private VdsCommandsHelper vdsCommandsHelper;
 
     public CopyImageGroupCommand(T parameters, CommandContext cmdContext) {
         super(parameters, cmdContext);
@@ -108,8 +117,7 @@ public class CopyImageGroupCommand<T extends MoveOrCopyImageGroupParameters> ext
         Disk disk = diskDao.get(imageGroupId);
         DiskValidator diskValidator = createDiskValidator(disk);
         if (diskValidator.isDiskExists().isValid()) {
-            return validate(diskValidator.validateUnsupportedDiskStorageType(
-                    DiskStorageType.LUN, DiskStorageType.CINDER, DiskStorageType.MANAGED_BLOCK_STORAGE));
+            return validate(diskValidator.validateUnsupportedDiskStorageType(DiskStorageType.LUN, DiskStorageType.CINDER));
         }
         return true;
     }
@@ -158,6 +166,8 @@ public class CopyImageGroupCommand<T extends MoveOrCopyImageGroupParameters> ext
                 getVolumeFormatForDomain(),
                 getParameters().getVolumeType(),
                 getParameters().getUseCopyCollapse());
+        p.setDescription(getParameters().getDescription());
+        p.setDiskAlias(getParameters().getDiskAlias());
         p.setParentParameters(getParameters());
         p.setParentCommand(getActionType());
         p.setEndProcedure(EndProcedure.COMMAND_MANAGED);
@@ -178,8 +188,15 @@ public class CopyImageGroupCommand<T extends MoveOrCopyImageGroupParameters> ext
                                     getParameters().getDestImageGroupId(),
                                     getParameters().getDestinationImageId());
 
-            runInternalAction(ActionType.CopyImageGroupWithData, p);
-            return true;
+            if (isManagedBlockCopy()) {
+                Guid vds = vdsCommandsHelper.getHostForExecution(getStoragePoolId(),
+                        host -> FeatureSupported.isHostSupportsMBSCopy(host));
+                p.setVdsRunningOn(vds);
+                p.setDestinationVolumeType(VolumeType.Preallocated);
+                return runInternalAction(ActionType.CopyManagedBlockDisk, p).getSucceeded();
+            }
+
+            return runInternalAction(ActionType.CopyImageGroupWithData, p).getSucceeded();
         } else {
             VDSReturnValue vdsReturnValue;
             Guid taskId = persistAsyncTaskPlaceHolder(getParameters().getParentCommand());
@@ -342,6 +359,10 @@ public class CopyImageGroupCommand<T extends MoveOrCopyImageGroupParameters> ext
     }
 
     private boolean shouldUpdateStorageDisk() {
+        if (storageDomainDao.get(getParameters().getStorageDomainId()).getStorageType() == StorageType.MANAGED_BLOCK_STORAGE) {
+            return false;
+        }
+
         return getParameters().getOperation() == ImageOperation.Move ||
                 getParameters().getParentCommand() == ActionType.ImportVm;
     }
@@ -395,4 +416,25 @@ public class CopyImageGroupCommand<T extends MoveOrCopyImageGroupParameters> ext
         return diskImageDao.get(getParameters().getDestinationImageId()) != null;
     }
 
+    @Override
+    // Override required, as the default implementation only locks the top snapshot, the override will lock
+    // the entire disk
+    protected void lockImage() {
+        imagesHandler.updateAllDiskImageSnapshotsStatusWithCompensation(getRelevantDiskImage().getId(),
+                ImageStatus.LOCKED,
+                getRelevantDiskImage().getImageStatus(),
+                getCompensationContext());
+    }
+
+    @Override
+    // Override required, as the default implementation only unlocks the top snapshot, the override will
+    // unlock the entire disk
+    protected void unLockImage() {
+        imageDao.updateStatusOfImagesByImageGroupId(getRelevantDiskImage().getId(), ImageStatus.OK);
+    }
+
+    private boolean isManagedBlockCopy() {
+        return storageDomainDao.get(getParameters().getSourceDomainId()).getStorageType() == StorageType.MANAGED_BLOCK_STORAGE ||
+                storageDomainDao.get(getParameters().getStorageDomainId()).getStorageType() == StorageType.MANAGED_BLOCK_STORAGE;
+    }
 }

@@ -1,17 +1,17 @@
 package org.ovirt.engine.core.dao;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import javax.inject.Named;
 import javax.inject.Singleton;
 
-import org.ovirt.engine.core.common.businessentities.ActionGroup;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
 import org.ovirt.engine.core.common.businessentities.BiosType;
+import org.ovirt.engine.core.common.businessentities.CpuPinningPolicy;
 import org.ovirt.engine.core.common.businessentities.OriginType;
 import org.ovirt.engine.core.common.businessentities.QuotaEnforcementTypeEnum;
 import org.ovirt.engine.core.common.businessentities.VM;
@@ -19,6 +19,7 @@ import org.ovirt.engine.core.common.businessentities.VmDevice;
 import org.ovirt.engine.core.common.di.interceptor.InvocationLogger;
 import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.compat.Guid;
+import org.ovirt.engine.core.utils.SerializationFactory;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.SingleColumnRowMapper;
 
@@ -52,6 +53,18 @@ public class VmDaoImpl extends BaseDao implements VmDao {
     public VM getByNameForDataCenter(Guid dataCenterId, String name, Guid userID, boolean isFiltered) {
         return getCallsHandler().executeRead("GetVmByVmNameForDataCenter", vmRowMapper, getCustomMapSqlParameterSource()
                 .addValue("data_center_id", dataCenterId).addValue("vm_name", name).addValue("user_id", userID).addValue("is_filtered", isFiltered));
+    }
+
+    @Override
+    public VM getByNameAndNamespaceForCluster(Guid clusterId,
+            String name,
+            String namespace) {
+        return getCallsHandler().executeRead("getByNameAndNamespaceForCluster",
+                vmRowMapper,
+                getCustomMapSqlParameterSource()
+                        .addValue("cluster_id", clusterId)
+                        .addValue("vm_name", name)
+                        .addValue("namespace", namespace));
     }
 
     @Override
@@ -164,13 +177,11 @@ public class VmDaoImpl extends BaseDao implements VmDao {
     }
 
     @Override
-    public Map<Guid, VM> getAllRunningByVds(Guid id) {
-        List<VM> vms = getCallsHandler().executeReadList("GetVmsRunningByVds",
+    public List<VM> getMonitoredVmsRunningByVds(Guid id) {
+        return getCallsHandler().executeReadList("GetVmsRunningByVds",
                  vmMonitoringRowMapper,
                  getCustomMapSqlParameterSource()
                         .addValue("vds_id", id));
-        return vms.stream()
-                .collect(Collectors.toMap(VM::getId, Function.identity()));
     }
 
     @Override
@@ -219,13 +230,6 @@ public class VmDaoImpl extends BaseDao implements VmDao {
         return getCallsHandler().executeReadList("GetAllFromVms",
                 vmRowMapper,
                 getCustomMapSqlParameterSource().addValue("user_id", userID).addValue("is_filtered", isFiltered));
-    }
-
-    @Override
-    public List<VM> getAllForUserAndActionGroup(Guid userID, ActionGroup actionGroup) {
-        return getCallsHandler().executeReadList("GetAllFromVmsForUserAndActionGroup",
-                vmRowMapper,
-                getCustomMapSqlParameterSource().addValue("user_id", userID).addValue("action_group_id", actionGroup.getId()));
     }
 
     @Override
@@ -357,6 +361,7 @@ public class VmDaoImpl extends BaseDao implements VmDao {
         entity.setVmPoolSpiceProxy(rs.getString("vm_pool_spice_proxy"));
         entity.setClusterSpiceProxy(rs.getString("cluster_spice_proxy"));
         entity.setNextRunConfigurationExists(rs.getBoolean("next_run_config_exists"));
+        entity.setNextRunChangedFields(SerializationFactory.getDeserializer().deserializeOrCreateNew(rs.getString("changed_fields"), HashSet.class));
         entity.setPreviewSnapshot(rs.getBoolean("is_previewing_snapshot"));
         entity.setHasIllegalImages(rs.getBoolean("has_illegal_images"));
         entity.setClusterBiosType(BiosType.forValue(rs.getInt("cluster_bios_type")));
@@ -374,6 +379,10 @@ public class VmDaoImpl extends BaseDao implements VmDao {
         entity.setNumOfSockets(rs.getInt("num_of_sockets"));
         entity.setCpuPerSocket(rs.getInt("cpu_per_socket"));
         entity.setThreadsPerCpu(rs.getInt("threads_per_cpu"));
+        entity.setPriority(rs.getInt("priority"));
+        entity.setLeaseStorageDomainId(getGuid(rs, "lease_sd_id"));
+        entity.setCpuPinning(rs.getString("cpu_pinning"));
+        entity.setCpuPinningPolicy(CpuPinningPolicy.forValue(rs.getInt("cpu_pinning_policy")));
         entity.setDynamicData(VmDynamicDaoImpl.getRowMapper().mapRow(rs, rowNum));
 
         return entity;
@@ -399,5 +408,74 @@ public class VmDaoImpl extends BaseDao implements VmDao {
         return getCallsHandler().executeReadList("GetActiveVmNamesWithIsoAttached",
                 SingleColumnRowMapper.newInstance(String.class),
                 getCustomMapSqlParameterSource().addValue("iso_disk_id", isoDiskId));
+    }
+
+    private Pair<String, String> getExternalData(Guid vmId, String functionName) {
+        List<Pair<String, String>> resultRows = getCallsHandler().executeReadList(functionName,
+                (rs, i) -> new Pair<>(new String(rs.getString("data")), rs.getString("hash")),
+                getCustomMapSqlParameterSource().addValue("vm_id", vmId));
+        if (resultRows.isEmpty()) {
+            return new Pair<String, String>();
+        } else {
+            return resultRows.get(0);
+        }
+    }
+
+    @Override
+    public Pair<String, String> getTpmData(Guid vmId) {
+        return getExternalData(vmId, "GetTpmData");
+    }
+
+    @Override
+    public void updateTpmData(Guid vmId, String tpmData, String tpmDataHash) {
+        getCallsHandler().executeModification("UpdateTpmData",
+                getCustomMapSqlParameterSource()
+                        .addValue("vm_id", vmId)
+                        .addValue("tpm_data", tpmData)
+                        .addValue("tpm_hash", tpmDataHash));
+    }
+
+    @Override
+    public void deleteTpmData(Guid vmId) {
+        getCallsHandler().executeModification("DeleteTpmData",
+                getCustomMapSqlParameterSource()
+                        .addValue("vm_id", vmId));
+    }
+
+    @Override
+    public void copyTpmData(Guid sourceVmId, Guid targetVmId) {
+        getCallsHandler().executeModification("CopyTpmData",
+                getCustomMapSqlParameterSource()
+                        .addValue("source_vm_id", sourceVmId)
+                        .addValue("target_vm_id", targetVmId));
+    }
+
+    @Override
+    public Pair<String, String> getNvramData(Guid vmId) {
+        return getExternalData(vmId, "GetNvramData");
+    }
+
+    @Override
+    public void updateNvramData(Guid vmId, String nvramData, String nvramDataHash) {
+        getCallsHandler().executeModification("UpdateNvramData",
+                getCustomMapSqlParameterSource()
+                        .addValue("vm_id", vmId)
+                        .addValue("nvram_data", nvramData)
+                        .addValue("nvram_hash", nvramDataHash));
+    }
+
+    @Override
+    public void deleteNvramData(Guid vmId) {
+        getCallsHandler().executeModification("DeleteNvramData",
+                getCustomMapSqlParameterSource()
+                        .addValue("vm_id", vmId));
+    }
+
+    @Override
+    public void copyNvramData(Guid sourceVmId, Guid targetVmId) {
+        getCallsHandler().executeModification("CopyNvramData",
+                getCustomMapSqlParameterSource()
+                        .addValue("source_vm_id", sourceVmId)
+                        .addValue("target_vm_id", targetVmId));
     }
 }

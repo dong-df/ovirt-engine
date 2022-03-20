@@ -128,8 +128,6 @@ public enum HelpTag {
 
     directory_groups("directory_groups", HelpTagType.UNKNOWN), //$NON-NLS-1$
 
-    disable_cpu_thread_support("disable_cpu_thread_support", HelpTagType.WEBADMIN, "'Edit Cluster' dialog context: confirmation dialog for disabling the CPU Thread feature (related to CPU pinning):"), //$NON-NLS-1$ //$NON-NLS-2$
-
     cluster_edit_warnings("cluster_edit_warnings", HelpTagType.WEBADMIN, "'Edit Cluster' dialog context: confirmation dialog for edits that may result in non-operational hosts."), //$NON-NLS-1$ //$NON-NLS-2$
 
     disable_hooks("disable_hooks", HelpTagType.WEBADMIN, "[gluster] Clusters main tab -> Gluster Hooks sub tab: confirmation dialog for disabling selected gluster hooks."), //$NON-NLS-1$ //$NON-NLS-2$
@@ -628,6 +626,10 @@ public enum HelpTag {
 
     reboot_virtual_machine("reboot_virtual_machine", HelpTagType.WEBADMIN, "VMs main tab -> Reboot confirmation dialog"), //$NON-NLS-1$ //$NON-NLS-2$
 
+    reset_virtual_machine("reset_virtual_machine", HelpTagType.WEBADMIN, "VMs main tab -> Reset confirmation dialog"), //$NON-NLS-1$ //$NON-NLS-2$
+
+    suspend_virtual_machine("suspend_virtual_machine", HelpTagType.WEBADMIN, "VMs main tab -> Suspend confirmation dialog"), //$NON-NLS-1$ //$NON-NLS-2$
+
     remove_disk_snapshot("remove_disk_snapshot", HelpTagType.WEBADMIN, "Storage Tab > Snapshots Sub-Tab > Remove Disk Snapshot(s)"), //$NON-NLS-1$ //$NON-NLS-2$
 
     storage_qos("storage_qos", HelpTagType.UNKNOWN), //$NON-NLS-1$
@@ -674,11 +676,11 @@ public enum HelpTag {
 
     remove_host_device("remove_host_device", HelpTagType.WEBADMIN, "VMs Tab > Host Devices Sub-Tab > Remove Host Device(s)"), //$NON-NLS-1$ //$NON-NLS-2$
 
-    repin_host("repin_host", HelpTagType.WEBADMIN, "VMs Tab > Host Devices Sub-Tab > Pin to another Host"), //$NON-NLS-1$ //$NON-NLS-2$
-
     errata("errata", HelpTagType.WEBADMIN, "System tree > Errata"), //$NON-NLS-1$ //$NON-NLS-2$
 
-    reset_brick("reset_brick", HelpTagType.WEBADMIN, "Volumes Tab > Bricks Sub-Tab > Reset Bricks"); //$NON-NLS-1$ //$NON-NLS-2$
+    reset_brick("reset_brick", HelpTagType.WEBADMIN, "Volumes Tab > Bricks Sub-Tab > Reset Bricks"), //$NON-NLS-1$ //$NON-NLS-2$
+
+    create_iso_domain("create_iso_domain", HelpTagType.WEBADMIN, "Storage Tab > New Domain > Confirm ISO domain type"); //$NON-NLS-1$ //$NON-NLS-2$
 
     public final String name;
 

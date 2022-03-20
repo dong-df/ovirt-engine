@@ -11,6 +11,7 @@ import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.VdcObjectType;
 import org.ovirt.engine.core.common.action.SetVmTicketParameters;
 import org.ovirt.engine.core.common.businessentities.ActionGroup;
+import org.ovirt.engine.core.common.businessentities.OriginType;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VMStatus;
 import org.ovirt.engine.core.common.businessentities.aaa.DbUser;
@@ -142,7 +143,7 @@ public class SetVmTicketCommand<T extends SetVmTicketParameters> extends VmOpera
         }
 
         VmManager vmManager = resourceManager.getVmManager(getParameters().getVmId());
-        vmManager.lock();
+        vmManager.lockVm();
 
         try {
             // Update the dynamic information of the virtual machine in memory (we need it
@@ -177,7 +178,7 @@ public class SetVmTicketCommand<T extends SetVmTicketParameters> extends VmOpera
                 }
             }
         } finally {
-            vmManager.unlock();
+            vmManager.unlockVm();
         }
     }
 
@@ -206,6 +207,11 @@ public class SetVmTicketCommand<T extends SetVmTicketParameters> extends VmOpera
      */
     private void sendTicket() {
         // Send the ticket to the virtual machine:
+        if (getVm().getOrigin() == OriginType.KUBEVIRT) {
+            setActionReturnValue(ticket);
+            setSucceeded(true);
+            return;
+        }
         final DbUser user = getCurrentUser();
         final boolean sent =
                 runVdsCommand(VDSCommandType.SetVmTicket,
@@ -213,7 +219,7 @@ public class SetVmTicketCommand<T extends SetVmTicketParameters> extends VmOpera
                                 ticket, getParameters().getValidTime(),
                                 user.getLoginName(), user.getId(),
                                 getParameters().getGraphicsType(), getVm().getConsoleDisconnectAction(),
-                                getVm().getCompatibilityVersion())).getSucceeded();
+                                getVm().getCompatibilityVersion(), getVm().getConsoleDisconnectActionDelay())).getSucceeded();
 
         // Return the ticket only if sending it to the virtual machine succeeded:
         if (sent) {

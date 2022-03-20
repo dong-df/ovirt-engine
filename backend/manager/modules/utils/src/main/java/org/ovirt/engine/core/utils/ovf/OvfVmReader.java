@@ -2,17 +2,22 @@ package org.ovirt.engine.core.utils.ovf;
 
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang.StringUtils;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
+import org.ovirt.engine.core.common.businessentities.CpuPinningPolicy;
 import org.ovirt.engine.core.common.businessentities.Label;
 import org.ovirt.engine.core.common.businessentities.LabelBuilder;
+import org.ovirt.engine.core.common.businessentities.NumaTuneMode;
 import org.ovirt.engine.core.common.businessentities.Snapshot;
 import org.ovirt.engine.core.common.businessentities.Snapshot.SnapshotStatus;
 import org.ovirt.engine.core.common.businessentities.Snapshot.SnapshotType;
 import org.ovirt.engine.core.common.businessentities.VM;
+import org.ovirt.engine.core.common.businessentities.VmNumaNode;
 import org.ovirt.engine.core.common.businessentities.VmStatic;
 import org.ovirt.engine.core.common.businessentities.network.VmNetworkInterface;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
@@ -55,6 +60,9 @@ public class OvfVmReader extends OvfOvirtReader {
         consumeReadProperty(content, IS_INITIALIZED, val -> _vm.setInitialized(Boolean.parseBoolean(val)));
         consumeReadProperty(content, QUOTA_ID, val -> _vm.setQuotaId(new Guid(val)));
         consumeReadProperty(content, CPU_PINNING, _vm::setCpuPinning);
+        if (!StringUtils.isBlank(_vm.getCpuPinning())) {
+            _vm.setCpuPinningPolicy(CpuPinningPolicy.MANUAL);
+        }
 
         OvfLogEventHandler<VmStatic> handler = new VMStaticOvfLogHandler(_vm.getStaticData());
         // Gets a list of all the aliases of the fields that should be logged in
@@ -141,11 +149,41 @@ public class OvfVmReader extends OvfOvirtReader {
         return null;
     }
 
+
+    protected void readNumaNodeListSection(XmlNode section) {
+        XmlNodeList list = selectNodes(section, "NumaNode");
+        List<VmNumaNode> vmNumaNodes = new ArrayList<>();
+        _vm.setvNumaNodeList(vmNumaNodes);
+
+        for (XmlNode node : list) {
+            VmNumaNode vmNumaNode = new VmNumaNode();
+            XmlNode id = selectSingleNode(node, "id", _xmlNS);
+            if (id != null) {
+                vmNumaNode.setId(new Guid(id.innerText));
+            }
+            vmNumaNode.setIndex(Integer.valueOf(selectSingleNode(node, "Index", _xmlNS).innerText));
+            vmNumaNode.setCpuIds(readIntegerList(node, "cpuIdList"));
+            vmNumaNode.setVdsNumaNodeList(readIntegerList(node, "vdsNumaNodeList"));
+            vmNumaNode.setMemTotal(Long.valueOf(selectSingleNode(node, "MemTotal", _xmlNS).innerText));
+            XmlNode numaTuneMode = selectSingleNode(node, NUMA_TUNE_MODE, _xmlNS);
+            if (numaTuneMode != null) {
+                vmNumaNode.setNumaTuneMode(NumaTuneMode.forValue(numaTuneMode.innerText));
+            }
+            vmNumaNodes.add(vmNumaNode);
+        }
+    }
+
+
     @Override
     protected void readSnapshotsSection(XmlNode section) {
         XmlNodeList list = selectNodes(section, "Snapshot");
         List<Snapshot> snapshots = new ArrayList<>();
         _vm.setSnapshots(snapshots);
+
+        Map<Guid, List<DiskImage>> snapshotIdToDiskImagesMap = new HashMap<>();
+
+        _images.forEach(diskImage -> snapshotIdToDiskImagesMap.computeIfAbsent(diskImage.getImage().getSnapshotId(),
+                imagesList -> new ArrayList<>()).add(diskImage));
 
         for (XmlNode node : list) {
             XmlNode vmConfiguration = selectSingleNode(node, "VmConfiguration", _xmlNS);
@@ -168,6 +206,8 @@ public class OvfVmReader extends OvfOvirtReader {
                 snapshot.setCreationDate(creationDate);
             }
 
+            setDiskImageActiveBySnapshotType(snapshotIdToDiskImagesMap, snapshot);
+
             snapshot.setVmConfiguration(vmConfiguration == null
                     ? null : new String(Base64.decodeBase64(vmConfiguration.innerText)));
 
@@ -178,6 +218,18 @@ public class OvfVmReader extends OvfOvirtReader {
 
             snapshots.add(snapshot);
         }
+    }
+
+    private void setDiskImageActiveBySnapshotType(Map<Guid, List<DiskImage>> diskImageMap, Snapshot snapshot) {
+        List<DiskImage> diskImages = diskImageMap.get(snapshot.getId());
+        if (diskImages == null) {
+            return;
+        }
+
+        boolean isActiveSnapshotType = snapshot.getType() == SnapshotType.ACTIVE || snapshot.getType() == SnapshotType.PREVIEW;
+
+        diskImages.forEach(diskImage -> diskImage.setActive(isActiveSnapshotType));
+        diskImageMap.remove(snapshot.getId());
     }
 
     @Override

@@ -7,6 +7,7 @@ import java.util.List;
 import org.gwtbootstrap3.client.ui.constants.Styles;
 import org.ovirt.engine.core.compat.StringHelper;
 import org.ovirt.engine.ui.common.idhandler.HasElementId;
+import org.ovirt.engine.ui.common.widget.HasEnabledWithHints;
 
 import com.google.gwt.core.client.GWT;
 import com.google.gwt.core.client.Scheduler;
@@ -49,7 +50,7 @@ import com.google.gwt.user.client.ui.Widget;
  *            List box item type.
  */
 public class ListModelListBox<T> extends Composite implements EditorWidget<T, TakesValueEditor<T>>,
-    HasConstrainedValue<T>, HasHandlers, HasElementId, HasEnabled {
+    HasConstrainedValue<T>, HasHandlers, HasElementId, HasEnabled, HasEnabledWithHints {
 
     protected static final String DATA_TOGGLE = "data-toggle"; //$NON-NLS-1$
     protected static final String DROPDOWN_MENU = "dropdownMenu"; //$NON-NLS-1$
@@ -220,7 +221,7 @@ public class ListModelListBox<T> extends Composite implements EditorWidget<T, Ta
         } else {
             boolean found = false;
             for (T listItem: this.valueList) {
-                if (listItem == value || (listItem != null && listItem.equals(value))) {
+                if (listItem == value || listItem != null && listItem.equals(value)) {
                     //Found the value, show the right thing on the button.
                     updateCurrentValue(value, fireEvents);
                     found = true;
@@ -236,14 +237,8 @@ public class ListModelListBox<T> extends Composite implements EditorWidget<T, Ta
 
     private void updateCurrentValue(final T value, boolean fireEvents) {
         setChanging(!ignoreChanging());
+        updateTitle(value);
         String renderedValue = renderer.render(value);
-        if (StringHelper.isNullOrEmpty(renderedValue)) {
-            renderedValue = NBSP;
-            dropdownButton.setTitle(""); //$NON-NLS-1$
-        } else {
-            renderedValue = SafeHtmlUtils.htmlEscape(renderedValue);
-            dropdownButton.setTitle(renderedValue);
-        }
         ((Element)dropdownButton.getElement().getChild(0)).setInnerHTML(renderedValue);
         Scheduler.get().scheduleDeferred(() -> listPanel.setSelected(value));
         currentValue = value;
@@ -254,6 +249,21 @@ public class ListModelListBox<T> extends Composite implements EditorWidget<T, Ta
             });
         } else {
             setChanging(false);
+        }
+    }
+
+    private void updateTitle(T value) {
+        if (!dropdownButton.isEnabled()) {
+            return;
+        }
+
+        String renderedValue = renderer.render(value);
+        if (StringHelper.isNullOrEmpty(renderedValue)) {
+            renderedValue = NBSP;
+            dropdownButton.setTitle(""); //$NON-NLS-1$
+        } else {
+            renderedValue = SafeHtmlUtils.htmlEscape(renderedValue);
+            dropdownButton.setTitle(renderedValue);
         }
     }
 
@@ -314,8 +324,15 @@ public class ListModelListBox<T> extends Composite implements EditorWidget<T, Ta
         if (!enabled) {
             dropdownButton.addStyleName(Styles.DISABLED);
         } else {
+            updateTitle(currentValue);
             dropdownButton.removeStyleName(Styles.DISABLED);
         }
+    }
+
+    @Override
+    public void disable(String disabilityHint) {
+        setEnabled(false);
+        dropdownButton.setTitle(disabilityHint);
     }
 
     @Override
@@ -342,6 +359,10 @@ public class ListModelListBox<T> extends Composite implements EditorWidget<T, Ta
     public void setElementId(String elementId) {
         dropdownButton.getElement().setAttribute(ID, elementId);
         listPanel.setAriaLabelledBy(elementId);
+    }
+
+    public void addButtonStyleName(String styleName) {
+        dropdownButton.addStyleName(styleName);
     }
 
     protected Renderer<T> getRenderer() {
@@ -406,7 +427,7 @@ public class ListModelListBox<T> extends Composite implements EditorWidget<T, Ta
                             item.setSelected();
                         }
                     } else {
-                        if (item.getValue() == value || (item.getValue() != null && item.getValue().equals(value))) {
+                        if (item.getValue() == value || item.getValue() != null && item.getValue().equals(value)) {
                             item.setSelected();
                         }
                     }

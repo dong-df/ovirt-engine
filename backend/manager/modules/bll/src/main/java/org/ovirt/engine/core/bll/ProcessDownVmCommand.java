@@ -27,6 +27,7 @@ import org.ovirt.engine.core.common.businessentities.Snapshot;
 import org.ovirt.engine.core.common.businessentities.Snapshot.SnapshotType;
 import org.ovirt.engine.core.common.businessentities.VMStatus;
 import org.ovirt.engine.core.common.businessentities.VmDevice;
+import org.ovirt.engine.core.common.businessentities.VmNumaNode;
 import org.ovirt.engine.core.common.businessentities.VmPayload;
 import org.ovirt.engine.core.common.businessentities.VmPool;
 import org.ovirt.engine.core.common.businessentities.VmPoolType;
@@ -40,9 +41,14 @@ import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dao.DbUserDao;
 import org.ovirt.engine.core.dao.SnapshotDao;
 import org.ovirt.engine.core.dao.VmDeviceDao;
+import org.ovirt.engine.core.dao.VmNumaNodeDao;
 import org.ovirt.engine.core.dao.VmPoolDao;
+import org.ovirt.engine.core.dao.network.VmNicDao;
 import org.ovirt.engine.core.utils.lock.EngineLock;
 import org.ovirt.engine.core.utils.lock.LockManager;
+import org.ovirt.engine.core.vdsbroker.ResourceManager;
+import org.ovirt.engine.core.vdsbroker.VdsManager;
+import org.ovirt.engine.core.vdsbroker.VmManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,6 +66,8 @@ public class ProcessDownVmCommand<T extends ProcessDownVmParameters> extends Com
     @Inject
     private NetworkDeviceHelper networkDeviceHelper;
     @Inject
+    private ResourceManager resourceManager;
+    @Inject
     private SnapshotsManager snapshotsManager;
     @Inject
     private LockManager lockManager;
@@ -76,6 +84,10 @@ public class ProcessDownVmCommand<T extends ProcessDownVmParameters> extends Com
     private ManagedBlockStorageCommandUtil managedBlockStorageCommandUtil;
     @Inject
     private VmHandler vmHandler;
+    @Inject
+    private VmNicDao vmNicDao;
+    @Inject
+    private VmNumaNodeDao vmNumaNodeDao;
 
     protected ProcessDownVmCommand(Guid commandId) {
         super(commandId);
@@ -132,6 +144,10 @@ public class ProcessDownVmCommand<T extends ProcessDownVmParameters> extends Com
 
         if (!removingVmPool) {
             removeStatelessVmUnmanagedDevices();
+            VmManager vmManager = resourceManager.getVmManager(getVmId(), false);
+            if (vmManager != null) {
+                vmManager.rebootCleanup();
+            }
 
             boolean vmHasDirectPassthroughDevices = releaseUsedHostDevices();
 
@@ -141,7 +157,12 @@ public class ProcessDownVmCommand<T extends ProcessDownVmParameters> extends Com
             refreshHostIfNeeded(hostId == null ? alternativeHostsList : hostId);
         }
 
+        VdsManager vdsManager = resourceManager.getVdsManager(getParameters().getHostId(), false);
+        if (vdsManager != null) {
+            vdsManager.unpinVmCpus(getVm().getId());
+        }
         managedBlockStorageCommandUtil.disconnectManagedBlockStorageDisks(getVm(), vmHandler);
+        vmNicDao.setVmInterfacesSyncedForVm(getVmId());
     }
 
     private boolean releaseUsedHostDevices() {
@@ -235,12 +256,14 @@ public class ProcessDownVmCommand<T extends ProcessDownVmParameters> extends Com
             EngineLock updateVmLock = createUpdateVmLock();
             if (lockManager.acquireLock(updateVmLock).isAcquired()) {
                 snapshotDao.remove(runSnap.getId());
+                List<VmNumaNode> vmNumaNodeList = vmNumaNodeDao.getAllVmNumaNodeByVmId(getVmId());
                 Date originalCreationDate = getVm().getVmCreationDate();
                 snapshotsManager.updateVmFromConfiguration(getVm(), runSnap.getVmConfiguration());
                 // override creation date because the value in the config is the creation date of the config, not the vm
                 getVm().setVmCreationDate(originalCreationDate);
+                boolean isNumaChanged = !getVm().getvNumaNodeList().equals(vmNumaNodeList);
 
-                ActionReturnValue result = runInternalAction(ActionType.UpdateVm, createUpdateVmParameters(),
+                ActionReturnValue result = runInternalAction(ActionType.UpdateVm, createUpdateVmParameters(isNumaChanged),
                         ExecutionHandler.createInternalJobContext(updateVmLock));
                 if (result.getActionReturnValue() != null && result.getActionReturnValue()
                         .equals(ActionType.UpdateVmVersion)) { // Template-version changed
@@ -258,18 +281,19 @@ public class ProcessDownVmCommand<T extends ProcessDownVmParameters> extends Com
                 UpdateVmCommand.getSharedLocksForUpdateVm(getVm()));
     }
 
-    private VmManagementParametersBase createUpdateVmParameters() {
+    private VmManagementParametersBase createUpdateVmParameters(boolean isNumaChanged) {
         // clear non updateable fields got from config
         getVm().setExportDate(null);
         getVm().setOvfVersion(null);
 
         VmManagementParametersBase updateVmParams = new VmManagementParametersBase(getVm());
         updateVmParams.setUpdateWatchdog(true);
+        updateVmParams.setTpmEnabled(false);
         updateVmParams.setSoundDeviceEnabled(false);
-        updateVmParams.setBalloonEnabled(false);
         updateVmParams.setVirtioScsiEnabled(false);
         updateVmParams.setClearPayload(true);
         updateVmParams.setUpdateRngDevice(true);
+        updateVmParams.setUpdateNuma(isNumaChanged);
         for (GraphicsType graphicsType : GraphicsType.values()) {
             updateVmParams.getGraphicsDevices().put(graphicsType, null);
         }
@@ -281,9 +305,6 @@ public class ProcessDownVmCommand<T extends ProcessDownVmParameters> extends Com
                     break;
                 case SOUND:
                     updateVmParams.setSoundDeviceEnabled(true);
-                    break;
-                case BALLOON:
-                    updateVmParams.setBalloonEnabled(true);
                     break;
                 case CONTROLLER:
                     if (VmDeviceType.VIRTIOSCSI.getName().equals(device.getDevice())) {
@@ -304,6 +325,12 @@ public class ProcessDownVmCommand<T extends ProcessDownVmParameters> extends Com
                 case GRAPHICS:
                     updateVmParams.getGraphicsDevices().put(GraphicsType.fromString(device.getDevice()),
                             new GraphicsDevice(device));
+                    break;
+                case TPM:
+                    updateVmParams.setTpmEnabled(true);
+                    break;
+                case MDEV:
+                    updateVmParams.getMdevs().put(device.getDeviceId(), device.getSpecParams());
                     break;
                 default:
             }

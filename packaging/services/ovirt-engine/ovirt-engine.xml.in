@@ -6,7 +6,7 @@
 {% set HTTPS_PORT = config.getinteger('ENGINE_HTTPS_PORT') %}
 {% endif %}
 
-<server xmlns="urn:jboss:domain:4.0">
+<server xmlns="urn:jboss:domain:11.0">
 
   <extensions>
     <extension module="org.jboss.as.clustering.infinispan"/>
@@ -33,19 +33,6 @@
   <system-properties>
     <!-- Timeout for application deployment: -->
     <property name="jboss.as.management.blocking.timeout" value="{{ config.getinteger('ENGINE_JBOSS_BLOCKING_TIMEOUT') }}"/>
-
-    <!-- Don't let quartz call home to check for updates: -->
-    <property name="org.quartz.scheduler.skipUpdateCheck" value="true"/>
-
-    <!-- Configure quartz thread pool: -->
-    <property name="org.quartz.threadPool.class" value="{{ config.get('ENGINE_SCHEDULER_POOL_CLASS') }}"/>
-    <property name="org.quartz.threadPool.threadCount" value="{{ config.get('ENGINE_SCHEDULER_POOL_THREAD_SIZE') }}"/>
-    {% if config.get('ENGINE_SCHEDULER_POOL_CLASS') == "org.ovirt.engine.core.utils.timer.SchedulerThreadPool" %}
-    <property name="org.quartz.threadPool.queueSize" value="{{ config.get('ENGINE_SCHEDULER_POOL_QUEUE_SIZE') }}"/>
-    <property name="org.quartz.threadPool.reject" value="{{ config.get('ENGINE_SCHEDULER_POOL_REJECT_POLICY') }}"/>
-    {% endif %}
-    <property name="org.quartz.jobStore.misfireThreshold" value="60000"/>
-    <property name="org.quartz.jobStore.class" value="org.quartz.simpl.RAMJobStore"/>
   </system-properties>
 
   <management>
@@ -93,7 +80,8 @@
       <native-interface security-realm="management">
         <socket-binding native="management-native"/>
       </native-interface>
-      <http-interface security-realm="management" http-upgrade-enabled="true">
+      <http-interface security-realm="management">
+        <http-upgrade enabled="true"/>
         <socket-binding http="management"/>
       </http-interface>
     </management-interfaces>
@@ -107,6 +95,56 @@
           module="org.ovirt.engine.core.logger">
         <level name="ALL"/>
       </custom-handler>
+
+      {% if config.getboolean('SYSLOG_HANDLER_ENABLED') %}
+      <custom-handler name="SYSLOG" class="org.jboss.logmanager.handlers.SyslogHandler" module="org.jboss.logmanager">
+        <level name="{{ config.get('SYSLOG_HANDLER_LEVEL') }}"/>
+        {% if config.get('SYSLOG_HANDLER_ENCODING') != "" %}
+        <encoding value="{{ config.get('SYSLOG_HANDLER_ENCODING') }}"/>
+        {% endif %}
+        {% if config.get('SYSLOG_HANDLER_FORMATTER_PATTERN') != "" %}
+        <formatter>
+            <pattern-formatter pattern="{{ config.get('SYSLOG_HANDLER_FORMATTER_PATTERN') }}"/>
+        </formatter>
+        {% endif %}
+        <properties>
+            <property name="serverHostname" value="{{ config.get('SYSLOG_HANDLER_SERVER_HOSTNAME') }}"/>
+            {% if config.get('SYSLOG_HANDLER_PORT') != "" %}
+            <property name="port" value="{{ config.get('SYSLOG_HANDLER_PORT') }}"/>
+            {% endif %}
+            {% if config.get('SYSLOG_HANDLER_FACILITY') != "" %}
+            <property name="facility" value="{{ config.get('SYSLOG_HANDLER_FACILITY') }}"/>
+            {% endif %}
+            {% if config.get('SYSLOG_HANDLER_APP_NAME') != "" %}
+            <property name="appName" value="{{ config.get('SYSLOG_HANDLER_APP_NAME') }}"/>
+            {% endif %}
+            {% if config.get('SYSLOG_HANDLER_HOSTNAME') != "" %}
+            <property name="hostname" value="{{ config.get('SYSLOG_HANDLER_HOSTNAME') }}"/>
+            {% endif %}
+            {% if config.get('SYSLOG_HANDLER_SYSLOG_TYPE') != "" %}
+            <property name="syslogType" value="{{ config.get('SYSLOG_HANDLER_SYSLOG_TYPE') }}"/>
+            {% endif %}
+            {% if config.get('SYSLOG_HANDLER_PROTOCOL') != "" %}
+            <property name="protocol" value="{{ config.get('SYSLOG_HANDLER_PROTOCOL') }}"/>
+            {% endif %}
+            {% if config.get('SYSLOG_HANDLER_MESSAGE_DELIMITER') != "" %}
+            <property name="messageDelimiter" value="{{ config.get('SYSLOG_HANDLER_MESSAGE_DELIMITER') }}"/>
+            {% endif %}
+            {% if config.get('SYSLOG_HANDLER_USE_MESSAGE_DELIMITER') != "" %}
+            <property name="useMessageDelimiter" value="{{ config.get('SYSLOG_HANDLER_USE_MESSAGE_DELIMITER') }}"/>
+            {% endif %}
+            {% if config.get('SYSLOG_HANDLER_USE_COUNTING_FRAMING') != "" %}
+            <property name="useCountingFraming" value="{{ config.get('SYSLOG_HANDLER_USE_COUNTING_FRAMING') }}"/>
+            {% endif %}
+            {% if config.get('SYSLOG_HANDLER_TRUNCATE') != "" %}
+            <property name="truncate" value="{{ config.get('SYSLOG_HANDLER_TRUNCATE') }}"/>
+            {% endif %}
+            {% if config.get('SYSLOG_HANDLER_MAX_LENGTH') != "" %}
+            <property name="maxLength" value="{{ config.get('SYSLOG_HANDLER_MAX_LENGTH') }}"/>
+            {% endif %}
+          </properties>
+      </custom-handler>
+      {% endif %}
 
       <formatter name="DEFAULT">
         <pattern-formatter pattern="%d{yyyy-MM-dd HH:mm:ss,SSSX} %-5p [%c] (%t) %s%E%n"/>
@@ -185,6 +223,9 @@
           {% if config.getboolean('ENGINE_LOG_TO_CONSOLE') %}
           <handler name="CONSOLE"/>
           {% endif %}
+          {% if config.getboolean('SYSLOG_HANDLER_ENABLED') and config.getboolean('ENGINE_LOG_TO_SYSLOG') %}
+          <handler name="SYSLOG"/>
+          {% endif %}
         </handlers>
       </logger>
       <!-- Loggers for the UI -->
@@ -192,6 +233,9 @@
         <level name="INFO"/>
         <handlers>
           <handler name="UI"/>
+          {% if config.getboolean('SYSLOG_HANDLER_ENABLED') and config.getboolean('UI_LOG_TO_SYSLOG') %}
+          <handler name="SYSLOG"/>
+          {% endif %}
         </handlers>
       </logger>
        <logger category="org.ovirt.engine.core.bll">
@@ -206,6 +250,9 @@
         <handlers>
           <handler name="ovirt-logger"/>
           <handler name="SERVER"/>
+          {% if config.getboolean('SYSLOG_HANDLER_ENABLED') and config.getboolean('SERVER_LOG_TO_SYSLOG') %}
+          <handler name="SYSLOG"/>
+          {% endif %}
         </handlers>
       </root-logger>
     </subsystem>
@@ -472,7 +519,7 @@
       <buffer-pool name="default"/>
     </subsystem>
 
-    <subsystem xmlns="urn:jboss:domain:infinispan:4.0">
+    <subsystem xmlns="urn:jboss:domain:infinispan:9.0">
       <cache-container name="server" default-cache="default" module="org.wildfly.clustering.server">
         <local-cache name="default">
           <transaction mode="BATCH"/>
@@ -507,7 +554,17 @@
           default-cache="timeout-base">
         <local-cache name="timeout-base">
           <transaction mode="NONE"/>
-          <eviction max-entries="10000"/>
+          <object-memory size="10000"/>
+          <expiration interval="60000"/>
+        </local-cache>
+        <local-cache name="dashboard">
+          <transaction mode="NONE"/>
+          <object-memory size="10000"/>
+          <expiration interval="60000"/>
+        </local-cache>
+        <local-cache name="inventory">
+          <transaction mode="NONE"/>
+          <object-memory size="10000"/>
           <expiration interval="60000"/>
         </local-cache>
       </cache-container>
@@ -542,9 +599,9 @@
 
     <subsystem xmlns="urn:jboss:domain:naming:2.0"/>
 
-    <subsystem xmlns="urn:jboss:domain:remoting:3.0">
+    <subsystem xmlns="urn:jboss:domain:remoting:4.0">
       <endpoint worker="default"/>
-      <http-connector name="http-remoting-connector" connector-ref="default" security-realm="ApplicationRealm"/>
+      <http-connector name="http-remoting-connector" connector-ref="http-remoting" security-realm="ApplicationRealm"/>
     </subsystem>
 
     <subsystem xmlns="urn:jboss:domain:resource-adapters:4.0"/>
@@ -616,6 +673,9 @@
       <buffer-cache name="default"/>
 
       <server name="default-server">
+       <http-listener
+            name="http-remoting"
+            socket-binding="http-remoting"/>
         <!-- Listeners defined in the engine configuration: -->
         {% if config.getboolean('ENGINE_HTTP_ENABLED') %}
         <http-listener
@@ -704,5 +764,6 @@
     <socket-binding name="txn-status-manager" port="8705"/>
     <socket-binding name="management" port="8706" interface="{{ config.get('ENGINE_JMX_INTERFACE') }}"/>
     <socket-binding name="management-native" port="8707" interface="{{ config.get('ENGINE_JMX_INTERFACE') }}"/>
+    <socket-binding name="http-remoting" port="8708"/>
   </socket-binding-group>
 </server>

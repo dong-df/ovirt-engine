@@ -66,6 +66,16 @@
             margin-bottom: 10px
         }
 
+        .infoIcon {
+        float: left;
+        padding-left: 2px;
+        display: inline-block;
+        }
+
+        .inline {
+        display: inline-block;
+        }
+
     </ui:style>
 
     <d:SimpleDialogPanel width="750px" height="435px">
@@ -107,6 +117,11 @@
                                     </b:Column>
                                 </b:Row>
                                 <b:Row>
+                                    <b:Column size="SM_12">
+                                        <ge:EntityModelCheckBoxEditor ui:field="reconfigureGlusterEditor" usePatternFly="true"/>
+                                    </b:Column>
+                                </b:Row>
+                                <b:Row>
                                     <ge:StringEntityModelLabelEditor ui:field="hostVersionEditor" usePatternFly="true" labelColSize="SM_4" widgetColSize="SM_8"/>
                                 </b:Row>
                                 <b:Row>
@@ -115,6 +130,13 @@
                                 <b:Row>
                                     <b:Column size="SM_12">
                                         <ge:EntityModelCheckBoxEditor ui:field="activateHostAfterInstallEditor" usePatternFly="true"/>
+                                    </b:Column>
+                                </b:Row>
+                                <b:Row>
+                                    <b:Column size="SM_12">
+                                        <ge:EntityModelCheckBoxEditor ui:field="rebootHostAfterInstallEditor" usePatternFly="true"
+                                                                      addStyleNames="{style.inline} {style.floatLeft}"/>
+                                        <d:InfoIcon ui:field="hostRebootInfoIcon" addStyleNames="{style.infoIcon}"/>
                                     </b:Column>
                                 </b:Row>
                             </b:Container>
@@ -132,6 +154,26 @@
                                                               label="{constants.hostedEngineDeploymentAction}"
                                                               labelColSize="SM_6"
                                                               widgetColSize="SM_6" />
+                                </b:Row>
+                            </b:Container>
+                        </t:content>
+                    </t:DialogTab>
+                </t:tab>
+                <t:tab>
+                    <t:DialogTab ui:field="replaceHostTab" label="{constants.replaceHostLabel}" visible="false">
+                        <t:content>
+                            <b:Container fluid="true">
+                                <b:Row addStyleNames="{style.topElement}">
+                                    <e:ListModelListBoxEditor ui:field="replaceHostEditor"
+                                                              addStyleNames="{style.floatLeft}"
+                                                              usePatternFly="true"
+                                                              label="{constants.replaceHostAction}"
+                                                              labelColSize="SM_6"
+                                                              widgetColSize="SM_6" />
+                                </b:Row>
+                                <b:Row>
+                                    <ge:StringEntityModelTextBoxEditor ui:field="fqdnEditor" usePatternFly="true"
+                                                                       labelColSize="SM_4" widgetColSize="SM_8"/>
                                 </b:Row>
                             </b:Container>
                         </t:content>

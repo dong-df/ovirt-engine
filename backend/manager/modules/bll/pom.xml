@@ -4,7 +4,7 @@
   <parent>
     <groupId>org.ovirt.engine.core</groupId>
     <artifactId>manager-modules</artifactId>
-    <version>4.4.0-SNAPSHOT</version>
+    <version>4.5.0.1-SNAPSHOT</version>
   </parent>
 
   <artifactId>bll</artifactId>
@@ -40,10 +40,10 @@
     <dependency>
       <groupId>org.ovirt.engine.api</groupId>
       <artifactId>ovirt-engine-extensions-api</artifactId>
-      <version>${org.ovirt.engine.api.ovirt-engine-extensions-api.version}</version>
+      <version>${ovirt-engine-extensions-api.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.ovirt.engine.extensions</groupId>
+      <groupId>org.ovirt.engine.extension.aaa</groupId>
       <artifactId>builtin</artifactId>
       <version>${engine.version}</version>
     </dependency>
@@ -130,14 +130,25 @@
     <dependency>
       <groupId>org.apache.xmlrpc</groupId>
       <artifactId>xmlrpc-client</artifactId>
+      <exclusions>
+        <!-- Note: avoid junit 3 as a dependency -->
+        <exclusion>
+          <artifactId>junit</artifactId>
+          <groupId>junit</groupId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
-      <groupId>org.codehaus.jackson</groupId>
-      <artifactId>jackson-core-asl</artifactId>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.codehaus.jackson</groupId>
-      <artifactId>jackson-mapper-asl</artifactId>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId>
+      <artifactId>jackson-datatype-jsr310</artifactId>
     </dependency>
     <dependency>
       <groupId>javax.enterprise</groupId>
@@ -145,21 +156,14 @@
       <scope>provided</scope>
     </dependency>
     <dependency>
-      <groupId>com.netflix.hystrix</groupId>
-      <artifactId>hystrix-core</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.netflix.archaius</groupId>
-      <artifactId>archaius-core</artifactId>
-    </dependency>
-    <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
       <scope>provided</scope>
     </dependency>
     <dependency>
-      <groupId>io.reactivex</groupId>
-      <artifactId>rxjava</artifactId>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-jdk14</artifactId>
+      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>${engine.groupId}</groupId>
@@ -173,6 +177,14 @@
       <artifactId>reflections</artifactId>
       <version>${reflections.version}</version>
       <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.ovirt.java-client-kubevirt</groupId>
+      <artifactId>java-client-kubevirt</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.glassfish</groupId>
+      <artifactId>jakarta.el</artifactId>
     </dependency>
   </dependencies>
 
@@ -211,6 +223,12 @@
            <ENGINE_DEFAULTS>${basedir}/src/test/resources/engine.conf.defaults</ENGINE_DEFAULTS>
            <ENGINE_VARS>${basedir}/src/test/resources/engine.conf</ENGINE_VARS>
          </environmentVariables>
+         <systemProperties>
+           <property>
+             <name>java.util.logging.config.file</name>
+             <value>src/test/resources/logging.properties</value>
+           </property>
+         </systemProperties>
         </configuration>
       </plugin>
         <plugin>

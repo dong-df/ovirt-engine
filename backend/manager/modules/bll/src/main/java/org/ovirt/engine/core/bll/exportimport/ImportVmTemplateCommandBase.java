@@ -18,6 +18,7 @@ import org.ovirt.engine.core.bll.quota.QuotaConsumptionParameter;
 import org.ovirt.engine.core.bll.quota.QuotaStorageConsumptionParameter;
 import org.ovirt.engine.core.bll.quota.QuotaStorageDependent;
 import org.ovirt.engine.core.bll.storage.utils.BlockStorageDiscardFunctionalityHelper;
+import org.ovirt.engine.core.bll.utils.CompatibilityVersionUpdater;
 import org.ovirt.engine.core.bll.validator.VmNicMacsUtils;
 import org.ovirt.engine.core.bll.validator.storage.DiskImagesValidator;
 import org.ovirt.engine.core.bll.validator.storage.StorageDomainValidator;
@@ -69,8 +70,9 @@ public abstract class ImportVmTemplateCommandBase<T extends ImportVmTemplatePara
     protected final Map<Guid, Guid> originalDiskIdMap = new HashMap<>();
     protected final Map<Guid, Guid> originalDiskImageIdMap = new HashMap<>();
 
-    private Version effectiveCompatibilityVersion;
     private Guid sourceTemplateId;
+
+    private Runnable logOnExecuteEndMethod = () -> {};
 
     public ImportVmTemplateCommandBase(T parameters, CommandContext commandContext) {
         super(parameters, commandContext);
@@ -81,24 +83,54 @@ public abstract class ImportVmTemplateCommandBase<T extends ImportVmTemplatePara
         setStorageDomainId(parameters.getStorageDomainId());
     }
 
-    @Override
-    public void init() {
-        super.init();
-        setEffectiveCompatibilityVersion(CompatibilityVersionUtils.getEffective(getVmTemplate(), this::getCluster));
-        importUtils.updateGraphicsDevices(getVmTemplate(), getEffectiveCompatibilityVersion());
-        vmHandler.updateMaxMemorySize(getVmTemplate(), getEffectiveCompatibilityVersion());
-    }
-
     public ImportVmTemplateCommandBase(Guid commandId) {
         super(commandId);
     }
 
     public Version getEffectiveCompatibilityVersion() {
-        return effectiveCompatibilityVersion;
+        return CompatibilityVersionUtils.getEffective(getVmTemplate(), this::getCluster);
     }
 
-    public void setEffectiveCompatibilityVersion(Version effectiveCompatibilityVersion) {
-        this.effectiveCompatibilityVersion = effectiveCompatibilityVersion;
+    protected void updateTemplateVersion() {
+        Version newVersion = CompatibilityVersionUtils.getEffective(getVmTemplate(), this::getCluster);
+
+        // A Template can have custom compatibility version that is lower than
+        // the DC version. In that case, the custom version has to be updated.
+        if (newVersion.less(getCluster().getCompatibilityVersion())) {
+            var dataCenterVersion = getStoragePool().getCompatibilityVersion();
+            if (newVersion.less(dataCenterVersion)) {
+                Version originalVersion = newVersion;
+                logOnExecuteEnd(() -> {
+                    addCustomValue("OriginalVersion", originalVersion.toString());
+                    addCustomValue("NewVersion", dataCenterVersion.toString());
+                    auditLog(this, AuditLogType.IMPORTEXPORT_IMPORT_TEMPLATE_CUSTOM_VERSION_CHANGE);
+                });
+
+                newVersion = dataCenterVersion;
+            }
+        }
+
+        var updates = new CompatibilityVersionUpdater()
+                .updateTemplateCompatibilityVersion(getVmTemplate(), newVersion, getCluster());
+
+        if (!updates.isEmpty()) {
+            logOnExecuteEnd(() -> {
+                String updatesString = updates.stream()
+                        .map(update -> update.getDisplayName())
+                        .collect(Collectors.joining(", "));
+
+                addCustomValue("Updates", updatesString);
+                auditLog(this, AuditLogType.IMPORTEXPORT_IMPORT_TEMPLATE_UPDATED);
+            });
+        }
+    }
+
+    private void logOnExecuteEnd(Runnable method) {
+        var oldLogMethod = logOnExecuteEndMethod;
+        logOnExecuteEndMethod = () -> {
+            oldLogMethod.run();
+            method.run();
+        };
     }
 
     @Override
@@ -109,6 +141,12 @@ public abstract class ImportVmTemplateCommandBase<T extends ImportVmTemplatePara
         if (getCluster() == null) {
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_CLUSTER_CAN_NOT_BE_EMPTY);
         }
+
+        // Update VM version, graphic devices and max memory before the rest of the validation
+        updateTemplateVersion();
+        importUtils.updateGraphicsDevices(getVmTemplate(), getEffectiveCompatibilityVersion());
+        vmHandler.updateMaxMemorySize(getVmTemplate(), getEffectiveCompatibilityVersion());
+
         if (!getCluster().getStoragePoolId().equals(getStoragePoolId())) {
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_CLUSTER_IS_NOT_VALID);
         }
@@ -312,6 +350,8 @@ public abstract class ImportVmTemplateCommandBase<T extends ImportVmTemplatePara
         discardHelper.logIfDisksWithIllegalPassDiscardExist(getVmTemplateId());
         checkTrustedService();
         incrementDbGeneration();
+        logOnExecuteEndMethod.run();
+        setActionReturnValue(getVmTemplate());
         setSucceeded(true);
     }
 
@@ -342,11 +382,12 @@ public abstract class ImportVmTemplateCommandBase<T extends ImportVmTemplatePara
         // if "run on host" field points to a non existent vds (in the current cluster) -> remove field and continue
         if(!vmHandler.validateDedicatedVdsExistOnSameCluster(getVmTemplate()).isValid()) {
             getVmTemplate().setDedicatedVmForVdsList(Collections.emptyList());
+            getVmTemplate().setCpuPinning(null);
         }
 
         getVmTemplate().setStatus(VmTemplateStatus.Locked);
         getVmTemplate().setQuotaId(getParameters().getQuotaId());
-        vmHandler.autoSelectResumeBehavior(getVmTemplate(), getCluster());
+        vmHandler.autoSelectResumeBehavior(getVmTemplate());
         vmTemplateDao.save(getVmTemplate());
         getCompensationContext().snapshotNewEntity(getVmTemplate());
         addDisksToDb();

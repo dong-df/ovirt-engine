@@ -16,14 +16,15 @@ from . import aaa
 from . import aaainternal
 from . import aaajdbc
 from . import aaakerbldap
+from . import aaaupgrade
 from . import appmode
 from . import ca
 from . import database
 from . import domain_type
 from . import firewall
-from . import iso_domain
 from . import java
 from . import jboss
+from . import jboss_fapolicyd
 from . import notifier
 from . import options
 from . import protocols
@@ -39,6 +40,7 @@ def createPlugins(context):
     aaainternal.Plugin(context=context)
     aaajdbc.Plugin(context=context)
     aaakerbldap.Plugin(context=context)
+    aaaupgrade.Plugin(context=context)
     jboss.Plugin(context=context)
     java.Plugin(context=context)
     database.Plugin(context=context)
@@ -49,11 +51,11 @@ def createPlugins(context):
     ca.Plugin(context=context)
     options.Plugin(context=context)
     tools.Plugin(context=context)
-    iso_domain.Plugin(context=context)
     public_glance_repository.Plugin(context=context)
     storage.Plugin(context=context)
     sso.Plugin(context=context)
     notifier.Plugin(context=context)
+    jboss_fapolicyd.Plugin(context=context)
 
 
 # vim: expandtab tabstop=4 shiftwidth=4

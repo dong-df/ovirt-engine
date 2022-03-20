@@ -31,19 +31,19 @@ import org.ovirt.engine.core.bll.network.vm.ExternalVmMacsFinder;
 import org.ovirt.engine.core.bll.network.vm.VnicProfileHelper;
 import org.ovirt.engine.core.bll.profiles.CpuProfileHelper;
 import org.ovirt.engine.core.bll.storage.utils.BlockStorageDiscardFunctionalityHelper;
+import org.ovirt.engine.core.bll.utils.CompatibilityVersionUpdater;
 import org.ovirt.engine.core.bll.utils.PermissionSubject;
+import org.ovirt.engine.core.bll.utils.VmUpdateType;
 import org.ovirt.engine.core.bll.validator.ImportValidator;
+import org.ovirt.engine.core.bll.validator.VmValidator;
 import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.VdcObjectType;
-import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.ImportVmParameters;
 import org.ovirt.engine.core.common.action.LockProperties;
 import org.ovirt.engine.core.common.action.LockProperties.Scope;
-import org.ovirt.engine.core.common.action.VmManagementParametersBase;
 import org.ovirt.engine.core.common.businessentities.ActionGroup;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
-import org.ovirt.engine.core.common.businessentities.DisplayType;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
 import org.ovirt.engine.core.common.businessentities.Permission;
 import org.ovirt.engine.core.common.businessentities.StorageDomain;
@@ -91,7 +91,6 @@ public abstract class ImportVmCommandBase<T extends ImportVmParameters> extends 
     private Guid sourceDomainId = Guid.Empty;
     private StorageDomain sourceDomain;
     private ImportValidator importValidator;
-    private Version effectiveCompatibilityVersion;
 
     @Inject
     private AuditLogDirector auditLogDirector;
@@ -125,6 +124,8 @@ public abstract class ImportVmCommandBase<T extends ImportVmParameters> extends 
     private static VmStatic vmStaticForDefaultValues = new VmStatic();
     private MacPool macPool;
 
+    private Runnable logOnExecuteEndMethod = () -> {};
+
     ImportVmCommandBase(T parameters, CommandContext commandContext) {
         super(parameters, commandContext);
     }
@@ -147,6 +148,17 @@ public abstract class ImportVmCommandBase<T extends ImportVmParameters> extends 
         if (getCluster() == null) {
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_CLUSTER_CAN_NOT_BE_EMPTY);
         }
+
+        if (getCluster().getBiosType() == null) {
+            return failValidation(EngineMessage.CLUSTER_BIOS_TYPE_NOT_SET);
+        }
+
+        updateVmVersion();
+
+        if (!validate(VmValidator.isBiosTypeSupported(getVm().getStaticData(), getCluster(), osRepository))) {
+            return false;
+        }
+
         if (getParameters().getStoragePoolId() != null
                 && !getParameters().getStoragePoolId().equals(getCluster().getStoragePoolId())) {
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_CLUSTER_IS_NOT_VALID);
@@ -198,11 +210,7 @@ public abstract class ImportVmCommandBase<T extends ImportVmParameters> extends 
     }
 
     protected Version getEffectiveCompatibilityVersion() {
-        return effectiveCompatibilityVersion;
-    }
-
-    protected void setEffectiveCompatibilityVersion(Version effectiveCompatibilityVersion) {
-        this.effectiveCompatibilityVersion = effectiveCompatibilityVersion;
+        return CompatibilityVersionUtils.getEffective(getParameters().getVm(), this::getCluster);
     }
 
     protected ImportValidator getImportValidator() {
@@ -254,6 +262,7 @@ public abstract class ImportVmCommandBase<T extends ImportVmParameters> extends 
         return validate(vmHandler.isGraphicsAndDisplaySupported(getParameters().getVm().getOs(),
                 getGraphicsTypesForVm(),
                 getVm().getDefaultDisplayType(),
+                getVm().getBiosType(),
                 getEffectiveCompatibilityVersion()));
     }
 
@@ -282,20 +291,6 @@ public abstract class ImportVmCommandBase<T extends ImportVmParameters> extends 
         return validate(cpuProfileHelper.setAndValidateCpuProfile(
                 getVm().getStaticData(),
                 getUserIdIfExternal().orElse(null)));
-    }
-
-    protected boolean validateBallonDevice() {
-        if (!VmDeviceCommonUtils.isBalloonDeviceExists(getVm().getManagedVmDeviceMap().values())) {
-            return true;
-        }
-
-        if (!osRepository.isBalloonEnabled(getVm().getStaticData().getOsId(),
-                getEffectiveCompatibilityVersion())) {
-            addValidationMessageVariable("clusterArch", getCluster().getArchitecture());
-            return failValidation(EngineMessage.BALLOON_REQUESTED_ON_NOT_SUPPORTED_ARCH);
-        }
-
-        return true;
     }
 
     protected boolean validateSoundDevice() {
@@ -356,13 +351,53 @@ public abstract class ImportVmCommandBase<T extends ImportVmParameters> extends 
         setVm(parameters.getVm());
         if (parameters.getVm() != null) {
             setVmId(parameters.getVm().getId());
+            initBiosType();
         }
-        initEffectiveCompatibilityVersion();
     }
 
-    protected void initEffectiveCompatibilityVersion() {
-        setEffectiveCompatibilityVersion(
-                CompatibilityVersionUtils.getEffective(getParameters().getVm(), this::getCluster));
+    protected void initBiosType() {
+        // override in subclasses if needed
+    }
+
+    protected void updateVmVersion() {
+        Version newVersion = CompatibilityVersionUtils.getEffective(getVm(), this::getCluster);
+
+        // A VM can have custom compatibility version that is lower than
+        // the DC version. In that case, the custom version has to be updated.
+        if (newVersion.less(getCluster().getCompatibilityVersion())) {
+            var dataCenterVersion = getStoragePool().getCompatibilityVersion();
+            if (newVersion.less(dataCenterVersion)) {
+                Version originalVersion = newVersion;
+                logOnExecuteEnd(() -> {
+                    addCustomValue("OriginalVersion", originalVersion.toString());
+                    addCustomValue("NewVersion", dataCenterVersion.toString());
+                    auditLog(this, AuditLogType.IMPORTEXPORT_IMPORT_VM_CUSTOM_VERSION_CHANGE);
+                });
+
+                newVersion = dataCenterVersion;
+            }
+        }
+
+        var updates = new CompatibilityVersionUpdater().updateVmCompatibilityVersion(getVm(), newVersion, getCluster());
+
+        if (!updates.isEmpty()) {
+            logOnExecuteEnd(() -> {
+                String updatesString = updates.stream()
+                        .map(VmUpdateType::getDisplayName)
+                        .collect(Collectors.joining(", "));
+
+                addCustomValue("Updates", updatesString);
+                auditLog(this, AuditLogType.IMPORTEXPORT_IMPORT_VM_UPDATED);
+            });
+        }
+    }
+
+    private void logOnExecuteEnd(Runnable method) {
+        var oldLogMethod = logOnExecuteEndMethod;
+        logOnExecuteEndMethod = () -> {
+            oldLogMethod.run();
+            method.run();
+        };
     }
 
     /**
@@ -480,29 +515,14 @@ public abstract class ImportVmCommandBase<T extends ImportVmParameters> extends 
             processImages();
             vmHandler.addVmInitToDB(getVm().getStaticData().getVmInit());
             discardHelper.logIfDisksWithIllegalPassDiscardExist(getVmId());
-            Cluster cluster = clusterDao.get(getParameters().getClusterId());
-            if (getVm() != null && getVm().getClusterCompatibilityVersionOrigin() != null
-                    && getVm().getClusterCompatibilityVersionOrigin().less(cluster.getCompatibilityVersion())) {
-                updateVm();
-            }
         } catch (RuntimeException e) {
             macPool.freeMacs(macsAdded);
             throw e;
         }
 
+        logOnExecuteEndMethod.run();
         setSucceeded(true);
         getReturnValue().setActionReturnValue(getVm());
-    }
-
-    private boolean updateVm() {
-        VmManagementParametersBase updateParams = new VmManagementParametersBase(getVm());
-        updateParams.setLockProperties(LockProperties.create(LockProperties.Scope.None));
-        updateParams.setClusterLevelChangeFromVersion(getVm().getClusterCompatibilityVersionOrigin());
-        updateParams.setCompensationEnabled(true);
-
-        return runInternalAction(ActionType.UpdateVm,
-                updateParams,
-                cloneContextWithNoCleanupCompensation()).getSucceeded();
     }
 
     public void addVmToAffinityGroups() {
@@ -580,11 +600,6 @@ public abstract class ImportVmCommandBase<T extends ImportVmParameters> extends 
         getVm().setMinAllocatedMem(computeMinAllocatedMem());
         getVm().setQuotaId(getParameters().getQuotaId());
 
-        if (!osRepository.isSingleQxlDeviceEnabled(getVm().getVmOsId())
-                || getVm().getDefaultDisplayType() != DisplayType.qxl) {
-            getVm().setSingleQxlPci(false);
-        }
-
         // if "run on host" field points to a non existent vds (in the current cluster) -> remove field and continue
         if (!vmHandler.validateDedicatedVdsExistOnSameCluster(getVm().getStaticData()).isValid()) {
             getVm().setDedicatedVmForVdsList(Collections.emptyList());
@@ -608,7 +623,7 @@ public abstract class ImportVmCommandBase<T extends ImportVmParameters> extends 
             getVm().setVmtGuid(VmTemplateHandler.BLANK_VM_TEMPLATE_ID);
         }
 
-        vmHandler.autoSelectResumeBehavior(getVm().getStaticData(), getCluster());
+        vmHandler.autoSelectResumeBehavior(getVm().getStaticData());
 
         vmStaticDao.save(getVm().getStaticData());
         getCompensationContext().snapshotNewEntity(getVm().getStaticData());
@@ -673,7 +688,7 @@ public abstract class ImportVmCommandBase<T extends ImportVmParameters> extends 
 
     private boolean shouldReassignMac(VmNetworkInterface iface) {
         return StringUtils.isEmpty(iface.getMacAddress())
-                || (getParameters().isReassignBadMacs() && vNicHasBadMac(iface))
+                || getParameters().isReassignBadMacs() && vNicHasBadMac(iface)
                 || getParameters().isImportAsNewEntity();
     }
 

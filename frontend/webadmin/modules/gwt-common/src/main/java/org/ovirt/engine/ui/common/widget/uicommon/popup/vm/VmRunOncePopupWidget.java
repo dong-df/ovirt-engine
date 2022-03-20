@@ -15,6 +15,7 @@ import org.ovirt.engine.ui.common.idhandler.WithElementId;
 import org.ovirt.engine.ui.common.widget.Align;
 import org.ovirt.engine.ui.common.widget.ComboBox;
 import org.ovirt.engine.ui.common.widget.EntityModelWidgetWithInfo;
+import org.ovirt.engine.ui.common.widget.VisibilityRenderer;
 import org.ovirt.engine.ui.common.widget.dialog.InfoIcon;
 import org.ovirt.engine.ui.common.widget.editor.ListModelListBoxEditor;
 import org.ovirt.engine.ui.common.widget.editor.ListModelTypeAheadChangeableListBoxEditor;
@@ -80,6 +81,13 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
 
     @UiField
     Container generalBootOptionsContainer;
+
+    @UiField
+    @WithElementId
+    DisclosurePanel linuxBootOptionsPanel;
+
+    @UiField
+    Container linuxBootOptionsContainer;
 
     @UiField
     @WithElementId
@@ -155,6 +163,11 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
     EntityModelCheckBoxEditor attachIsoEditor;
 
     @UiField(provided = true)
+    @Path(value = "attachWgt.entity")
+    @WithElementId("attachWgt")
+    EntityModelCheckBoxEditor attachWgtEditor;
+
+    @UiField(provided = true)
     @Path(value = "attachSysprep.entity")
     @WithElementId("attachSysprep")
     EntityModelCheckBoxEditor attachSysprepEditor;
@@ -173,6 +186,21 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
     @Path(value = "runAndPause.entity")
     @WithElementId("runAndPause")
     EntityModelCheckBoxEditor runAndPauseEditor;
+
+    @UiField(provided = true)
+    @Path(value = "kernelImage.selectedItem")
+    @WithElementId("kernelImage")
+    ListModelTypeAheadChangeableListBoxEditor kernelImageEditor;
+
+    @UiField(provided = true)
+    @Path(value = "initrdImage.selectedItem")
+    @WithElementId("initrdImage")
+    ListModelTypeAheadChangeableListBoxEditor initrdImageEditor;
+
+    @UiField
+    @Path(value = "kernelParameters.entity")
+    @WithElementId("kernelParameters")
+    StringEntityModelTextBoxEditor kernelParamsEditor;
 
     @UiField(provided = true)
     @WithElementId("sysPrepDomainNameComboBox")
@@ -279,7 +307,6 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
     @WithElementId("emulatedMachine")
     public ListModelTypeAheadChangeableListBoxEditor emulatedMachine;
 
-
     @UiField(provided = true)
     @Path(value = "customCpu.selectedItem")
     @WithElementId("customCpu")
@@ -288,6 +315,10 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
     @UiField
     @Ignore
     ButtonBase isoImagesRefreshButton;
+
+    @UiField
+    @Ignore
+    ButtonBase linuxBootOptionsRefreshButton;
 
     @Path("volatileRun.entity")
     @WithElementId("volatileRun")
@@ -330,6 +361,8 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
     private void fixStylesForPatternfly() {
         generalBootOptionsContainer.removeStyleName(CONTENT);
         generalBootOptionsContainer.getParent().getElement().getStyle().setOverflow(Overflow.VISIBLE);
+        linuxBootOptionsContainer.removeStyleName(CONTENT);
+        linuxBootOptionsContainer.getParent().getElement().getStyle().setOverflow(Overflow.VISIBLE);
         initialRunContainer.removeStyleName(CONTENT);
         initialRunContainer.getParent().getElement().getStyle().setOverflow(Overflow.VISIBLE);
         systemContainer.removeStyleName(CONTENT);
@@ -342,12 +375,14 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
         customPropertiesContainer.getParent().getElement().getStyle().setOverflow(Overflow.VISIBLE);
         floppyImageEditor.hideLabel();
         isoImageEditor.hideLabel();
+        kernelImageEditor.hideLabel();
         defaultHostEditor.hideLabel();
     }
 
     void initCheckBoxEditors() {
         attachFloppyEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
         attachIsoEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
+        attachWgtEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
         attachSysprepEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
         bootMenuEnabledEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
         runAsStatelessEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
@@ -364,6 +399,29 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
 
     void initListBoxEditors() {
         vncKeyboardLayoutEditor = new ListModelListBoxEditor<>(new VncKeyMapRenderer());
+        this.kernelImageEditor = new ListModelTypeAheadChangeableListBoxEditor(
+                new ListModelTypeAheadChangeableListBoxEditor.NullSafeSuggestBoxRenderer() {
+
+                    @Override
+                    public String getDisplayStringNullSafe(String data) {
+                        return typeAheadNameTemplateNullSafe(data);
+                    }
+                },
+                false,
+                new VisibilityRenderer.SimpleVisibilityRenderer(),
+                constants.empty());
+
+        this.initrdImageEditor = new ListModelTypeAheadChangeableListBoxEditor(
+                new ListModelTypeAheadChangeableListBoxEditor.NullSafeSuggestBoxRenderer() {
+
+                    @Override
+                    public String getDisplayStringNullSafe(String data) {
+                        return typeAheadNameTemplateNullSafe(data);
+                    }
+                },
+                false,
+                new VisibilityRenderer.SimpleVisibilityRenderer(),
+                constants.empty());
 
         isoImageEditor = new ListModelListBoxEditor<>(new NullSafeRenderer<RepoImage>() {
             @Override
@@ -401,10 +459,14 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
 
                     @Override
                     public String getDisplayStringNullSafe(String data) {
+                        if (data == null || data.trim().isEmpty()) {
+                            data = getDefaultEmulatedMachineLabel();
+                        }
                         return typeAheadNameTemplateNullSafe(data);
                     }
                 },
                 false);
+
         customCpu = new ListModelTypeAheadChangeableListBoxEditor(
                 new ListModelTypeAheadChangeableListBoxEditor.NullSafeSuggestBoxRenderer() {
 
@@ -425,6 +487,7 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
 
     void addStyles() {
         addStyleName(style.widgetStyle());
+        linuxBootOptionsPanel.setVisible(false);
         initialRunPanel.setVisible(false);
         systemPanel.setVisible(true);
         hostPanel.setVisible(true);
@@ -435,6 +498,18 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
         driver.edit(object);
         customPropertiesSheetEditor.edit(object.getCustomPropertySheet());
         runOnceModel = object;
+
+        emulatedMachine.setNullReplacementString(getDefaultEmulatedMachineLabel());
+        object.getClusterEmulatedMachine().getEntityChangedEvent().addListener((ev, sender, args) -> {
+            emulatedMachine.setNullReplacementString(getDefaultEmulatedMachineLabel());
+        });
+
+        // Update Linux options panel
+        final EntityModel<Boolean> isLinuxOptionsAvailable = object.getIsLinuxOptionsAvailable();
+        object.getIsLinuxOptionsAvailable().getEntityChangedEvent().addListener((ev, sender, args) -> {
+            boolean isLinux = isLinuxOptionsAvailable.getEntity();
+            linuxBootOptionsPanel.setVisible(isLinux);
+        });
 
         object.getIsSysprepEnabled().getEntityChangedEvent().addListener((ev, sender, args) -> {
             updateSysprepVisibility(object);
@@ -519,12 +594,24 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
         boolean selected = model.getIsCloudInitEnabled().getEntity();
         boolean possible = model.getIsCloudInitPossible().getEntity();
 
-        vmInitWidget.setCloudInitContentVisible(selected && possible);
+        runOnceModel.updateOSs();
+        if(runOnceModel.getIsIgnition()){
+            cloudInitEnabledEditor.setLabel(constants.ignition() + " " + runOnceModel.getIgnitionVersion()); //$NON-NLS-1$
+            vmInitWidget.setIgnitionContentVisible(selected && possible);
+        } else {
+            cloudInitEnabledEditor.setLabel(constants.runOncePopupCloudInitLabel());
+            vmInitWidget.setCloudInitContentVisible(selected && possible);
+        }
     }
 
     @UiHandler("isoImagesRefreshButton")
     void handleIsoImagesRefreshButtonClick(ClickEvent event) {
         runOnceModel.updateIsoList(true);
+    }
+
+    @UiHandler("linuxBootOptionsRefreshButton")
+    void handleLinuxBootOptionsRefreshButtonRefreshButtonClick(ClickEvent event) {
+        runOnceModel.updateUnknownTypeImagesList(true);
     }
 
     @UiHandler("bootSequenceUpButton")
@@ -629,4 +716,12 @@ public class VmRunOncePopupWidget extends AbstractModelBoundPopupWidget<RunOnceM
         }
     }
 
+    private String getDefaultEmulatedMachineLabel() {
+        String emulatedMachine = runOnceModel.getClusterEmulatedMachine().getEntity();
+        String newClusterEmulatedMachine = constants.clusterDefaultOption();
+        if (emulatedMachine != null) {
+            newClusterEmulatedMachine +=  "(" + emulatedMachine + ")"; //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        return newClusterEmulatedMachine;
+    }
 }

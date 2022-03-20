@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.ovirt.engine</groupId>
   <artifactId>root</artifactId>
-  <version>4.4.0-SNAPSHOT</version>
+  <version>4.5.0.1-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>ovirt-root</name>
   <description>oVirt Engine Root Project</description>
@@ -20,8 +20,10 @@
     <url>https://bugzilla.redhat.com/enter_bug.cgi?product=ovirt-engine</url>
   </issueManagement>
   <scm>
-    <developerConnection>scm:git:ssh://gerrit.ovirt.org/ovirt-engine.git</developerConnection>
-    <connection>scm:git:http://gerrit.ovirt.org/p/ovirt-engine.git</connection>
+    <url>https://github.com/oVirt/ovirt-engine</url>
+    <connection>scm:git:https://github.com/oVirt/ovirt-engine.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com:oVirt/ovirt-engine.git</developerConnection>
+    <tag>HEAD</tag>
   </scm>
   <!--Project Sub Modules-->
   <modules>
@@ -40,20 +42,18 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
     <!-- Versions of the API model and tools: -->
-    <metamodel.version>1.3.0</metamodel.version>
-    <model.version>4.4.11</model.version>
+    <metamodel.version>1.3.7</metamodel.version>
+    <model.version>4.5.4</model.version>
 
-    <!-- oVirt extensions versions -->
-    <org.ovirt.engine.api.ovirt-engine-extensions-api.version>0.0.0-SNAPSHOT</org.ovirt.engine.api.ovirt-engine-extensions-api.version>
+    <ovirt-engine-extensions-api.version>1.0.1</ovirt-engine-extensions-api.version>
 
     <!-- JDK9+ now separated modules from the jdk -->
     <javax.annotation-api.version>1.3.2</javax.annotation-api.version>
     <!-- Dependencies Versions -->
-    <junit.version>5.3.1</junit.version>
+    <junit.version>5.7.1</junit.version>
     <commons-lang.version>2.6</commons-lang.version>
     <commons-compress.version>1.5</commons-compress.version>
-    <quartz.version>2.1.2</quartz.version>
-    <postgres.jdbc.version>42.2.2</postgres.jdbc.version>
+    <postgres.jdbc.version>42.2.3</postgres.jdbc.version>
     <javax.transaction>1.1</javax.transaction>
     <javax.activation.version>1.1</javax.activation.version>
     <xmlrpc-client.version>3.1.3</xmlrpc-client.version>
@@ -65,34 +65,30 @@
     <javax.interceptor.api.version>1.0.0.Final</javax.interceptor.api.version>
     <dozer.version>5.2.0</dozer.version>
     <cxf.version>2.2.7</cxf.version>
-    <sshd-core.version>2.1.0</sshd-core.version>
-    <otopi.version>1.7.8</otopi.version>
-    <ovirt-host-deploy.version>1.7.3</ovirt-host-deploy.version>
-    <vdsm-jsonrpc-java.version>1.5.2</vdsm-jsonrpc-java.version>
-    <slf4j.version>1.7.5</slf4j.version>
-    <gwt.version>2.8.0</gwt.version>
-    <mockito.version>2.18.3</mockito.version>
+    <sshd-core.version>2.8.0</sshd-core.version>
+    <eddsa.version>0.3.0</eddsa.version>
+    <vdsm-jsonrpc-java.version>1.7.1</vdsm-jsonrpc-java.version>
+    <slf4j.version>1.7.22</slf4j.version>
+    <gwt.version>2.9.0</gwt.version>
+    <mockito.version>3.8.0</mockito.version>
     <javassist.version>3.23.1-GA</javassist.version>
     <javax.mail.version>1.4.4</javax.mail.version>
-    <hibernate-validator.version>4.2.0.Final</hibernate-validator.version>
-    <jackson.version>1.9.13</jackson.version>
+    <hibernate-validator.version>6.0.18.Final</hibernate-validator.version>
+    <jackson2.version>2.12.1</jackson2.version>
     <commons-configuration.version>1.6</commons-configuration.version>
     <commons-jxpath.version>1.3</commons-jxpath.version>
-    <jaxb-xjc.version>2.3</jaxb-xjc.version>
-    <jaxb-impl.version>2.3.1</jaxb-impl.version>
-    <jaxb-core.version>2.3.0</jaxb-core.version>
+    <commons-beanutils.version>1.9.4</commons-beanutils.version>
+    <jaxb.version>2.3.1</jaxb.version>
     <jbosssx-bare.version>2.0.4</jbosssx-bare.version>
-    <infinispan.version>8.2.8.Final</infinispan.version>
-    <snakeyaml.version>1.17</snakeyaml.version>
+    <infinispan.version>9.4.18.Final</infinispan.version>
+    <snakeyaml.version>1.26</snakeyaml.version>
     <ws-commons-util.version>1.0.2</ws-commons-util.version>
     <aopalliance.version>1.0</aopalliance.version>
-    <snmp4j.version>2.5.3</snmp4j.version>
-    <!-- hystrix -->
-    <hystrix.version>1.4.14</hystrix.version>
-    <archaius.version>0.4.1</archaius.version>
-    <rxjava.version>1.0.8</rxjava.version>
+    <snmp4j.version>3.6.4</snmp4j.version>
+    <kubevirt-client.version>0.5.0</kubevirt-client.version>
+    <resteasy.version>3.9.3.Final</resteasy.version>
     <!-- OpenStack -->
-    <openstack-client.version>3.2.7</openstack-client.version>
+    <openstack-client.version>3.2.9</openstack-client.version>
     <!-- libsass -->
     <libsass-maven-plugin.version>0.2.8-libsass_3.4.4</libsass-maven-plugin.version>
 
@@ -101,11 +97,13 @@
     <maven-resources-plugin.version>2.4.3</maven-resources-plugin.version>
     <maven-ejb-plugin.version>2.3</maven-ejb-plugin.version>
     <cdi.api.version>1.2</cdi.api.version>
+    <jakarta-el.version>3.0.3</jakarta-el.version>
+    <validation-api.version>2.0.1.Final</validation-api.version>
     <javacc.version>2.6</javacc.version>
     <hamcrest.version>1.3</hamcrest.version>
     <reflections.version>0.9.9</reflections.version>
-    <checkstyle.version>8.18</checkstyle.version>
-    <exec-maven-plugin.version>1.6.0</exec-maven-plugin.version>
+    <checkstyle.version>9.3</checkstyle.version>
+    <exec-maven-plugin.version>3.0.0</exec-maven-plugin.version>
 
     <!-- Plugins configurations-->
     <ovirt.surefire.reportsDirectory>${project.build.directory}/surefire-reports</ovirt.surefire.reportsDirectory>
@@ -118,9 +116,15 @@
         <version>${javax.interceptor.api.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.quartz-scheduler</groupId>
-        <artifactId>quartz</artifactId>
-        <version>${quartz.version}</version>
+        <groupId>org.jboss.spec.javax.xml.bind</groupId>
+        <artifactId>jboss-jaxb-api_2.3_spec</artifactId>
+        <version>2.0.0.Final</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.ovirt.java-client-kubevirt</groupId>
+        <artifactId>java-client-kubevirt</artifactId>
+        <version>${kubevirt-client.version}</version>
       </dependency>
       <dependency>
         <groupId>commons-collections</groupId>
@@ -130,7 +134,7 @@
       <dependency>
         <groupId>commons-beanutils</groupId>
         <artifactId>commons-beanutils</artifactId>
-        <version>1.9.3</version>
+        <version>${commons-beanutils.version}</version>
       </dependency>
       <dependency>
         <groupId>javax.transaction</groupId>
@@ -148,36 +152,41 @@
         <groupId>javax.annotation</groupId>
         <artifactId>javax.annotation-api</artifactId>
         <version>${javax.annotation-api.version}</version>
+        <scope>provided</scope>
       </dependency>
       <dependency>
         <groupId>javax.xml.bind</groupId>
         <artifactId>jaxb-api</artifactId>
-        <version>${jaxb-impl.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.glassfish.jaxb</groupId>
-        <artifactId>jaxb-core</artifactId>
-        <version>${jaxb-core.version}</version>
+        <version>${jaxb.version}</version>
+        <scope>provided</scope>
       </dependency>
       <dependency>
         <groupId>com.sun.xml.bind</groupId>
         <artifactId>jaxb-impl</artifactId>
-        <version>${jaxb-impl.version}</version>
+        <version>${jaxb.version}</version>
+        <scope>provided</scope>
       </dependency>
       <dependency>
         <groupId>org.apache.xmlrpc</groupId>
         <artifactId>xmlrpc-client</artifactId>
         <version>${xmlrpc-client.version}</version>
+        <exclusions>
+          <!-- Note: avoid junit 3 as a dependency -->
+          <exclusion>
+            <artifactId>junit</artifactId>
+            <groupId>junit</groupId>
+          </exclusion>
+        </exclusions>
       </dependency>
       <dependency>
         <groupId>org.apache.httpcomponents</groupId>
         <artifactId>httpcore</artifactId>
-        <version>4.4.4</version>
+        <version>4.4.14</version>
       </dependency>
       <dependency>
         <groupId>org.apache.httpcomponents</groupId>
         <artifactId>httpclient</artifactId>
-        <version>4.5.2</version>
+        <version>4.5.13</version>
       </dependency>
       <dependency>
         <groupId>org.springframework</groupId>
@@ -245,11 +254,6 @@
         <artifactId>commons-cli</artifactId>
         <version>1.3.1</version>
       </dependency>
-      <dependency>
-        <groupId>commons-io</groupId>
-        <artifactId>commons-io</artifactId>
-        <version>2.5</version>
-      </dependency>
      <dependency>
        <groupId>commons-configuration</groupId>
        <artifactId>commons-configuration</artifactId>
@@ -271,6 +275,11 @@
         <version>${sshd-core.version}</version>
       </dependency>
       <dependency>
+        <groupId>net.i2p.crypto</groupId>
+        <artifactId>eddsa</artifactId>
+        <version>${eddsa.version}</version>
+      </dependency>
+      <dependency>
         <groupId>org.javassist</groupId>
         <artifactId>javassist</artifactId>
         <version>${javassist.version}</version>
@@ -281,19 +290,39 @@
         <version>${javax.mail.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.hibernate</groupId>
+        <groupId>org.hibernate.validator</groupId>
         <artifactId>hibernate-validator</artifactId>
         <version>${hibernate-validator.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.codehaus.jackson</groupId>
-        <artifactId>jackson-core-asl</artifactId>
-        <version>${jackson.version}</version>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-annotations</artifactId>
+        <version>${jackson2.version}</version>
+        <scope>provided</scope>
       </dependency>
       <dependency>
-        <groupId>org.codehaus.jackson</groupId>
-        <artifactId>jackson-mapper-asl</artifactId>
-        <version>${jackson.version}</version>
+        <groupId>com.fasterxml.jackson.jaxrs</groupId>
+        <artifactId>jackson-jaxrs-json-provider</artifactId>
+        <version>${jackson2.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-core</artifactId>
+        <version>${jackson2.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+        <version>${jackson2.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.datatype</groupId>
+        <artifactId>jackson-datatype-jsr310</artifactId>
+        <version>${jackson2.version}</version>
+        <scope>provided</scope>
       </dependency>
       <!--GWT dependencies-->
       <dependency>
@@ -343,9 +372,27 @@
         <version>${slf4j.version}</version>
       </dependency>
       <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-jdk14</artifactId>
+        <version>${slf4j.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
         <groupId>javax.enterprise</groupId>
         <artifactId>cdi-api</artifactId>
         <version>${cdi.api.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.glassfish</groupId>
+        <artifactId>jakarta.el</artifactId>
+        <version>${jakarta-el.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>javax.validation</groupId>
+        <artifactId>validation-api</artifactId>
+        <version>${validation-api.version}</version>
         <scope>provided</scope>
       </dependency>
       <dependency>
@@ -360,55 +407,41 @@
         <type>pom</type>
         <scope>provided</scope>
       </dependency>
-      <!--hystrix dependencies -->
       <dependency>
-       <groupId>com.netflix.hystrix</groupId>
-       <artifactId>hystrix-metrics-event-stream</artifactId>
-       <version>${hystrix.version}</version>
+        <groupId>org.jboss.resteasy</groupId>
+        <artifactId>jose-jwt</artifactId>
+        <version>${resteasy.version}</version>
+        <scope>provided</scope>
       </dependency>
       <dependency>
-        <groupId>com.netflix.hystrix</groupId>
-        <artifactId>hystrix-core</artifactId>
-        <version>${hystrix.version}</version>
+        <groupId>org.jboss.resteasy</groupId>
+        <artifactId>resteasy-jaxrs</artifactId>
+        <version>${resteasy.version}</version>
+        <scope>provided</scope>
       </dependency>
-      <dependency>
-        <groupId>io.reactivex</groupId>
-        <artifactId>rxjava</artifactId>
-        <version>${rxjava.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>com.netflix.archaius</groupId>
-        <artifactId>archaius-core</artifactId>
-        <version>${archaius.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>net.minidev</groupId>
-        <artifactId>json-smart</artifactId>
-        <version>2.2</version>
-      </dependency>
-      <dependency>
-        <groupId>net.minidev</groupId>
-        <artifactId>accessors-smart</artifactId>
-        <version>1.1</version>
-      </dependency>
-      <dependency>
-        <groupId>com.nimbusds</groupId>
-        <artifactId>nimbus-jose-jwt</artifactId>
-        <version>5.12</version>
-      </dependency>
+    <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter-engine</artifactId>
+        <version>${junit.version}</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter-params</artifactId>
+        <version>${junit.version}</version>
+        <scope>test</scope>
+    </dependency>
     </dependencies>
   </dependencyManagement>
   <dependencies>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-engine</artifactId>
-      <version>${junit.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-params</artifactId>
-      <version>${junit.version}</version>
       <scope>test</scope>
    </dependency>
    <dependency>
@@ -432,7 +465,7 @@
     <dependency>
       <groupId>org.assertj</groupId>
       <artifactId>assertj-core</artifactId>
-      <version>2.2.0</version>
+      <version>3.13.2</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -453,7 +486,7 @@
       <id>central</id>
       <name>maven repo1</name>
       <layout>default</layout>
-      <url>http://repo1.maven.org/maven2</url>
+      <url>https://repo1.maven.org/maven2</url>
       <snapshots>
         <enabled>false</enabled>
       </snapshots>
@@ -466,15 +499,6 @@
       <releases>
         <enabled>true</enabled>
       </releases>
-      <snapshots>
-        <enabled>false</enabled>
-      </snapshots>
-    </repository>
-    <repository>
-      <id>java.net</id>
-      <name>Java.net repo</name>
-      <layout>default</layout>
-      <url>http://download.java.net/maven/2/</url>
       <snapshots>
         <enabled>false</enabled>
       </snapshots>
@@ -495,7 +519,7 @@
     <pluginRepository>
       <id>central</id>
       <name>Maven Plugin Repository</name>
-      <url>http://repo1.maven.org/maven2</url>
+      <url>https://repo1.maven.org/maven2</url>
       <layout>default</layout>
       <snapshots>
         <enabled>false</enabled>
@@ -526,7 +550,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-checkstyle-plugin</artifactId>
-          <version>3.0.0</version>
+          <version>3.1.2</version>
           <dependencies>
             <dependency>
               <groupId>com.puppycrawl.tools</groupId>
@@ -722,7 +746,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-assembly-plugin</artifactId>
-          <version>2.4</version>
+          <version>3.3.0</version>
         </plugin>
         <plugin>
           <groupId>com.github.warmuuh</groupId>
@@ -749,7 +773,7 @@
             <dependency>
               <groupId>org.ovirt.engine</groupId>
               <artifactId>ovirt-findbugs-filters</artifactId>
-              <version>4.4.0-SNAPSHOT</version>
+              <version>4.5.0.1-SNAPSHOT</version>
             </dependency>
           </dependencies>
         </plugin>

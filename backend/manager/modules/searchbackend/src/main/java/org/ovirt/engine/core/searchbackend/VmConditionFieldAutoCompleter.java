@@ -15,6 +15,8 @@ import org.ovirt.engine.core.compat.StringHelper;
 import org.ovirt.engine.core.compat.TimeSpan;
 import org.ovirt.engine.core.compat.Version;
 
+// IMPORTANT : Adding any new field to this class will require adding it to SearchObjectAutoCompleter.requiresFullTable Map
+
 public class VmConditionFieldAutoCompleter extends BaseConditionFieldAutoCompleter {
     public static final String NAME = "NAME";
     public static final String COMMENT = "COMMENT";
@@ -52,6 +54,7 @@ public class VmConditionFieldAutoCompleter extends BaseConditionFieldAutoComplet
     public static final String HAS_ILLEGAL_IMAGES = "HAS_ILLEGAL_IMAGES";
     public static final String BIOS_TYPE = "BIOS_TYPE";
     private static final int MILISECOND = 1000;
+    public static final String NAMESPACE = "K8S_NAMESPACE";
 
     public VmConditionFieldAutoCompleter() {
         // Building the basic verbs Dict
@@ -90,6 +93,7 @@ public class VmConditionFieldAutoCompleter extends BaseConditionFieldAutoComplet
         verbs.add(NEXT_RUN_CONFIG_EXISTS);
         verbs.add(HAS_ILLEGAL_IMAGES);
         verbs.add(BIOS_TYPE);
+        verbs.add(NAMESPACE);
         // Building the autoCompletion Dict
         buildCompletions();
 
@@ -129,6 +133,7 @@ public class VmConditionFieldAutoCompleter extends BaseConditionFieldAutoComplet
         getTypeDictionary().put(NEXT_RUN_CONFIG_EXISTS, Boolean.class);
         getTypeDictionary().put(HAS_ILLEGAL_IMAGES, Boolean.class);
         getTypeDictionary().put(BIOS_TYPE, BiosType.class);
+        getTypeDictionary().put(NAMESPACE, String.class);
 
         // building the ColumnName Dict
         columnNameDict.put(NAME, "vm_name");
@@ -166,6 +171,7 @@ public class VmConditionFieldAutoCompleter extends BaseConditionFieldAutoComplet
         columnNameDict.put(NEXT_RUN_CONFIG_EXISTS, "next_run_config_exists");
         columnNameDict.put(HAS_ILLEGAL_IMAGES, "has_illegal_images");
         columnNameDict.put(BIOS_TYPE, "bios_type");
+        columnNameDict.put(NAMESPACE, "namespace");
 
         // Override field names for purpose of sorting, if needed
         sortableFieldDict.put(IP, Collections.singletonList(

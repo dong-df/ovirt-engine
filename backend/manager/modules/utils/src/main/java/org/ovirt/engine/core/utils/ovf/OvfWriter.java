@@ -1,11 +1,13 @@
 package org.ovirt.engine.core.utils.ovf;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 
 import org.apache.commons.lang.StringUtils;
+import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.UsbPolicy;
 import org.ovirt.engine.core.common.businessentities.VmBase;
 import org.ovirt.engine.core.common.businessentities.VmDevice;
@@ -84,6 +86,11 @@ public abstract class OvfWriter implements IOvfBuilder {
     @Override
     public void buildReference() {
         _writer.writeStartElement("References");
+        writeReferenceData();
+        _writer.writeEndElement();
+    }
+
+    protected void writeReferenceData() {
         _images.forEach(image -> {
             _writer.writeStartElement("File");
             writeFile(image);
@@ -94,13 +101,16 @@ public abstract class OvfWriter implements IOvfBuilder {
             writeFileForLunDisk(lun);
             _writer.writeEndElement();
         });
-        _writer.writeEndElement();
     }
 
     protected abstract void writeFile(DiskImage image);
 
     protected void writeFileForLunDisk(LunDisk lun) {
         // do nothing
+    }
+
+    private String escapeNewLines(String value){
+        return value.replaceAll("\n", "&#10;");
     }
 
     protected void writeVmInit() {
@@ -114,10 +124,10 @@ public abstract class OvfWriter implements IOvfBuilder {
                 _writer.writeAttributeString(OVF_PREFIX, getOvfUri(), "domain", vmInit.getDomain());
             }
             if (vmInit.getTimeZone() != null) {
-                _writer.writeAttributeString(OVF_PREFIX, getOvfUri(), "timeZone", vmInit.getTimeZone());
+                _writer.writeAttributeString(OVF_PREFIX, getOvfUri(), "timeZone", mapTimeZone(vmInit.getTimeZone()));
             }
             if (vmInit.getAuthorizedKeys() != null) {
-                _writer.writeAttributeString(OVF_PREFIX, getOvfUri(), "authorizedKeys", vmInit.getAuthorizedKeys());
+                _writer.writeAttributeString(OVF_PREFIX, getOvfUri(), "authorizedKeys", escapeNewLines(vmInit.getAuthorizedKeys()));
             }
             if (vmInit.getRegenerateKeys() != null) {
                 _writer.writeAttributeString(OVF_PREFIX, getOvfUri(), "regenerateKeys", vmInit.getRegenerateKeys().toString());
@@ -138,7 +148,7 @@ public abstract class OvfWriter implements IOvfBuilder {
                 _writer.writeAttributeString(OVF_PREFIX, getOvfUri(), "rootPassword", vmInit.getRootPassword());
             }
             if (vmInit.getCustomScript() != null) {
-                _writer.writeAttributeString(OVF_PREFIX, getOvfUri(), "customScript", vmInit.getCustomScript());
+                _writer.writeAttributeString(OVF_PREFIX, getOvfUri(), "customScript", escapeNewLines(vmInit.getCustomScript()));
             }
             _writer.writeEndElement();
         }
@@ -214,7 +224,7 @@ public abstract class OvfWriter implements IOvfBuilder {
 
         _writer.writeElement(NUM_OF_IOTHREADS, String.valueOf(vmBase.getNumOfIoThreads()));
 
-        _writer.writeElement(TIMEZONE, vmBase.getTimeZone());
+        _writer.writeElement(TIMEZONE, mapTimeZone(vmBase.getTimeZone()));
         _writer.writeElement(DEFAULT_BOOT_SEQUENCE, String.valueOf(vmBase.getDefaultBootSequence().getValue()));
 
         if (!StringUtils.isBlank(vmBase.getInitrdUrl())) {
@@ -300,8 +310,12 @@ public abstract class OvfWriter implements IOvfBuilder {
             _writer.writeElement(MIGRATION_POLICY_ID, String.valueOf(vmBase.getMigrationPolicyId()));
         }
 
+        if (vmBase.getParallelMigrations() != null) {
+            _writer.writeElement(PARALLEL_MIGRATIONS, String.valueOf(vmBase.getParallelMigrations()));
+        }
+
         writeCustomEmulatedMachine();
-        _writer.writeElement(BIOS_TYPE, String.valueOf(vmBase.getBiosType().getValue()));
+        writeBiosType();
         writeCustomCpuName();
 
         _writer.writeElement(PREDEFINED_PROPERTIES, vmBase.getPredefinedProperties());
@@ -313,12 +327,40 @@ public abstract class OvfWriter implements IOvfBuilder {
         }
 
         _writer.writeElement(MULTI_QUEUES_ENABLED, String.valueOf(vmBase.isMultiQueuesEnabled()));
+        writeVirtioMultiQueues();
+
         _writer.writeElement(USE_HOST_CPU, String.valueOf(vmBase.isUseHostCpuFlags()));
+        _writer.writeElement(BALLOON_ENABLED, String.valueOf(vmBase.isBalloonEnabled()));
+        _writer.writeElement(CPU_PINNING_POLICY, String.valueOf(vmBase.getCpuPinningPolicy().getValue()));
+    }
+
+    protected void writeVirtioMultiQueues() {
+        int numOfQueues = vmBase.getVirtioScsiMultiQueues();
+        _writer.writeStartElement(VIRTIO_SCSI_MULTI_QUEUES_ENABLED);
+        if (numOfQueues > 0) {
+            _writer.writeAttributeString(OVF_PREFIX, getOvfUri(), "queues", String.valueOf(numOfQueues));
+        }
+        String virtioMultiQueueEnabled = String.valueOf(numOfQueues != 0);
+        _writer.writeRaw(virtioMultiQueueEnabled);
+        _writer.writeEndElement();
     }
 
     protected void writeCustomEmulatedMachine() {
         _writer.writeElement(CUSTOM_EMULATED_MACHINE, vmBase.getCustomEmulatedMachine());
     }
+
+    protected void writeBiosType() {
+        BiosType biosType = vmBase.getBiosType();
+        if (biosType != null) {
+            // For compatibility with oVirt 4.3, use values of BiosType constants that existed before
+            // introduction of CLUSTER_DEFAULT:  0 == I440FX_SEA_BIOS and so on
+            _writer.writeStartElement(BIOS_TYPE);
+            _writer.writeRaw(String.valueOf(biosType.getValue() - 1));
+            _writer.writeEndElement();
+        }
+    }
+
+    protected abstract String getInstaceIdTag();
 
     protected void writeCustomCpuName() {
         _writer.writeElement(CUSTOM_CPU_NAME, vmBase.getCustomCpuName());
@@ -366,6 +408,7 @@ public abstract class OvfWriter implements IOvfBuilder {
         writeMonitors();
         writeGraphics();
         writeCd();
+        writeTpm();
         writeOtherDevices();
         _writer.writeEndElement();
     }
@@ -377,23 +420,43 @@ public abstract class OvfWriter implements IOvfBuilder {
         }
     }
 
+    private String mapTimeZone(String timezone) {
+        // map non-windows timezone that was added in 4.4.8 and didn't existed before to known timezone
+        // to support importing OVA in older versions from exported version >= 4.4.8
+        if (timezone != null) {
+            switch (timezone) {
+                case "Atlantic/South_Georgia":
+                    return "Etc/GMT";
+            }
+        }
+        return timezone;
+    }
+
     private void writeOtherDevices() {
-        List<VmDevice> devices = vmBase.getUnmanagedDeviceList();
+        List<VmDevice> devices = new ArrayList<>(vmBase.getUnmanagedDeviceList());
 
         Collection<VmDevice> managedDevices = vmBase.getManagedDeviceMap().values();
         for (VmDevice device : managedDevices) {
-            if (VmDeviceCommonUtils.isSpecialDevice(device.getDevice(), device.getType())) {
+            if (isSpecialDevice(device)) {
                 devices.add(device);
             }
         }
 
         for (VmDevice vmDevice : devices) {
-            _writer.writeStartElement("Item");
-            _writer.writeElement(RASD_URI, "ResourceType", OvfHardware.OTHER);
-            _writer.writeElement(RASD_URI, "InstanceId", vmDevice.getId().getDeviceId().toString());
-            writeVmDeviceInfo(vmDevice);
-            _writer.writeEndElement(); // item
+            writeVmDevice(vmDevice);
         }
+    }
+
+    protected boolean isSpecialDevice(VmDevice vmDevice) {
+        return VmDeviceCommonUtils.isSpecialDevice(vmDevice.getDevice(), vmDevice.getType(), false);
+    }
+
+    protected void writeVmDevice(VmDevice vmDevice) {
+        _writer.writeStartElement("Item");
+        _writer.writeElement(RASD_URI, "ResourceType", OvfHardware.OTHER);
+        _writer.writeElement(RASD_URI, getInstaceIdTag(), vmDevice.getId().getDeviceId().toString());
+        writeVmDeviceInfo(vmDevice);
+        _writer.writeEndElement(); // item
     }
 
     private void writeMonitors() {
@@ -404,11 +467,11 @@ public abstract class OvfWriter implements IOvfBuilder {
             if (vmDevice.getType() == VmDeviceGeneralType.VIDEO) {
                 _writer.writeStartElement("Item");
                 _writer.writeElement(RASD_URI, "Caption", "Graphical Controller");
-                _writer.writeElement(RASD_URI, "InstanceId", vmDevice.getId().getDeviceId().toString());
+                _writer.writeElement(RASD_URI, getInstaceIdTag(), vmDevice.getId().getDeviceId().toString());
                 _writer.writeElement(RASD_URI, "ResourceType", adjustHardwareResourceType(OvfHardware.Monitor));
                 // we should write number of monitors for each entry for backward compatibility
                 _writer.writeElement(RASD_URI, "VirtualQuantity", String.valueOf(numOfMonitors));
-                _writer.writeElement(RASD_URI, "SinglePciQxl", String.valueOf(vmBase.getSingleQxlPci()));
+                _writer.writeElement(RASD_URI, "SinglePciQxl", String.valueOf(VmDeviceCommonUtils.isSingleQxlPci(vmBase)));
                 writeVmDeviceInfo(vmDevice);
                 _writer.writeEndElement(); // item
                 if (i++ == numOfMonitors) {
@@ -424,7 +487,7 @@ public abstract class OvfWriter implements IOvfBuilder {
             if (vmDevice.getType() == VmDeviceGeneralType.GRAPHICS) {
                 _writer.writeStartElement("Item");
                 _writer.writeElement(RASD_URI, "Caption", "Graphical Framebuffer");
-                _writer.writeElement(RASD_URI, "InstanceId", vmDevice.getId().getDeviceId().toString());
+                _writer.writeElement(RASD_URI, getInstaceIdTag(), vmDevice.getId().getDeviceId().toString());
                 _writer.writeElement(RASD_URI, "ResourceType", adjustHardwareResourceType(OvfHardware.Graphics));
                 writeVmDeviceInfo(vmDevice);
                 _writer.writeEndElement(); // item
@@ -442,7 +505,7 @@ public abstract class OvfWriter implements IOvfBuilder {
             if (vmDevice.getDevice().equals(VmDeviceType.CDROM.getName())) {
                 _writer.writeStartElement("Item");
                 _writer.writeElement(RASD_URI, "Caption", "CDROM");
-                _writer.writeElement(RASD_URI, "InstanceId", vmDevice.getId().getDeviceId().toString());
+                _writer.writeElement(RASD_URI, getInstaceIdTag(), vmDevice.getId().getDeviceId().toString());
                 _writer.writeElement(RASD_URI, "ResourceType", OvfHardware.CD);
                 writeVmDeviceInfo(vmDevice);
                 _writer.writeEndElement(); // item
@@ -451,7 +514,26 @@ public abstract class OvfWriter implements IOvfBuilder {
         }
     }
 
-    private void writeVmDeviceInfo(VmDevice vmDevice) {
+    private void writeTpm() {
+        Collection<VmDevice> devices = vmBase.getManagedDeviceMap().values();
+        for (VmDevice vmDevice : devices) {
+            if (vmDevice.getDevice().equals(VmDeviceType.TPM.getName())) {
+                _writer.writeStartElement("Item");
+                _writer.writeElement(RASD_URI, "Caption", "TPM");
+                _writer.writeElement(RASD_URI, "ResourceType", OvfHardware.OTHER);
+                _writer.writeElement(RASD_URI, getInstaceIdTag(), vmDevice.getId().getDeviceId().toString());
+                writeTpmHostResource();
+                writeVmDeviceInfo(vmDevice);
+                _writer.writeEndElement(); // item
+                break; // only one TPM device is currently supported
+            }
+        }
+    }
+
+    protected void writeTpmHostResource() {
+    }
+
+    protected void writeVmDeviceInfo(VmDevice vmDevice) {
         _writer.writeElement(VMD_TYPE, String.valueOf(vmDevice.getType().getValue()));
         _writer.writeElement(VMD_DEVICE, String.valueOf(vmDevice.getDevice()));
         _writer.writeElement(VMD_ADDRESS, vmDevice.getAddress());
@@ -502,7 +584,7 @@ public abstract class OvfWriter implements IOvfBuilder {
         _writer.writeStartElement("Item");
         _writer.writeElement(RASD_URI, "Caption", String.format("%1$s virtual cpu", vmBase.getNumOfCpus()));
         _writer.writeElement(RASD_URI, "Description", "Number of virtual CPU");
-        _writer.writeElement(RASD_URI, "InstanceId", String.valueOf(++_instanceId));
+        _writer.writeElement(RASD_URI, getInstaceIdTag(), String.valueOf(++_instanceId));
         _writer.writeElement(RASD_URI, "ResourceType", OvfHardware.CPU);
         _writer.writeElement(RASD_URI, "num_of_sockets", String.valueOf(vmBase.getNumOfSockets()));
         _writer.writeElement(RASD_URI, "cpu_per_socket", String.valueOf(vmBase.getCpuPerSocket()));
@@ -518,7 +600,7 @@ public abstract class OvfWriter implements IOvfBuilder {
         _writer.writeStartElement("Item");
         _writer.writeElement(RASD_URI, "Caption", String.format("%1$s MB of memory", vmBase.getMemSizeMb()));
         _writer.writeElement(RASD_URI, "Description", "Memory Size");
-        _writer.writeElement(RASD_URI, "InstanceId", String.valueOf(++_instanceId));
+        _writer.writeElement(RASD_URI, getInstaceIdTag(), String.valueOf(++_instanceId));
         _writer.writeElement(RASD_URI, "ResourceType", OvfHardware.Memory);
         _writer.writeElement(RASD_URI, "AllocationUnits", "MegaBytes");
         _writer.writeElement(RASD_URI, "VirtualQuantity", String.valueOf(vmBase.getMemSizeMb()));
@@ -529,7 +611,7 @@ public abstract class OvfWriter implements IOvfBuilder {
         for (DiskImage image : _images) {
             _writer.writeStartElement("Item");
             _writer.writeElement(RASD_URI, "Caption", image.getDiskAlias());
-            _writer.writeElement(RASD_URI, "InstanceId", image.getImageId().toString());
+            _writer.writeElement(RASD_URI, getInstaceIdTag(), image.getImageId().toString());
             _writer.writeElement(RASD_URI, "ResourceType", OvfHardware.DiskImage);
             _writer.writeElement(RASD_URI, "HostResource", getDriveHostResource(image));
             _writer.writeElement(RASD_URI, "Parent", image.getParentId().toString());
@@ -557,7 +639,7 @@ public abstract class OvfWriter implements IOvfBuilder {
     private void writeUsb() {
         _writer.writeStartElement("Item");
         _writer.writeElement(RASD_URI, "Caption", "USB Controller");
-        _writer.writeElement(RASD_URI, "InstanceId", String.valueOf(++_instanceId));
+        _writer.writeElement(RASD_URI, getInstaceIdTag(), String.valueOf(++_instanceId));
         _writer.writeElement(RASD_URI, "ResourceType", OvfHardware.USB);
         _writer.writeElement(RASD_URI,
                 "UsbPolicy",
@@ -572,7 +654,7 @@ public abstract class OvfWriter implements IOvfBuilder {
             String networkName = iface.getNetworkName() != null ? iface.getNetworkName() : "[No Network]";
             _writer.writeRaw("Ethernet adapter on " + networkName);
             _writer.writeEndElement();
-            _writer.writeStartElement(RASD_URI, "InstanceId");
+            _writer.writeStartElement(RASD_URI, getInstaceIdTag());
             _writer.writeRaw(iface.getId().toString());
             _writer.writeEndElement();
             _writer.writeStartElement(RASD_URI, "ResourceType");

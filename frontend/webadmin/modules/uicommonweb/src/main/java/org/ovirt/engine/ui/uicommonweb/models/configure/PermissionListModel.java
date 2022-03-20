@@ -68,6 +68,8 @@ public class PermissionListModel<E> extends SearchableListModel<E, Permission> {
 
     private final Provider<AdElementListModel> adElementListModelProvider;
 
+    protected boolean directOnly = false;
+
     @Inject
     public PermissionListModel(Provider<AdElementListModel> adElementListModelProvider) {
         this.adElementListModelProvider = adElementListModelProvider;
@@ -106,7 +108,7 @@ public class PermissionListModel<E> extends SearchableListModel<E, Permission> {
         GetPermissionsForObjectParameters tempVar = new GetPermissionsForObjectParameters();
         tempVar.setObjectId(getEntityGuid());
         tempVar.setVdcObjectType(objType);
-        tempVar.setDirectOnly(false);
+        tempVar.setDirectOnly(directOnly);
         tempVar.setRefresh(getIsQueryFirstTime());
         tempVar.setAllUsersWithPermission(getAllUsersWithPermission());
         super.syncSearch(QueryType.GetPermissionsForObject, tempVar);
@@ -127,10 +129,8 @@ public class PermissionListModel<E> extends SearchableListModel<E, Permission> {
         model.setHelpTag(HelpTag.add_permission_to_user);
         model.setHashName("add_permission_to_user"); //$NON-NLS-1$
 
-        UICommand tempVar = UICommand.createDefaultOkUiCommand("OnAdd", this); //$NON-NLS-1$
-        model.getCommands().add(tempVar);
-        UICommand tempVar2 = UICommand.createCancelUiCommand("Cancel", this); //$NON-NLS-1$
-        model.getCommands().add(tempVar2);
+        model.addCommandOperatingOnSelectedItems(UICommand.createDefaultOkUiCommand("OnAdd", this)); //$NON-NLS-1$
+        model.addCancelCommand(this);
     }
 
     private void remove() {
@@ -187,23 +187,24 @@ public class PermissionListModel<E> extends SearchableListModel<E, Permission> {
             return;
         }
 
-        if (model.getSearchType() != AdSearchType.EVERYONE && model.getSelectedItems() == null) {
-            cancel();
-            return;
-        }
-
         ArrayList<DbUser> items = new ArrayList<>();
         if (model.getSearchType() == AdSearchType.EVERYONE) {
             DbUser tempVar = new DbUser();
             tempVar.setId(ApplicationGuids.everyone.asGuid());
             items.add(tempVar);
-        } else {
+        } else if (model.getItems() != null) {
             for (Object item : model.getItems()) {
                 EntityModel entityModel = (EntityModel) item;
                 if (entityModel.getIsSelected()) {
                     items.add((DbUser) entityModel.getEntity());
                 }
             }
+        }
+
+        if (items.isEmpty()) {
+            model.setIsValid(false);
+            model.setMessage(ConstantsManager.getInstance().getConstants().selectUserOrGroup());
+            return;
         }
 
         Role role = model.getRole().getSelectedItem();
@@ -234,13 +235,11 @@ public class PermissionListModel<E> extends SearchableListModel<E, Permission> {
         model.startProgress();
 
         Frontend.getInstance().runMultipleAction(ActionType.AddPermission, list,
-                result -> {
-
-                    AdElementListModel localModel = (AdElementListModel) result.getState();
-                    localModel.stopProgress();
-                    cancel();
-
-                }, model);
+            result -> {
+                AdElementListModel localModel = (AdElementListModel) result.getState();
+                localModel.stopProgress();
+                cancel();
+            }, model);
     }
 
     private void cancel() {
@@ -355,5 +354,13 @@ public class PermissionListModel<E> extends SearchableListModel<E, Permission> {
     @Override
     protected String getListName() {
         return "PermissionListModel"; //$NON-NLS-1$
+    }
+
+    public void setDirectOnly(boolean directOnly) {
+        // prevent query if value is not changed since the query is refreshed on timer interval
+        if (this.directOnly != directOnly) {
+            this.directOnly = directOnly;
+            syncSearch();
+        }
     }
 }

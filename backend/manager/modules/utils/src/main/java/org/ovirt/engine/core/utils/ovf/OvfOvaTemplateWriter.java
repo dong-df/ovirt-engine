@@ -12,7 +12,7 @@ public class OvfOvaTemplateWriter extends OvfOvaWriter {
     private VmTemplate template;
 
     public OvfOvaTemplateWriter(VmTemplate template, FullEntityOvfData fullEntityOvfData, Version version, OsRepository osRepository) {
-        super(template, fullEntityOvfData.getDiskImages(), version, osRepository);
+        super(template, fullEntityOvfData.getDiskImages(), version, template.getVmExternalData(), osRepository);
         this.template = template;
     }
 
@@ -30,6 +30,7 @@ public class OvfOvaTemplateWriter extends OvfOvaWriter {
         _writer.writeElement(BASE_TEMPLATE_ID, template.getBaseTemplateId().toString());
         _writer.writeElement(TEMPLATE_VERSION_NUMBER, String.valueOf(template.getTemplateVersionNumber()));
         _writer.writeElement(TEMPLATE_VERSION_NAME, template.getTemplateVersionName());
+        _writer.writeElement(TEMPLATE_IS_SEALED, String.valueOf(template.isSealed()));
     }
 
     @Override

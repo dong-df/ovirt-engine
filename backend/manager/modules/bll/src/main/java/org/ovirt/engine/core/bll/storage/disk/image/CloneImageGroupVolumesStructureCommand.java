@@ -15,21 +15,26 @@ import org.ovirt.engine.core.bll.NonTransactiveCommandAttribute;
 import org.ovirt.engine.core.bll.SerialChildCommandsExecutionCallback;
 import org.ovirt.engine.core.bll.SerialChildExecutingCommand;
 import org.ovirt.engine.core.bll.context.CommandContext;
+import org.ovirt.engine.core.bll.job.ExecutionHandler;
 import org.ovirt.engine.core.bll.tasks.interfaces.CommandCallback;
 import org.ovirt.engine.core.bll.utils.CommandsWeightsUtils;
 import org.ovirt.engine.core.bll.utils.PermissionSubject;
 import org.ovirt.engine.core.common.action.ActionParametersBase.EndProcedure;
+import org.ovirt.engine.core.common.action.ActionReturnValue;
 import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.CloneImageGroupVolumesStructureCommandParameters;
 import org.ovirt.engine.core.common.action.CreateVolumeContainerCommandParameters;
+import org.ovirt.engine.core.common.action.MeasureVolumeParameters;
 import org.ovirt.engine.core.common.businessentities.StorageDomainStatic;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.Image;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeFormat;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeType;
+import org.ovirt.engine.core.common.utils.SizeConverter;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dao.DiskImageDao;
 import org.ovirt.engine.core.dao.ImageDao;
+import org.ovirt.engine.core.dao.StorageDomainDao;
 import org.ovirt.engine.core.dao.StorageDomainStaticDao;
 import org.ovirt.engine.core.utils.CollectionUtils;
 
@@ -45,6 +50,8 @@ public class CloneImageGroupVolumesStructureCommand<T extends CloneImageGroupVol
     private ImageDao imageDao;
     @Inject
     private StorageDomainStaticDao storageDomainStaticDao;
+    @Inject
+    private StorageDomainDao storageDomainDao;
     @Inject
     @Typed(SerialChildCommandsExecutionCallback.class)
     private Instance<SerialChildCommandsExecutionCallback> callbackProvider;
@@ -149,7 +156,7 @@ public class CloneImageGroupVolumesStructureCommand<T extends CloneImageGroupVol
                     .getImage();
         }
 
-        Long initialSize = imagesHandler.determineImageInitialSize(innerImage,
+        Long initialSize = determineImageInitialSize(innerImage,
                 volumeFormat,
                 getParameters().getStoragePoolId(),
                 getParameters().getSrcDomain(),
@@ -167,13 +174,75 @@ public class CloneImageGroupVolumesStructureCommand<T extends CloneImageGroupVol
                 image.getVolumeType(),
                 getParameters().getDescription(),
                 image.getSize(),
-                initialSize);
+                initialSize,
+                innerImage.getSequenceNumber());
 
         parameters.setEndProcedure(EndProcedure.COMMAND_MANAGED);
         parameters.setParentCommand(getActionType());
         parameters.setParentParameters(getParameters());
         parameters.setJobWeight(getParameters().getOperationsJobWeight().get(image.getImageId().toString()));
         runInternalActionWithTasksContext(ActionType.CreateVolumeContainer, parameters);
+    }
+
+    private Long determineImageInitialSize(Image sourceImage,
+            VolumeFormat destFormat,
+            Guid storagePoolId,
+            Guid srcDomain,
+            Guid dstDomain,
+            Guid imageGroupID) {
+        Guid hostId = imagesHandler.getHostForMeasurement(storagePoolId, imageGroupID);
+        if (hostId != null) {
+            if ((storageDomainDao.get(srcDomain).getStorageType().isBlockDomain() || !sourceImage.isActive()) &&
+                    storageDomainDao.get(dstDomain).getStorageType().isBlockDomain()) {
+                MeasureVolumeParameters parameters = new MeasureVolumeParameters(storagePoolId,
+                        srcDomain,
+                        imageGroupID,
+                        sourceImage.getId(),
+                        destFormat.getValue());
+                parameters.setEndProcedure(EndProcedure.COMMAND_MANAGED);
+                parameters.setParentCommand(getActionType());
+                parameters.setVdsRunningOn(hostId);
+                parameters.setCorrelationId(getCorrelationId());
+                parameters.setWithBacking(false);
+                ActionReturnValue actionReturnValue =
+                        runInternalAction(ActionType.MeasureVolume, parameters,
+                                ExecutionHandler.createDefaultContextForTasks(getContext()));
+                if (!actionReturnValue.getSucceeded()) {
+                    throw new RuntimeException("Could not measure volume");
+                }
+
+                long requiredSize = actionReturnValue.getActionReturnValue();
+
+                // The required size for the leaf might be very small depending on the amount of data.
+                // Extend it to 1GB or disk size to avoid having the VM paused for extension too fast.
+                if (sourceImage.isActive()) {
+
+                    // TODO: 1GB is selected as this is the default chunk size in Vdsm.
+                    // This uses the logic from Vdsm's optimal_size
+                    // https://github.com/oVirt/vdsm/blob/e11b71eab5995fb00e5fe1619332687a5f717903/lib/vdsm/storage/blockVolume.py#L403
+                    // Ideally, we'd get a report from Vdsm about the chunk size and use it rather than assuming
+                    // it is the default chunk size.
+                    // https://bugzilla.redhat.com/show_bug.cgi?id=1993839
+                    requiredSize += SizeConverter.BYTES_IN_GB;
+                    return Math.min(requiredSize, sourceImage.getSize());
+                }
+
+                return requiredSize;
+            }
+        }
+
+        // We don't support Sparse-RAW volumes on block domains, therefore if the volume is RAW there is no
+        // need to pass initial size (it can be only preallocated).
+        if (imagesHandler.isInitialSizeSupportedForFormat(destFormat, dstDomain)) {
+            //TODO: inspect if we can rely on the database to get the actual size.
+            DiskImage imageInfoFromStorage = imagesHandler.getVolumeInfoFromVdsm(storagePoolId,
+                    srcDomain, imageGroupID, sourceImage.getId());
+
+            return ImagesHandler.computeCowImageNeededSize(sourceImage.getVolumeFormat(),
+                    imageInfoFromStorage.getActualSizeInBytes());
+        }
+
+        return null;
     }
 
     private VolumeFormat determineVolumeFormat(Guid destStorageDomainId,

@@ -1,23 +1,29 @@
 package org.ovirt.engine.api.restapi.types;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang.StringUtils;
 import org.ovirt.engine.api.model.AuthorizedKey;
+import org.ovirt.engine.api.model.AutoPinningPolicy;
 import org.ovirt.engine.api.model.Boot;
 import org.ovirt.engine.api.model.BootDevice;
 import org.ovirt.engine.api.model.CloudInit;
 import org.ovirt.engine.api.model.Configuration;
 import org.ovirt.engine.api.model.ConfigurationType;
-import org.ovirt.engine.api.model.CpuTune;
+import org.ovirt.engine.api.model.CpuPinningPolicy;
+import org.ovirt.engine.api.model.CpuTopology;
 import org.ovirt.engine.api.model.CustomProperties;
 import org.ovirt.engine.api.model.CustomProperty;
 import org.ovirt.engine.api.model.Display;
 import org.ovirt.engine.api.model.Domain;
+import org.ovirt.engine.api.model.DynamicCpu;
 import org.ovirt.engine.api.model.ExternalHostProvider;
 import org.ovirt.engine.api.model.ExternalVmProviderType;
 import org.ovirt.engine.api.model.File;
@@ -32,10 +38,11 @@ import org.ovirt.engine.api.model.InstanceType;
 import org.ovirt.engine.api.model.Ip;
 import org.ovirt.engine.api.model.Kernel;
 import org.ovirt.engine.api.model.Nic;
-import org.ovirt.engine.api.model.NumaTuneMode;
 import org.ovirt.engine.api.model.OperatingSystem;
 import org.ovirt.engine.api.model.OsType;
 import org.ovirt.engine.api.model.Payload;
+import org.ovirt.engine.api.model.Properties;
+import org.ovirt.engine.api.model.Property;
 import org.ovirt.engine.api.model.Session;
 import org.ovirt.engine.api.model.Sessions;
 import org.ovirt.engine.api.model.Template;
@@ -43,9 +50,8 @@ import org.ovirt.engine.api.model.TimeZone;
 import org.ovirt.engine.api.model.Usb;
 import org.ovirt.engine.api.model.UsbType;
 import org.ovirt.engine.api.model.User;
-import org.ovirt.engine.api.model.VcpuPin;
-import org.ovirt.engine.api.model.VcpuPins;
 import org.ovirt.engine.api.model.Vm;
+import org.ovirt.engine.api.model.VmMediatedDevice;
 import org.ovirt.engine.api.model.VmPool;
 import org.ovirt.engine.api.model.VmStatus;
 import org.ovirt.engine.api.restapi.utils.CustomPropertiesParser;
@@ -55,12 +61,17 @@ import org.ovirt.engine.core.common.action.RunVmOnceParams;
 import org.ovirt.engine.core.common.businessentities.BootSequence;
 import org.ovirt.engine.core.common.businessentities.GraphicsDevice;
 import org.ovirt.engine.core.common.businessentities.GraphicsInfo;
+import org.ovirt.engine.core.common.businessentities.NumaTuneMode;
 import org.ovirt.engine.core.common.businessentities.OriginType;
 import org.ovirt.engine.core.common.businessentities.UsbPolicy;
 import org.ovirt.engine.core.common.businessentities.VMStatus;
 import org.ovirt.engine.core.common.businessentities.VmBase;
+import org.ovirt.engine.core.common.businessentities.VmDeviceGeneralType;
+import org.ovirt.engine.core.common.businessentities.VmDeviceId;
 import org.ovirt.engine.core.common.businessentities.VmInit;
 import org.ovirt.engine.core.common.businessentities.VmInitNetwork;
+import org.ovirt.engine.core.common.businessentities.VmMdevType;
+import org.ovirt.engine.core.common.businessentities.VmNumaNode;
 import org.ovirt.engine.core.common.businessentities.VmPayload;
 import org.ovirt.engine.core.common.businessentities.VmStatic;
 import org.ovirt.engine.core.common.businessentities.VmTemplate;
@@ -68,7 +79,9 @@ import org.ovirt.engine.core.common.businessentities.network.Ipv4BootProtocol;
 import org.ovirt.engine.core.common.config.Config;
 import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.osinfo.OsRepository;
+import org.ovirt.engine.core.common.utils.MDevTypesUtils;
 import org.ovirt.engine.core.common.utils.SimpleDependencyInjector;
+import org.ovirt.engine.core.common.utils.VmCpuCountHelper;
 import org.ovirt.engine.core.common.utils.VmDeviceType;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.compat.Version;
@@ -115,6 +128,7 @@ public class VmMapper extends VmBaseMapper {
         staticVm.setMigrateCompressed(entity.getMigrateCompressed());
         staticVm.setCustomProperties(entity.getCustomProperties());
         staticVm.setCustomEmulatedMachine(entity.getCustomEmulatedMachine());
+        staticVm.setBiosType(entity.getBiosType());
         staticVm.setCustomCpuName(entity.getCustomCpuName());
         staticVm.setConsoleDisconnectAction(entity.getConsoleDisconnectAction());
         staticVm.setSmallIconId(entity.getSmallIconId());
@@ -123,6 +137,7 @@ public class VmMapper extends VmBaseMapper {
         staticVm.setBootMenuEnabled(entity.isBootMenuEnabled());
         staticVm.setMultiQueuesEnabled(entity.isMultiQueuesEnabled());
         staticVm.setUseHostCpuFlags(entity.isUseHostCpuFlags());
+        staticVm.setVirtioScsiMultiQueues(entity.getVirtioScsiMultiQueues());
         return doMapVmBaseHwPartToVmStatic(entity, staticVm, version);
     }
 
@@ -142,7 +157,6 @@ public class VmMapper extends VmBaseMapper {
         staticVm.setCpuPerSocket(entity.getCpuPerSocket());
         staticVm.setThreadsPerCpu(entity.getThreadsPerCpu());
         staticVm.setNumOfMonitors(entity.getNumOfMonitors());
-        staticVm.setSingleQxlPci(entity.getSingleQxlPci());
         staticVm.setPriority(entity.getPriority());
         staticVm.setUsbPolicy(entity.getUsbPolicy());
         staticVm.setTunnelMigration(entity.getTunnelMigration());
@@ -177,11 +191,6 @@ public class VmMapper extends VmBaseMapper {
                 staticVm.setUseLatestVersion(vm.isUseLatestTemplateVersion());
             }
         }
-        if (vm.isSetCpu()) {
-            if (vm.getCpu().isSetCpuTune()) {
-                staticVm.setCpuPinning(cpuTuneToString(vm.getCpu().getCpuTune()));
-            }
-        }
 
         if (vm.isSetInitialization()) {
             staticVm.setVmInit(InitializationMapper.map(vm.getInitialization(), staticVm.getVmInit()));
@@ -200,7 +209,8 @@ public class VmMapper extends VmBaseMapper {
         }
 
         if (vm.isSetNumaTuneMode()) {
-            staticVm.setNumaTuneMode(map(vm.getNumaTuneMode(), null));
+            staticVm.getvNumaNodeList()
+                    .forEach(node -> node.setNumaTuneMode(NumaMapper.map(vm.getNumaTuneMode(), null)));
         }
 
         if (vm.isSetExternalHostProvider()) {
@@ -272,7 +282,6 @@ public class VmMapper extends VmBaseMapper {
             os.setCmdline(entity.getKernelParams());
             model.setOs(os);
         }
-        model.getCpu().setCpuTune(stringToCpuTune(entity.getCpuPinning()));
 
         model.getCpu().setArchitecture(CPUMapper.map(entity.getClusterArch(), null));
 
@@ -290,6 +299,17 @@ public class VmMapper extends VmBaseMapper {
             if (model.getOs() != null && entity.getBootSequence() != null) {
                 Boot boot = map(entity.getBootSequence(), null);
                 model.getOs().setBoot(boot);
+            }
+            if (VmCpuCountHelper.isDynamicCpuPinning(entity)) {
+                model.setDynamicCpu(new DynamicCpu());
+                model.getDynamicCpu().setCpuTune(stringToCpuTune(entity.getCurrentCpuPinning()));
+                if (VmCpuCountHelper.isResizeAndPinPolicy(entity)) {
+                    CpuTopology topology = new CpuTopology();
+                    topology.setSockets(entity.getCurrentSockets());
+                    topology.setCores(entity.getCurrentCoresPerSocket());
+                    topology.setThreads(entity.getCurrentThreadsPerCore());
+                    model.getDynamicCpu().setTopology(topology);
+                }
             }
         } else {
             if (model.getOs() != null) {
@@ -375,7 +395,6 @@ public class VmMapper extends VmBaseMapper {
             model.setStopTime(DateMapper.map(entity.getLastStopTime(), null));
         }
         model.getDisplay().setMonitors(entity.getNumOfMonitors());
-        model.getDisplay().setSingleQxlPci(entity.getSingleQxlPci());
         model.getDisplay().setAllowOverride(entity.getAllowConsoleReconnect());
         model.getDisplay().setSmartcardEnabled(entity.isSmartcardEnabled());
         model.getDisplay().setKeyboardLayout(entity.getDefaultVncKeyboardLayout());
@@ -397,8 +416,8 @@ public class VmMapper extends VmBaseMapper {
         if (entity.getVmInit() != null) {
             model.setInitialization(InitializationMapper.map(entity.getVmInit(), null));
         }
-        model.setNextRunConfigurationExists(entity.isNextRunConfigurationExists());
-        model.setNumaTuneMode(map(entity.getNumaTuneMode(), null));
+        model.setNextRunConfigurationExists(entity.isNextRunConfigurationExists() || entity.isVnicsOutOfSync());
+        model.setNumaTuneMode(NumaMapper.map(getVmNumaTuneIfApplies(entity.getvNumaNodeList()), null));
 
         if (entity.getProviderId() != null) {
             model.setExternalHostProvider(new ExternalHostProvider());
@@ -406,6 +425,15 @@ public class VmMapper extends VmBaseMapper {
         }
 
         return model;
+    }
+
+    private static NumaTuneMode getVmNumaTuneIfApplies(List<VmNumaNode> vmNumaNodes) {
+        Set<NumaTuneMode> numaTuneModes = vmNumaNodes.stream().map(VmNumaNode::getNumaTuneMode).collect(Collectors.toSet());
+        // if the size is one, all the vNodes having the same tuning. We can reflect it on the VM.
+        if (numaTuneModes.size() == 1) {
+            return numaTuneModes.stream().findFirst().get();
+        }
+        return null;
     }
 
     private static String getEffectiveSpiceProxy(org.ovirt.engine.core.common.businessentities.VM entity) {
@@ -706,6 +734,48 @@ public class VmMapper extends VmBaseMapper {
         }
     }
 
+    @Mapping(from = VmMdevType.class, to = VmMediatedDevice.class)
+    public static VmMediatedDevice map(VmMdevType device, VmMediatedDevice template) {
+        VmMediatedDevice model = template == null ? new VmMediatedDevice() : template;
+        model.setId(device.getId().getDeviceId().toString());
+        if (device.getSpecParams() != null && !device.getSpecParams().isEmpty()) {
+            Properties properties = new Properties();
+            List<Property> propertyList = properties.getProperties();
+            for (Entry entry : device.getSpecParams().entrySet()) {
+                Property property = new Property();
+                property.setName((String)entry.getKey());
+                property.setValue(entry.getValue().toString());
+                propertyList.add(property);
+            }
+            model.setSpecParams(properties);
+        }
+        return model;
+    }
+
+    @Mapping(from = VmMediatedDevice.class, to = VmMdevType.class)
+    public static VmMdevType map(VmMediatedDevice mdev, VmMdevType template) {
+        final VmMdevType device = template == null ? new VmMdevType() : template;
+        final Guid mdevId = mdev.getId() == null ? Guid.newGuid() : new Guid(mdev.getId());
+        device.setId(new VmDeviceId(mdevId, null));
+        device.setType(VmDeviceGeneralType.MDEV);
+        device.setDevice(VmDeviceType.VGPU.getName());
+        device.setAddress("");
+        device.setManaged(true);
+        device.setPlugged(true);
+        final Map<String, Object> specParams = new HashMap<>();
+        for (Property property : mdev.getSpecParams().getProperties()) {
+            final String name = property.getName();
+            final String value = property.getValue();
+            if (MDevTypesUtils.NODISPLAY.equals(name)) {
+                specParams.put(name, Boolean.valueOf(value));
+            } else {
+                specParams.put(name, value);
+            }
+        }
+        device.setSpecParams(specParams);
+        return device;
+    }
+
     private static VmStatus mapVmStatus(VMStatus status) {
         switch (status) {
         case Unassigned:
@@ -742,6 +812,54 @@ public class VmMapper extends VmBaseMapper {
             return VmStatus.POWERING_DOWN;
         default:
             return null;
+        }
+    }
+
+    @Mapping(from = AutoPinningPolicy.class, to = CpuPinningPolicy.class)
+    public static org.ovirt.engine.core.common.businessentities.CpuPinningPolicy map(AutoPinningPolicy autoPinningPolicy) {
+        switch (autoPinningPolicy) {
+        case ADJUST:
+            return org.ovirt.engine.core.common.businessentities.CpuPinningPolicy.RESIZE_AND_PIN_NUMA;
+        default:
+            return org.ovirt.engine.core.common.businessentities.CpuPinningPolicy.NONE;
+        }
+    }
+
+    @Mapping(from = org.ovirt.engine.core.common.businessentities.CpuPinningPolicy.class, to = AutoPinningPolicy.class)
+    public static AutoPinningPolicy map(org.ovirt.engine.core.common.businessentities.CpuPinningPolicy cpuPinningPolicy, AutoPinningPolicy template) {
+        switch (cpuPinningPolicy) {
+            case RESIZE_AND_PIN_NUMA:
+            return AutoPinningPolicy.ADJUST;
+        default:
+            return AutoPinningPolicy.DISABLED;
+        }
+    }
+
+    @Mapping(from = CpuPinningPolicy.class, to = org.ovirt.engine.core.common.businessentities.CpuPinningPolicy.class)
+    public static org.ovirt.engine.core.common.businessentities.CpuPinningPolicy map(CpuPinningPolicy cpuPinningPolicy) {
+        switch (cpuPinningPolicy) {
+            case MANUAL:
+                return org.ovirt.engine.core.common.businessentities.CpuPinningPolicy.MANUAL;
+            case RESIZE_AND_PIN_NUMA:
+                return org.ovirt.engine.core.common.businessentities.CpuPinningPolicy.RESIZE_AND_PIN_NUMA;
+            case DEDICATED:
+                return org.ovirt.engine.core.common.businessentities.CpuPinningPolicy.DEDICATED;
+            default:
+                return org.ovirt.engine.core.common.businessentities.CpuPinningPolicy.NONE;
+        }
+    }
+
+    @Mapping(from = org.ovirt.engine.core.common.businessentities.CpuPinningPolicy.class, to = CpuPinningPolicy.class)
+    public static CpuPinningPolicy map(org.ovirt.engine.core.common.businessentities.CpuPinningPolicy cpuPinningPolicy) {
+        switch (cpuPinningPolicy) {
+            case MANUAL:
+                return CpuPinningPolicy.MANUAL;
+            case RESIZE_AND_PIN_NUMA:
+                return CpuPinningPolicy.RESIZE_AND_PIN_NUMA;
+            case DEDICATED:
+                return CpuPinningPolicy.DEDICATED;
+            default:
+                return CpuPinningPolicy.NONE;
         }
     }
 
@@ -1050,60 +1168,6 @@ public class VmMapper extends VmBaseMapper {
         return entity;
     }
 
-    static String cpuTuneToString(final CpuTune tune) {
-        final StringBuilder builder = new StringBuilder();
-        VcpuPins pins = tune.getVcpuPins();
-        if (pins != null) {
-            boolean first = true;
-            for (final VcpuPin pin : pins.getVcpuPins()) {
-                if (first) {
-                    first = false;
-                } else {
-                    builder.append("_");
-                }
-                builder.append(pin.getVcpu()).append('#').append(pin.getCpuSet());
-            }
-        }
-        return builder.toString();
-    }
-
-    /**
-     * Maps the stringified CPU-pinning to the API format.
-     */
-    static CpuTune stringToCpuTune(String cpuPinning) {
-        if(cpuPinning == null || cpuPinning.equals("")) {
-            return null;
-        }
-        final CpuTune cpuTune = new CpuTune();
-        VcpuPins pins = new VcpuPins();
-        for(String strCpu : cpuPinning.split("_")) {
-            VcpuPin pin = stringToVCpupin(strCpu);
-            pins.getVcpuPins().add(pin);
-        }
-        cpuTune.setVcpuPins(pins);
-
-        return cpuTune;
-    }
-
-    static VcpuPin stringToVCpupin(final String strCpu) {
-        final String[] strPin = strCpu.split("#");
-        if (strPin.length != 2) {
-            throw new IllegalArgumentException("Bad format: " + strCpu);
-        }
-        final VcpuPin pin = new VcpuPin();
-        try {
-            pin.setVcpu(Integer.parseInt(strPin[0]));
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Bad format: " + strCpu, e);
-        }
-        if (strPin[1].matches("\\^?(\\d+(\\-\\d+)?)(,\\^?((\\d+(\\-\\d+)?)))*")) {
-            pin.setCpuSet(strPin[1]);
-        } else {
-            throw new IllegalArgumentException("Bad format: " + strPin[1]);
-        }
-        return pin;
-    }
-
     public static UsbPolicy getUsbPolicyOnCreate(Usb usb) {
         if (usb == null || !usb.isSetEnabled() || !usb.isEnabled()) {
             return UsbPolicy.DISABLED;
@@ -1250,37 +1314,5 @@ public class VmMapper extends VmBaseMapper {
             sessions.getSessions().add(guestSession);
         }
         return sessions;
-    }
-
-    @Mapping(from = NumaTuneMode.class, to = org.ovirt.engine.core.common.businessentities.NumaTuneMode.class)
-    public static org.ovirt.engine.core.common.businessentities.NumaTuneMode map(NumaTuneMode mode,
-                                      org.ovirt.engine.core.common.businessentities.NumaTuneMode incoming) {
-        switch (mode) {
-        case STRICT:
-            return org.ovirt.engine.core.common.businessentities.NumaTuneMode.STRICT;
-        case INTERLEAVE:
-            return org.ovirt.engine.core.common.businessentities.NumaTuneMode.INTERLEAVE;
-        case PREFERRED:
-            return org.ovirt.engine.core.common.businessentities.NumaTuneMode.PREFERRED;
-        default:
-            return null;
-        }
-    }
-
-    @Mapping(from = org.ovirt.engine.core.common.businessentities.NumaTuneMode.class, to = NumaTuneMode.class)
-    public static NumaTuneMode map(org.ovirt.engine.core.common.businessentities.NumaTuneMode mode, NumaTuneMode incoming) {
-        if (mode == null) {
-            return null;
-        }
-        switch (mode) {
-        case STRICT:
-            return NumaTuneMode.STRICT;
-        case INTERLEAVE:
-            return NumaTuneMode.INTERLEAVE;
-        case PREFERRED:
-            return NumaTuneMode.PREFERRED;
-        default:
-            return null;
-        }
     }
 }

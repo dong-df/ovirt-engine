@@ -6,10 +6,12 @@ import javax.inject.Named;
 import javax.inject.Singleton;
 
 import org.ovirt.engine.core.common.businessentities.VmCheckpoint;
+import org.ovirt.engine.core.common.businessentities.VmCheckpointState;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dal.dbbroker.DbFacadeUtils;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.SingleColumnRowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 
 /**
@@ -29,7 +31,9 @@ public class VmCheckpointDaoImpl extends DefaultGenericDao<VmCheckpoint, Guid> i
         return createIdParameterMapper(entity.getId())
                 .addValue("vm_id", entity.getVmId())
                 .addValue("parent_id", entity.getParentId())
-                .addValue("_create_date", entity.getCreationDate());
+                .addValue("_create_date", entity.getCreationDate())
+                .addValue("state", entity.getState().getName())
+                .addValue("description", entity.getDescription());
     }
 
     @Override
@@ -45,14 +49,35 @@ public class VmCheckpointDaoImpl extends DefaultGenericDao<VmCheckpoint, Guid> i
         VmCheckpoint entity = new VmCheckpoint();
         entity.setId(getGuid(rs, "checkpoint_id"));
         entity.setParentId(getGuid(rs, "parent_id"));
+        entity.setVmId(getGuid(rs, "vm_id"));
         entity.setCreationDate(DbFacadeUtils.fromDate(rs.getTimestamp("_create_date")));
+        entity.setState(VmCheckpointState.forName(rs.getString("state")));
+        entity.setDescription(rs.getString("description"));
         return entity;
     };
+
+    @Override
+    public void update(VmCheckpoint entity) {
+        MapSqlParameterSource parameterSource = getCustomMapSqlParameterSource()
+                .addValue("checkpoint_id", entity.getId())
+                .addValue("vm_id", entity.getVmId())
+                .addValue("parent_id", entity.getParentId())
+                .addValue("state", entity.getState().getName())
+                .addValue("description", entity.getDescription());
+        getCallsHandler().executeModification("UpdateVmCheckpoint", parameterSource);
+    }
 
     @Override
     public List<VmCheckpoint> getAllForVm(Guid id) {
         MapSqlParameterSource parameterSource = getCustomMapSqlParameterSource().addValue("vm_id", id);
         return getCallsHandler().executeReadList("GetVmCheckpointsByVmId", vmCheckpointRowMapper, parameterSource);
+    }
+
+    @Override
+    public VmCheckpoint getChildCheckpoint(Guid checkpointId) {
+        MapSqlParameterSource parameterSource = getCustomMapSqlParameterSource().addValue("checkpoint_id", checkpointId);
+        return getCallsHandler()
+                .executeRead("GetVmCheckpointByVmCheckpointParentId", vmCheckpointRowMapper, parameterSource);
     }
 
     @Override
@@ -71,8 +96,24 @@ public class VmCheckpointDaoImpl extends DefaultGenericDao<VmCheckpoint, Guid> i
     }
 
     @Override
-    public void removeAllDisksFromCheckpoint(Guid checkpointId) {
-        getCallsHandler().executeModification("DeleteAllVmBackupDiskMapByVmBackupId",
-                getCustomMapSqlParameterSource().addValue("checkpoint_id", checkpointId));
+    public void removeAllCheckpointsByVmId(Guid vmId) {
+        getCallsHandler().executeModification("DeleteAllCheckpointsByVmId",
+                getCustomMapSqlParameterSource().addValue("vm_id", vmId));
+    }
+
+    @Override
+    public void invalidateAllCheckpointsByVmId(Guid vmId) {
+        getCallsHandler().executeModification("InvalidateAllCheckpointsByVmId",
+                getCustomMapSqlParameterSource()
+                        .addValue("vm_id", vmId)
+                        .addValue("state", VmCheckpointState.INVALID.getName()));
+    }
+
+    @Override
+    public boolean isDiskIncludedInCheckpoint(Guid diskId) {
+        MapSqlParameterSource parameterSource = getCustomMapSqlParameterSource().addValue("disk_id", diskId);
+        return getCallsHandler().executeRead("IsDiskIncludedInCheckpoint",
+                SingleColumnRowMapper.newInstance(Boolean.class),
+                parameterSource);
     }
 }

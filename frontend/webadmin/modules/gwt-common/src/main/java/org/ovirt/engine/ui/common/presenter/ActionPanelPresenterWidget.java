@@ -10,10 +10,9 @@ import org.ovirt.engine.ui.common.uicommon.model.SearchableTableModelProvider;
 import org.ovirt.engine.ui.common.widget.action.ActionButton;
 import org.ovirt.engine.ui.common.widget.action.ActionButtonDefinition;
 import org.ovirt.engine.ui.common.widget.action.ActionPanel;
+import org.ovirt.engine.ui.common.widget.action.DropdownActionButton;
 import org.ovirt.engine.ui.common.widget.action.DropdownActionButton.SelectedItemsProvider;
 import org.ovirt.engine.ui.uicommonweb.models.SearchableListModel;
-import org.ovirt.engine.ui.uicompat.EventArgs;
-import org.ovirt.engine.ui.uicompat.IEventListener;
 
 import com.google.gwt.user.client.ui.IsWidget;
 import com.google.web.bindery.event.shared.EventBus;
@@ -92,7 +91,7 @@ public abstract class ActionPanelPresenterWidget<E, T, M extends SearchableListM
     @Override
     public void addMenuListItem(final ActionButtonDefinition<E, T> menuItemDef) {
         ActionButton newActionMenuListItem = getView().addMenuListItem(menuItemDef);
-        registerSelectionChangeHandler(menuItemDef);
+        registerModelChangedHandler(menuItemDef);
         // Add menu item widget click handler
         registerHandler(newActionMenuListItem.addClickHandler(e -> {
             ((ActionButtonDefinition<E, T>) menuItemDef).onClick(getParentEntity(), getSelectedItems());
@@ -111,8 +110,7 @@ public abstract class ActionPanelPresenterWidget<E, T, M extends SearchableListM
 
     /**
      * Ensures that the specified menu item is visible or hidden and enabled or disabled as it should.
-     * @param item The {@code MenuItem} to enabled/disable/hide based on the {@code ActionButtonDefinition}
-     * @param buttonDef The button definition to use to change the menu item.
+     * @param menuItemDef The button definition to use to change the menu item.
      */
     protected void updateMenuItem(ActionButtonDefinition<E, T> menuItemDef) {
         boolean isVisible = menuItemDef.isAccessible(getParentEntity(), getSelectedItems()) && menuItemDef.isVisible(getParentEntity(), getSelectedItems());
@@ -132,58 +130,96 @@ public abstract class ActionPanelPresenterWidget<E, T, M extends SearchableListM
         } else {
             actionButtonDefinitions.add(buttonDef.getIndex(), buttonDef);
         }
-        initButton((ActionButtonDefinition<E, T>) buttonDef, newButton);
+        initActionButton((ActionButtonDefinition<E, T>) buttonDef, newButton);
     }
 
-    private void initButton(ActionButtonDefinition<E, T> buttonDef, ActionButton newButton) {
-        registerSelectionChangeHandler(buttonDef);
+    public void addComboActionButton(ActionButtonDefinition<E, T> buttonDef) {
+        ActionButton newButton = getView().addDropdownComboActionButton(buttonDef, buttonDef.getSubActions(), this);
+        actionButtonDefinitions.add(buttonDef);
+        initActionButton(buttonDef, newButton);
+    }
+
+    /**
+     * Adds subactions (1st level children only) in the right-click context menu i.e. after right-click on a selected
+     * row in the table
+     */
+    public void addComboActionButtonWithContexts(ActionButtonDefinition<E, T> buttonDef) {
+        addComboActionButton(buttonDef);
+        actionButtonDefinitions.addAll(buttonDef.getSubActions());
+    }
+
+    public void addDropdownActionButton(ActionButtonDefinition<E, T> buttonDef) {
+        ActionButton newButton = getView().addDropdownActionButton(buttonDef, buttonDef.getSubActions(), this);
+        initActionButton(buttonDef, newButton);
+    }
+
+    // TODO the same button definition can be used to create 2 view buttons(use case: vm list and vm details)
+    // this results in duplicating all listeners
+    private void initActionButton(ActionButtonDefinition<E, T> rootButtonDef,
+            ActionButton newButton) {
+        // effectively used only by UI extensions
+        registerModelChangedHandler(rootButtonDef);
         // Add button widget click handler
         registerHandler(newButton.addClickHandler(event -> {
-            buttonDef.onClick(getParentEntity(), getSelectedItems());
+            rootButtonDef.onClick(getParentEntity(), getSelectedItems());
         }));
-        // Update button whenever its definition gets re-initialized
-        registerHandler(buttonDef.addInitializeHandler(event -> updateActionButton(buttonDef)));
 
-        updateActionButton(buttonDef);
+        // the root needs to register to itself as it's also part of the button tree
+        // sub actions (if any) are registered recursively in the same way as root
+        registerToUpdateRootOnSubActionInitialize(rootButtonDef, rootButtonDef);
+
+        updateActionButton(rootButtonDef);
     }
 
-    public void addComboActionButton(ActionButtonDefinition<E, T> buttonDef, List<ActionButtonDefinition<E, T>> subActions) {
-        ActionButton newButton = getView().addDropdownComboActionButton(buttonDef, subActions, this);
-        actionButtonDefinitions.add(buttonDef);
-        initButton(buttonDef, newButton);
+    /**
+     * <p>
+     * Buttons can form a tree with one root button and up to 2 levels of nested buttons below root (at the time of
+     * writing). Re-initialization of any nested button(including root itself) should trigger re-evaluation of the whole
+     * tree. This is implemented by triggering the update of the root button which in turn will trigger updating
+     * enable/accessible status of itself and all nested buttons. For details see
+     * {@link DropdownActionButton#setEnabled(boolean)}
+     * </p>
+     * <p>
+     * By default InitializeEvent in case of command based buttons is triggered by command property change i.e.
+     * <ol>
+     * <li>model.updateActionsAvailability() is triggered by selection or state change</li>
+     * <li>command.setIsExecutionAllowed(flag) is set</li>
+     * <li>corresponding UiCommandButtonDefinition.propertyChangeListener triggers InitializeEvent</li>
+     * </ol>
+     * </p>
+     *
+     * @param nestedButtonDef
+     *            button which should trigger root update
+     * @param rootButtonDef
+     *            the root of the button tree
+     */
+    private void registerToUpdateRootOnSubActionInitialize(ActionButtonDefinition<E, T> nestedButtonDef,
+            ActionButtonDefinition<E, T> rootButtonDef) {
+        // Update root button whenever definition of nested button gets re-initialized
+        registerHandler(nestedButtonDef.addInitializeHandler(event -> updateActionButton(rootButtonDef)));
+
+        for (ActionButtonDefinition subAction : nestedButtonDef.getSubActions()) {
+            // repeat recursively for all children
+            registerToUpdateRootOnSubActionInitialize(subAction, rootButtonDef);
+        }
     }
 
-    // Add an option to include a subaction in the right-click menu
-    public void addComboActionButtonWithContexts(ActionButtonDefinition<E, T> buttonDef, List<ActionButtonDefinition<E, T>> subActions) {
-        ActionButton newButton = getView().addDropdownComboActionButton(buttonDef, subActions, this);
-        actionButtonDefinitions.add(buttonDef);
-        actionButtonDefinitions.addAll(subActions);
-        initButton(buttonDef, newButton);
-    }
-
-    public void addActionButton(ActionButtonDefinition<E, T> buttonDef, List<ActionButtonDefinition<E, T>> subActions) {
-        ActionButton newButton = getView().addDropdownActionButton(buttonDef, subActions, this);
-        initButton(buttonDef, newButton);
+    /**
+     * Adds listener to update button definition whenever list model changes in a way that requires refreshing button
+     * state. It's up to the particular model to decide when refresh is needed. This path of triggering InitializeEvent
+     * is used mainly by buttons added via UI extensions. See
+     * {@link #registerToUpdateRootOnSubActionInitialize(ActionButtonDefinition, ActionButtonDefinition)}
+     */
+    void registerModelChangedHandler(final ActionButtonDefinition<?, T> buttonDef) {
+        dataProvider.getModel()
+                .getPropertyChangedEvent()
+                .addListener(buttonDef.getUpdateOnModelChangeRelevantForActionsListener());
     }
 
     protected void updateActionButton(ActionButtonDefinition<E, T> buttonDef) {
         boolean isVisible = buttonDef.isAccessible(getParentEntity(), getSelectedItems()) && buttonDef.isVisible(getParentEntity(), getSelectedItems());
         boolean isEnabled = buttonDef.isEnabled(getParentEntity(), getSelectedItems());
         getView().updateActionButton(isVisible, isEnabled, buttonDef);
-    }
-
-    void registerSelectionChangeHandler(final ActionButtonDefinition<?, T> buttonDef) {
-        // Update button definition whenever list model item selection changes
-        addSelectionChangeListener((ev, sender, args) -> {
-            // Update action button on item selection change
-            buttonDef.update();
-        });
-    }
-
-    @SuppressWarnings("unchecked")
-    void addSelectionChangeListener(IEventListener<EventArgs> itemSelectionChangeHandler) {
-        dataProvider.getModel().getSelectedItemChangedEvent().addListener(itemSelectionChangeHandler);
-        dataProvider.getModel().getSelectedItemsChangedEvent().addListener(itemSelectionChangeHandler);
     }
 
     protected M getModel() {

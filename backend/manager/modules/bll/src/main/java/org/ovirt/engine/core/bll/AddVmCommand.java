@@ -27,6 +27,7 @@ import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.ovirt.engine.core.bll.context.CommandContext;
+import org.ovirt.engine.core.bll.job.ExecutionHandler;
 import org.ovirt.engine.core.bll.network.VmInterfaceManager;
 import org.ovirt.engine.core.bll.network.cluster.NetworkHelper;
 import org.ovirt.engine.core.bll.profiles.DiskProfileHelper;
@@ -53,9 +54,11 @@ import org.ovirt.engine.core.bll.validator.storage.StoragePoolValidator;
 import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.FeatureSupported;
 import org.ovirt.engine.core.common.VdcObjectType;
+import org.ovirt.engine.core.common.action.ActionParametersBase;
 import org.ovirt.engine.core.common.action.ActionReturnValue;
 import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.AddVmParameters;
+import org.ovirt.engine.core.common.action.AddVmParameters.Phase;
 import org.ovirt.engine.core.common.action.AddVmToPoolParameters;
 import org.ovirt.engine.core.common.action.CreateSnapshotFromTemplateParameters;
 import org.ovirt.engine.core.common.action.GraphicsParameters;
@@ -63,12 +66,12 @@ import org.ovirt.engine.core.common.action.ImagesContainterParametersBase;
 import org.ovirt.engine.core.common.action.LockProperties;
 import org.ovirt.engine.core.common.action.LockProperties.Scope;
 import org.ovirt.engine.core.common.action.RngDeviceParameters;
+import org.ovirt.engine.core.common.action.SealVmParameters;
 import org.ovirt.engine.core.common.action.VmNumaNodeOperationParameters;
 import org.ovirt.engine.core.common.action.WatchdogParameters;
 import org.ovirt.engine.core.common.asynctasks.EntityInfo;
 import org.ovirt.engine.core.common.businessentities.ActionGroup;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
-import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.DisplayType;
 import org.ovirt.engine.core.common.businessentities.GraphicsDevice;
@@ -84,6 +87,7 @@ import org.ovirt.engine.core.common.businessentities.StoragePoolStatus;
 import org.ovirt.engine.core.common.businessentities.UsbPolicy;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VMStatus;
+import org.ovirt.engine.core.common.businessentities.VmBase;
 import org.ovirt.engine.core.common.businessentities.VmDevice;
 import org.ovirt.engine.core.common.businessentities.VmDeviceGeneralType;
 import org.ovirt.engine.core.common.businessentities.VmDeviceId;
@@ -125,6 +129,7 @@ import org.ovirt.engine.core.compat.Version;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogable;
 import org.ovirt.engine.core.dao.ClusterDao;
+import org.ovirt.engine.core.dao.DiskImageDao;
 import org.ovirt.engine.core.dao.DiskVmElementDao;
 import org.ovirt.engine.core.dao.LabelDao;
 import org.ovirt.engine.core.dao.PermissionDao;
@@ -149,7 +154,7 @@ import org.ovirt.engine.core.vdsbroker.vdsbroker.CloudInitHandler;
 @DisableInPrepareMode
 @NonTransactiveCommandAttribute(forceCompensation = true)
 public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommandBase<T>
-        implements QuotaStorageDependent, QuotaVdsDependent {
+        implements QuotaStorageDependent, QuotaVdsDependent, SerialChildExecutingCommand {
 
     private static final Base64 BASE_64 = new Base64(0, null);
 
@@ -185,10 +190,9 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     private ImageType imageType;
     private Guid vmInterfacesSourceId;
     private VmTemplate vmDisksSource;
-    private Guid vmDevicesSourceId;
+    private VmBase vmDevicesSource;
     private List<StorageDomain> poolDomains;
 
-    private Map<Guid, Guid> srcDiskIdToTargetDiskIdMapping = new HashMap<>();
     private Map<Guid, Guid> srcVmNicIdToTargetVmNicIdMapping = new HashMap<>();
 
     @Inject
@@ -223,6 +227,8 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     private AffinityGroupDao affinityGroupDao;
     @Inject
     private LabelDao labelDao;
+    @Inject
+    private DiskImageDao diskImageDao;
 
     @Inject
     private VmInitDao vmInitDao;
@@ -231,10 +237,11 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     private IconUtils iconUtils;
 
     @Inject
-    @Typed(ConcurrentChildCommandsExecutionCallback.class)
-    private Instance<ConcurrentChildCommandsExecutionCallback> callbackProvider;
+    @Typed(SerialChildCommandsExecutionCallback.class)
+    private Instance<SerialChildCommandsExecutionCallback> callbackProvider;
 
-    private BiConsumer<AuditLogable, AuditLogDirector> affinityGroupLoggingMethod = (a, b) -> {};
+    private BiConsumer<AuditLogable, AuditLogDirector> affinityGroupLoggingMethod = (a, b) -> {
+    };
 
     protected AddVmCommand(Guid commandId) {
         super(commandId);
@@ -287,8 +294,14 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
                 parameters.setConsoleEnabled(false);
             }
 
-            vmDevicesSourceId = (getInstanceTypeId() != null) ?
-                    getInstanceTypeId() : parameters.getVmStaticData().getVmtGuid();
+            Guid vmDevicesSourceId =
+                    (getInstanceTypeId() != null) ? getInstanceTypeId() : parameters.getVmStaticData().getVmtGuid();
+            vmDevicesSource = getVmBase(vmDevicesSourceId);
+
+            if (parameters.getVmStaticData().getBiosType() == null) {
+                parameters.getVmStaticData().setBiosType(vmDevicesSource.getClusterId() == null ? getCluster().getBiosType() : vmDevicesSource.getBiosType());
+            }
+
             imageTypeId = parameters.getVmStaticData().getImageTypeId();
             vmInterfacesSourceId = parameters.getVmStaticData().getVmtGuid();
             vmDisksSource = getVmTemplate();
@@ -301,7 +314,8 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             updateVmObject();
         }
 
-        if (getParameters().getVmStaticData().getDefaultDisplayType() == DisplayType.none && !parameters.isConsoleEnabled()) {
+        if (getParameters().getVmStaticData().getDefaultDisplayType() == DisplayType.none
+                && !parameters.isConsoleEnabled()) {
             parameters.getVmStaticData().setUsbPolicy(UsbPolicy.DISABLED);
         }
 
@@ -313,7 +327,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
         }
         vmHandler.updateDefaultTimeZone(parameters.getVmStaticData());
 
-        vmHandler.autoSelectResumeBehavior(getParameters().getVmStaticData(), getCluster());
+        vmHandler.autoSelectResumeBehavior(getParameters().getVmStaticData());
 
         // Fill the migration policy if it was omitted
         if (getParameters().getVmStaticData() != null &&
@@ -327,6 +341,9 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
 
     @Override
     protected LockProperties applyLockProperties(LockProperties lockProperties) {
+        if (getVmTemplate().getOrigin() == OriginType.KUBEVIRT) {
+            return lockProperties.withScope(Scope.None);
+        }
         return lockProperties.withScope(Scope.Command);
     }
 
@@ -337,7 +354,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
                 LockMessagesMatchUtil.makeLockingPair(LockingGroup.TEMPLATE,
                         new LockMessage(EngineMessage.ACTION_TYPE_FAILED_TEMPLATE_IS_USED_FOR_CREATE_VM)
                                 .with("VmName", getVmName())));
-        for (DiskImage image: getImagesToCheckDestinationStorageDomains()) {
+        for (DiskImage image : getImagesToCheckDestinationStorageDomains()) {
             locks.put(image.getId().toString(),
                     LockMessagesMatchUtil.makeLockingPair(LockingGroup.DISK, getDiskSharedLockMessage()));
         }
@@ -396,7 +413,8 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     }
 
     protected Map<Guid, VmDevice> getVmInterfaceDevices() {
-        List<VmDevice> vmInterfaceDevicesList = vmDeviceDao.getVmDeviceByVmIdAndType(vmInterfacesSourceId, VmDeviceGeneralType.INTERFACE);
+        List<VmDevice> vmInterfaceDevicesList =
+                vmDeviceDao.getVmDeviceByVmIdAndType(vmInterfacesSourceId, VmDeviceGeneralType.INTERFACE);
         Map<Guid, VmDevice> vmInterfaceDevices = new HashMap<>();
         for (VmDevice device : vmInterfaceDevicesList) {
             vmInterfaceDevices.put(device.getDeviceId(), device);
@@ -416,7 +434,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
 
     protected boolean canAddVm(Collection<StorageDomain> destStorages) {
         VmStatic vmStaticFromParams = getParameters().getVmStaticData();
-        if (!canAddVm(vmStaticFromParams.getName(), getStoragePoolId(), vmStaticFromParams.getPriority())) {
+        if (!canAddVm(vmStaticFromParams, getStoragePoolId(), vmStaticFromParams.getPriority())) {
             return false;
         }
 
@@ -430,10 +448,10 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
                 return failValidation(EngineMessage.ACTION_TYPE_FAILED_STORAGE_POOL_NOT_MATCH);
             }
             for (StorageDomain domain : destStorages) {
-               StorageDomainValidator storageDomainValidator = new StorageDomainValidator(domain);
-               if (!validate(storageDomainValidator.isDomainExistAndActive())) {
-                   return false;
-               }
+                StorageDomainValidator storageDomainValidator = new StorageDomainValidator(domain);
+                if (!validate(storageDomainValidator.isDomainExistAndActive())) {
+                    return false;
+                }
             }
             if (!validateSpaceRequirements()) {
                 return false;
@@ -443,8 +461,11 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     }
 
     protected boolean shouldCheckSpaceInStorageDomains() {
-        return !getImagesToCheckDestinationStorageDomains().stream().map(DiskImage::getImageId)
-                .findFirst().orElse(VmTemplateHandler.BLANK_VM_TEMPLATE_ID).equals(VmTemplateHandler.BLANK_VM_TEMPLATE_ID);
+        return !getImagesToCheckDestinationStorageDomains().stream()
+                .map(DiskImage::getImageId)
+                .findFirst()
+                .orElse(VmTemplateHandler.BLANK_VM_TEMPLATE_ID)
+                .equals(VmTemplateHandler.BLANK_VM_TEMPLATE_ID);
     }
 
     protected void setDefaultMigrationPolicy() {
@@ -466,7 +487,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
 
     protected boolean validateAddVmCommand() {
         return areParametersLegal()
-                && checkNumberOfMonitors() && checkSingleQxlDisplay()
+                && checkNumberOfMonitors()
                 && validate(VmValidator.checkPciAndIdeLimit(getParameters().getVm().getOs(),
                         getEffectiveCompatibilityVersion(),
                         getParameters().getVmStaticData().getNumOfMonitors(),
@@ -474,7 +495,6 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
                         getDiskVmElements(),
                         isVirtioScsiEnabled(),
                         hasWatchdog(),
-                        isBalloonEnabled(),
                         isSoundDeviceEnabled()))
                 && canAddVm(destStorages.values())
                 && hostToRunExist();
@@ -484,12 +504,12 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
      * Check if destination storage has enough space
      */
     protected boolean validateSpaceRequirements() {
-        for (Map.Entry<Guid, List<DiskImage>> sdImageEntry : storageToDisksMap.entrySet()) {
+        for (Map.Entry<Guid, List<DiskImage>> sdImageEntry : getStorageToDisksMap().entrySet()) {
             StorageDomain destStorageDomain = destStorages.get(sdImageEntry.getKey());
             List<DiskImage> disksList = sdImageEntry.getValue();
             StorageDomainValidator storageDomainValidator = createStorageDomainValidator(destStorageDomain);
             if (!validateDomainsThreshold(storageDomainValidator) ||
-                !validateFreeSpace(storageDomainValidator, disksList)) {
+                    !validateFreeSpace(storageDomainValidator, disksList)) {
                 return false;
             }
         }
@@ -500,29 +520,22 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
         return new StorageDomainValidator(storageDomain);
     }
 
-    private boolean validateDomainsThreshold(StorageDomainValidator storageDomainValidator) {
+    protected boolean validateDomainsThreshold(StorageDomainValidator storageDomainValidator) {
         return validate(storageDomainValidator.isDomainWithinThresholds());
     }
 
     /**
-     * This validation is for thin provisioning, when done differently on other commands, this method should be overridden.
+     * This validation is for thin provisioning, when done differently on other commands, this method should be
+     * overridden.
      */
     protected boolean validateFreeSpace(StorageDomainValidator storageDomainValidator, List<DiskImage> disksList) {
         Collection<DiskImage> disks = ImagesHandler.getDisksDummiesForStorageAllocations(disksList);
         return validate(storageDomainValidator.hasSpaceForNewDisks(disks));
     }
 
-    protected boolean checkSingleQxlDisplay() {
-        if (!getParameters().getVmStaticData().getSingleQxlPci() || getParameters().getVmStaticData().getDefaultDisplayType() == DisplayType.none) {
-            return true;
-        }
-        return validate(vmHandler.isSingleQxlDeviceLegal(
-                getParameters().getVm().getDefaultDisplayType(), getParameters().getVm().getOs()));
-    }
-
     protected boolean hostToRunExist() {
         List<Guid> dedicatedHostsList = getParameters().getVmStaticData().getDedicatedVmForVdsList();
-        if (dedicatedHostsList.isEmpty()){
+        if (dedicatedHostsList.isEmpty()) {
             return true;
         }
         for (Guid candidateHostGuid : dedicatedHostsList) {
@@ -576,8 +589,10 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             return false;
         }
 
-        Version customCompatibilityVersionFromParams = getParameters().getVmStaticData().getCustomCompatibilityVersion();
-        if (customCompatibilityVersionFromParams != null && !isCompatibilityVersionSupportedByCluster(customCompatibilityVersionFromParams)) {
+        Version customCompatibilityVersionFromParams =
+                getParameters().getVmStaticData().getCustomCompatibilityVersion();
+        if (customCompatibilityVersionFromParams != null
+                && !isCompatibilityVersionSupportedByCluster(customCompatibilityVersionFromParams)) {
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_CUSTOM_COMPATIBILITY_VERSION_NOT_SUPPORTED,
                     String.format("$Ccv %s", customCompatibilityVersionFromParams));
         }
@@ -593,26 +608,25 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             return false;
         }
 
-        if (isBalloonEnabled() && !osRepository.isBalloonEnabled(getParameters().getVmStaticData().getOsId(),
-                getEffectiveCompatibilityVersion())) {
-            addValidationMessageVariable("clusterArch", getCluster().getArchitecture());
-            return failValidation(EngineMessage.BALLOON_REQUESTED_ON_NOT_SUPPORTED_ARCH);
-        }
-
         if (isSoundDeviceEnabled() && !osRepository.isSoundDeviceEnabled(getParameters().getVmStaticData().getOsId(),
                 getEffectiveCompatibilityVersion())) {
             addValidationMessageVariable("clusterArch", getCluster().getArchitecture());
             return failValidation(EngineMessage.SOUND_DEVICE_REQUESTED_ON_NOT_SUPPORTED_ARCH);
         }
 
+        if (isTpmEnabled()
+                && !getVmDeviceUtils().isTpmDeviceSupported(getParameters().getVmStaticData(), getCluster())) {
+            addValidationMessageVariable("clusterArch", getCluster().getArchitecture());
+            return failValidation(EngineMessage.TPM_DEVICE_REQUESTED_ON_NOT_SUPPORTED_PLATFORM);
+        }
+
+        if (!isTpmEnabled() && osRepository.requiresTpm(getParameters().getVmStaticData().getOsId())) {
+            return failValidation(EngineMessage.TPM_DEVICE_REQUIRED_BY_OS);
+        }
+
         if (!validateQuota(getParameters().getVmStaticData().getQuotaId())) {
             return false;
         }
-
-        // otherwise..
-        storageToDisksMap =
-                ImagesHandler.buildStorageToDiskMap(getImagesToCheckDestinationStorageDomains(),
-                        diskInfoDestinationMap);
 
         if (!validateAddVmCommand()) {
             return false;
@@ -661,7 +675,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             return false;
         }
 
-        if (!validate(vmHandler.isCpuSupported(
+        if (vmFromParams.getCustomCpuName() == null && !validate(vmHandler.isCpuSupported(
                 vmFromParams.getVmOsId(),
                 getEffectiveCompatibilityVersion(),
                 getCluster().getCpuName()))) {
@@ -674,6 +688,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
                         getVmDeviceUtils().getGraphicsTypesOfEntity(getVmTemplateId()),
                         getParameters().getGraphicsDevices()),
                 vmFromParams.getDefaultDisplayType(),
+                vmFromParams.getBiosType(),
                 getEffectiveCompatibilityVersion()))) {
             return false;
         }
@@ -692,7 +707,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             return false;
         }
 
-        if (vmFromParams.isUseHostCpuFlags() && (ArchitectureType.ppc == getCluster().getArchitecture().getFamily())) {
+        if (vmFromParams.isUseHostCpuFlags() && ArchitectureType.ppc == getCluster().getArchitecture().getFamily()) {
             return failValidation(EngineMessage.USE_HOST_CPU_REQUESTED_ON_UNSUPPORTED_ARCH);
         }
 
@@ -711,7 +726,9 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
         }
 
         if (!validate(VmValidator.validateCpuSockets(getParameters().getVmStaticData(),
-                getEffectiveCompatibilityVersion()))) {
+                getEffectiveCompatibilityVersion(),
+                getCluster().getArchitecture(),
+                osRepository))) {
             return false;
         }
 
@@ -719,14 +736,15 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             return failValidation(EngineMessage.QOS_CPU_SHARES_OUT_OF_RANGE);
         }
 
-        if (!VmCpuCountHelper.validateCpuCounts(vmFromParams)) {
+        if (!VmCpuCountHelper.validateCpuCounts(vmFromParams, getEffectiveCompatibilityVersion(),
+                getCluster().getArchitecture())) {
             return failValidation(EngineMessage.TOO_MANY_CPU_COMPONENTS);
         }
 
         if (Boolean.TRUE.equals(getParameters().isVirtioScsiEnabled())) {
             // Verify OS compatibility
-            if (!validate(vmHandler.isOsTypeSupportedForVirtioScsi
-                    (vmFromParams.getOs(), getEffectiveCompatibilityVersion()))) {
+            if (!validate(vmHandler.isOsTypeSupportedForVirtioScsi(vmFromParams.getOs(),
+                    getEffectiveCompatibilityVersion()))) {
                 return false;
             }
         }
@@ -799,29 +817,44 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             return failValidation(msgs);
         }
 
-        if (FeatureSupported.isBiosTypeSupported(getCluster().getCompatibilityVersion())
-                && vmFromParams.getBiosType() != BiosType.CLUSTER_DEFAULT
-                && vmFromParams.getBiosType() != BiosType.I440FX_SEA_BIOS
-                && getCluster().getArchitecture() != ArchitectureType.undefined
-                && getCluster().getArchitecture().getFamily() != ArchitectureType.x86) {
-            return failValidation(EngineMessage.NON_DEFAULT_BIOS_TYPE_FOR_X86_ONLY);
+        if (vmDevicesSource.getClusterId() == null && getCluster().getBiosType() == null) {
+            return failValidation(EngineMessage.CLUSTER_BIOS_TYPE_NOT_SET);
+        }
+
+        VmValidator vmValidator = new VmValidator(vmFromParams);
+
+        if (!validate(vmValidator.isBiosTypeSupported(getCluster(), osRepository))) {
+            return false;
         }
 
         if (!validate(validateAffinityGroups())) {
             return false;
         }
-
+        if (!validate(vmHandler.validateCpuPinningPolicy(getParameters().getVmStaticData(),
+                getParameters().isUpdateNuma(), getEffectiveCompatibilityVersion()))) {
+            return false;
+        }
         return true;
     }
 
+    protected Map<Guid, List<DiskImage>> getStorageToDisksMap() {
+        if (storageToDisksMap == null) {
+            storageToDisksMap = ImagesHandler.buildStorageToDiskMap(getImagesToCheckDestinationStorageDomains(),
+                    diskInfoDestinationMap);
+        }
+        return storageToDisksMap;
+    }
+
     protected boolean isDisksVolumeFormatValid() {
-        if (diskInfoDestinationMap.values().stream()
+        if (diskInfoDestinationMap.values()
+                .stream()
                 .anyMatch(d -> d.getDiskStorageType() != DiskStorageType.CINDER &&
                         d.getVolumeFormat() != VolumeFormat.COW)) {
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_THIN_TEMPLATE_DISKS_SHOULD_ONLY_BE_COW);
         }
         return true;
     }
+
     private boolean isExternalVM() {
         return getParameters().getVmStaticData().getOrigin() == OriginType.EXTERNAL;
     }
@@ -860,9 +893,13 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
         }
 
         for (StorageDomain storage : destStorages.values()) {
-            if (!validate(vmTemplateHandler.isVmTemplateImagesReady(vmDisksSource, storage.getId(),
-                    false, false, true, true,
-                    storageToDisksMap.get(storage.getId())))) {
+            if (!validate(vmTemplateHandler.isVmTemplateImagesReady(vmDisksSource,
+                    storage.getId(),
+                    false,
+                    false,
+                    true,
+                    true,
+                    getStorageToDisksMap().get(storage.getId())))) {
                 return false;
             }
         }
@@ -890,7 +927,8 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
         return true;
     }
 
-    protected void chooseDisksSourceDomains() {}
+    protected void chooseDisksSourceDomains() {
+    }
 
     protected Collection<DiskImage> getImagesToCheckDestinationStorageDomains() {
         return vmDisksSource.getDiskTemplateMap().values();
@@ -964,7 +1002,8 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
         newImage.setQuotaId(image.getQuotaId());
 
         // Find out the correct disk profile for storage domain
-        newImage.setDiskProfileId(diskProfileDao.getAllForStorageDomain(storageId).stream()
+        newImage.setDiskProfileId(diskProfileDao.getAllForStorageDomain(storageId)
+                .stream()
                 .filter(p -> image.getDiskProfileIds().contains(p.getId()))
                 .findFirst()
                 .map(p -> p.getId())
@@ -973,9 +1012,9 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
         return newImage;
     }
 
-    protected boolean canAddVm(String name, Guid storagePoolId, int vmPriority) {
+    protected boolean canAddVm(VmStatic vm, Guid storagePoolId, int vmPriority) {
         // Checking if a desktop with same name already exists
-        if (isVmWithSameNameExists(name, storagePoolId)) {
+        if (isVmWithSameNameExists(vm, storagePoolId)) {
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_NAME_ALREADY_USED);
         }
 
@@ -1033,7 +1072,10 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             updateSmartCardDevices();
             addVmWatchdog();
             addGraphicsDevice();
-            getVmDeviceUtils().updateVirtioScsiController(getVm().getStaticData(), getParameters().isVirtioScsiEnabled());
+            getVmDeviceUtils().updateVirtioScsiController(getVm().getStaticData(),
+                    getParameters().isVirtioScsiEnabled());
+            updateVmDevicesOnChipsetChange();
+            getVmDeviceUtils().copyVmExternalData(getVmTemplateId(), getVmId());
             return null;
         });
 
@@ -1048,24 +1090,22 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     }
 
     /**
-     * After the copy of the images, copy the properties of the disk VM elements of the source disks to new
-     * disk VM elements for the created destination disks and save them
+     * After the copy of the images, copy the properties of the disk VM elements of the source disks to new disk VM
+     * elements for the created destination disks and save them
      */
     private void copyDiskVmElements() {
         for (Map.Entry<Guid, Guid> srcToDst : getSrcDiskIdToTargetDiskIdMapping().entrySet()) {
-            getImagesToCheckDestinationStorageDomains().
-                    stream().
-                    filter(d -> d.getId().equals(srcToDst.getKey())).
-                    findFirst().
-                    map(d -> d.getDiskVmElementForVm(getSourceVmId())).
-                    ifPresent(srcDve -> createAndSaveNewDiskVmElement(srcToDst.getValue(), getVmId(), srcDve));
+            getImagesToCheckDestinationStorageDomains().stream()
+                    .filter(d -> d.getId().equals(srcToDst.getKey()))
+                    .findFirst()
+                    .map(d -> d.getDiskVmElementForVm(getSourceVmId()))
+                    .ifPresent(srcDve -> createAndSaveNewDiskVmElement(srcToDst.getValue(), getVmId(), srcDve));
         }
     }
 
     protected Guid getSourceVmId() {
         return getVmTemplateId();
     }
-
 
     private void addGraphicsDevice() {
         for (GraphicsDevice graphicsDevice : getParameters().getGraphicsDevices().values()) {
@@ -1081,7 +1121,8 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     private void updateSmartCardDevices() {
         // if vm smartcard settings is different from device source's
         // add or remove the smartcard according to user request
-        boolean smartcardOnDeviceSource = getInstanceTypeId() != null ? getInstanceType().isSmartcardEnabled() : getVmTemplate().isSmartcardEnabled();
+        boolean smartcardOnDeviceSource = getInstanceTypeId() != null ? getInstanceType().isSmartcardEnabled()
+                : getVmTemplate().isSmartcardEnabled();
         if (getVm().isSmartcardEnabled() != smartcardOnDeviceSource) {
             getVmDeviceUtils().updateSmartcardDevice(getVm().getId(), getVm().isSmartcardEnabled());
         }
@@ -1090,8 +1131,8 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     private void addVmWatchdog() {
         VmWatchdog vmWatchdog = getParameters().getWatchdog();
         if (vmWatchdog != null) {
-            ActionType actionType = getVmDeviceUtils().hasWatchdog(getSourceVmId()) ?
-                    ActionType.UpdateWatchdog : ActionType.AddWatchdog;
+            ActionType actionType = getVmDeviceUtils().hasWatchdog(getSourceVmId()) ? ActionType.UpdateWatchdog
+                    : ActionType.AddWatchdog;
             runInternalAction(
                     actionType,
                     buildWatchdogParameters(vmWatchdog),
@@ -1112,8 +1153,8 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
         if (rngDev != null) {
             rngDev.setVmId(getVmId());
             RngDeviceParameters params = new RngDeviceParameters(rngDev, true);
-            ActionReturnValue
-                    result = runInternalAction(ActionType.AddRngDevice, params, cloneContextAndDetachFromParent());
+            ActionReturnValue result =
+                    runInternalAction(ActionType.AddRngDevice, params, cloneContextAndDetachFromParent());
             if (!result.getSucceeded()) {
                 log.error("Couldn't add RNG device for new VM.");
                 throw new IllegalArgumentException("Couldn't add RNG device for new VM.");
@@ -1135,13 +1176,13 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     }
 
     protected void copyVmDevices() {
-        getVmDeviceUtils().copyVmDevices(vmDevicesSourceId,
+        getVmDeviceUtils().copyVmDevices(vmDevicesSource.getId(),
                 getVmId(),
                 getSrcDeviceIdToTargetDeviceIdMapping(),
                 isSoundDeviceEnabled(),
+                getParameters().isTpmEnabled(),
                 getParameters().isConsoleEnabled(),
                 isVirtioScsiEnabled(),
-                isBalloonEnabled(),
                 getParameters().getGraphicsDevices().keySet(),
                 false,
                 getEffectiveCompatibilityVersion());
@@ -1152,8 +1193,9 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     }
 
     /**
-     * If both the instance type and the template is set, than all the devices has to be copied from instance type except the
-     * disk devices which has to be copied from the template (since the instance type has no disks but the template does have).
+     * If both the instance type and the template is set, than all the devices has to be copied from instance type
+     * except the disk devices which has to be copied from the template (since the instance type has no disks but the
+     * template does have).
      */
     private void copyDiskDevicesFromTemplate() {
         List<VmDevice> disks =
@@ -1163,8 +1205,28 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
         getVmDeviceUtils().copyDiskDevices(
                 getVmId(),
                 disks,
-                getSrcDeviceIdToTargetDeviceIdMapping()
-        );
+                getSrcDeviceIdToTargetDeviceIdMapping());
+    }
+
+    private void updateVmDevicesOnChipsetChange() {
+        if (isChipsetChanged()) {
+            log.info(
+                    "BIOS chipset type of source VM/template ({}) is different than BIOS chipset type of destination VM/template ({}), the disks and devices will be converted to the new BIOS chipset type.",
+                    vmDevicesSource.getId(),
+                    getVm().getId());
+            getVmHandler().convertVmToNewChipset(getVmId(),
+                    getParameters().getVmStaticData().getBiosType().getChipsetType(),
+                    getCompensationContextIfEnabledByCaller());
+        }
+    }
+
+    private boolean isChipsetChanged() {
+        if (vmDevicesSource.getClusterId() == null) {
+            return false;
+        }
+        return getParameters().getVmStaticData().getBiosType().getChipsetType() != vmDevicesSource
+                .getBiosType()
+                .getChipsetType();
     }
 
     private boolean isLegalClusterId(Guid clusterId) {
@@ -1241,7 +1303,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     }
 
     protected VmInit loadOriginalVmInitWithRootPassword() {
-        return  vmInitDao.get(getVmTemplateId());
+        return vmInitDao.get(getVmTemplateId());
     }
 
     private void addVmStatic() {
@@ -1252,15 +1314,19 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
         }
         vmStatic.setId(getVmId());
         vmStatic.setQuotaId(getQuotaId());
-        vmStatic.setCreationDate(new Date());
-        vmStatic.setCreatedByUserId(getUserId());
+        if (vmStatic.isManaged()) {
+            vmStatic.setCreationDate(new Date());
+            vmStatic.setCreatedByUserId(getUserId());
+            updateOriginalTemplate(vmStatic);
+        }
+
         setIconIds(vmStatic);
         // Parses the custom properties field that was filled by frontend to
         // predefined and user defined fields
-        VmPropertiesUtils.getInstance().separateCustomPropertiesToUserAndPredefined(
-                getEffectiveCompatibilityVersion(), vmStatic);
-
-        updateOriginalTemplate(vmStatic);
+        VmPropertiesUtils.getInstance()
+                .separateCustomPropertiesToUserAndPredefined(
+                        getEffectiveCompatibilityVersion(),
+                        vmStatic);
 
         vmStaticDao.save(vmStatic);
         getCompensationContext().snapshotNewEntity(vmStatic);
@@ -1297,7 +1363,8 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             }
             lockVM();
             Collection<DiskImage> templateDisks = getImagesToCheckDestinationStorageDomains();
-            List<DiskImage> diskImages = DisksFilter.filterImageDisks(templateDisks, ONLY_NOT_SHAREABLE,
+            List<DiskImage> diskImages = DisksFilter.filterImageDisks(templateDisks,
+                    ONLY_NOT_SHAREABLE,
                     ONLY_ACTIVE);
             for (DiskImage image : diskImages) {
                 ActionReturnValue result = runInternalActionWithTasksContext(
@@ -1330,7 +1397,8 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
 
     protected CreateSnapshotFromTemplateParameters buildDiskCreationParameters(DiskImage image) {
         CreateSnapshotFromTemplateParameters tempVar = new CreateSnapshotFromTemplateParameters(
-                image.getImageId(), getParameters().getVmStaticData().getId());
+                image.getImageId(),
+                getParameters().getVmStaticData().getId());
         tempVar.setDestStorageDomainId(diskInfoDestinationMap.get(image.getId()).getStorageIds().get(0));
         tempVar.setDiskAlias(diskInfoDestinationMap.get(image.getId()).getDiskAlias());
         tempVar.setStorageDomainId(image.getStorageIds().get(0));
@@ -1370,7 +1438,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
 
             diskImageMap.put(cinderDisk.getId(), imageId);
         }
-        srcDiskIdToTargetDiskIdMapping.putAll(diskImageMap);
+        getSrcDiskIdToTargetDiskIdMapping().putAll(diskImageMap);
     }
 
     protected void addManagedBlockDisks(Collection<DiskImage> templateDisks) {
@@ -1393,7 +1461,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             Guid imageId = actionReturnValue.getActionReturnValue();
             diskImageMap.put(managedBlockDisk.getId(), imageId);
         }
-        srcDiskIdToTargetDiskIdMapping.putAll(diskImageMap);
+        getSrcDiskIdToTargetDiskIdMapping().putAll(diskImageMap);
     }
 
     private ImagesContainterParametersBase buildImagesContainterParameters(DiskImage srcDisk) {
@@ -1516,7 +1584,9 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
      * To create a vm either {@link ActionGroup#CREATE_VM} or {@link ActionGroup#CREATE_INSTANCE} permissions is
      * required for selected {@link VdcObjectType}s. However {@link #getPermissionCheckSubjects()} returns only
      * {@link ActionGroup#CREATE_VM} based permissions subjects. This method helps to mitigate this problem.
-     * @param permSubject permission subject
+     *
+     * @param permSubject
+     *            permission subject
      * @return true if {@link ActionGroup#CREATE_INSTANCE} based permission is sufficient, false otherwise
      */
     private boolean checkCreateInstancePermission(PermissionSubject permSubject) {
@@ -1542,8 +1612,10 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
         Collection<String> createInstanceMessages = new ArrayList<>();
         Collection<String> actionGroupMessages = new ArrayList<>();
 
-        PermissionSubject createInstanceSubject = new PermissionSubject(id, VdcObjectType.VmTemplate, ActionGroup.CREATE_INSTANCE);
-        PermissionSubject actionGroupSubject = new PermissionSubject(id, VdcObjectType.VmTemplate, getActionType().getActionGroup());
+        PermissionSubject createInstanceSubject =
+                new PermissionSubject(id, VdcObjectType.VmTemplate, ActionGroup.CREATE_INSTANCE);
+        PermissionSubject actionGroupSubject =
+                new PermissionSubject(id, VdcObjectType.VmTemplate, getActionType().getActionGroup());
 
         // it is enough if at least one of this two permissions are there
         if (!checkSinglePermission(createInstanceSubject, createInstanceMessages) &&
@@ -1563,10 +1635,11 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             // user needs specific permission to change custom properties
             if (!Objects.equals(vmFromParams.getCustomProperties(), vmTemplate.getCustomProperties())) {
                 permissionList.add(new PermissionSubject(getClusterId(),
-                        VdcObjectType.Cluster, ActionGroup.CHANGE_VM_CUSTOM_PROPERTIES));
+                        VdcObjectType.Cluster,
+                        ActionGroup.CHANGE_VM_CUSTOM_PROPERTIES));
             }
-            //if the template is blank we ignore his pinned hosts
-            if(vmTemplate.isBlank()){
+            // if the template is blank we ignore his pinned hosts
+            if (vmTemplate.isBlank()) {
                 return;
             }
             Set<Guid> dedicatedVmForVdsFromUser = new HashSet<>(vmFromParams.getDedicatedVmForVdsList());
@@ -1575,7 +1648,8 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             if (!dedicatedVmForVdsFromUser.equals(dedicatedVmForVdsFromTemplate)
                     || !StringUtils.isEmpty(vmFromParams.getCpuPinning())) {
                 permissionList.add(new PermissionSubject(getClusterId(),
-                        VdcObjectType.Cluster, ActionGroup.EDIT_ADMIN_VM_PROPERTIES));
+                        VdcObjectType.Cluster,
+                        ActionGroup.EDIT_ADMIN_VM_PROPERTIES));
             }
         }
     }
@@ -1583,17 +1657,21 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     private void addVmPermission() {
         UniquePermissionsSet permissionsToAdd = new UniquePermissionsSet();
         if (isMakeCreatorExplicitOwner()) {
-            permissionsToAdd.addPermission(getCurrentUser().getId(), PredefinedRoles.VM_OPERATOR.getId(),
-                    getVmId(), VdcObjectType.VM);
+            permissionsToAdd.addPermission(getCurrentUser().getId(),
+                    PredefinedRoles.VM_OPERATOR.getId(),
+                    getVmId(),
+                    VdcObjectType.VM);
         }
 
-        if (getParameters().isCopyTemplatePermissions() && !getVmTemplateId().equals(VmTemplateHandler.BLANK_VM_TEMPLATE_ID)) {
+        if (getParameters().isCopyTemplatePermissions()
+                && !getVmTemplateId().equals(VmTemplateHandler.BLANK_VM_TEMPLATE_ID)) {
             copyTemplatePermissions(permissionsToAdd);
         }
 
         if (!permissionsToAdd.isEmpty()) {
             List<Permission> permissionsList = permissionsToAdd.asPermissionList();
-            multiLevelAdministrationHandler.addPermission(permissionsList.toArray(new Permission[permissionsList.size()]));
+            multiLevelAdministrationHandler
+                    .addPermission(permissionsList.toArray(new Permission[permissionsList.size()]));
 
             getCompensationContext().snapshotNewEntities(permissionsList);
         }
@@ -1601,11 +1679,11 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
 
     private boolean isMakeCreatorExplicitOwner() {
         return getParameters().isMakeCreatorExplicitOwner()
-                || (getCurrentUser() != null && getParameters().getPoolId() == null
-                && !checkUserAuthorization(getCurrentUser().getId(),
-                        ActionGroup.MANIPULATE_PERMISSIONS,
-                        getVmId(),
-                        VdcObjectType.VM));
+                || getCurrentUser() != null && getParameters().getPoolId() == null
+                        && !checkUserAuthorization(getCurrentUser().getId(),
+                                ActionGroup.MANIPULATE_PERMISSIONS,
+                                getVmId(),
+                                VdcObjectType.VM);
     }
 
     private void copyTemplatePermissions(UniquePermissionsSet permissionsToAdd) {
@@ -1620,14 +1698,16 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
                 continue;
             }
 
-            permissionsToAdd.addPermission(templatePermission.getAdElementId(), templatePermission.getRoleId(),
-                    getVmId(), VdcObjectType.VM);
+            permissionsToAdd.addPermission(templatePermission.getAdElementId(),
+                    templatePermission.getRoleId(),
+                    getVmId(),
+                    VdcObjectType.VM);
         }
 
     }
 
     private void addDiskPermissions() {
-        List<Guid> newDiskImageIds = new ArrayList<>(srcDiskIdToTargetDiskIdMapping.values());
+        List<Guid> newDiskImageIds = new ArrayList<>(getSrcDiskIdToTargetDiskIdMapping().values());
         Permission[] permsArray = new Permission[newDiskImageIds.size()];
 
         for (int i = 0; i < newDiskImageIds.size(); i++) {
@@ -1662,7 +1742,8 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     protected Map<String, Pair<String, String>> getExclusiveLocks() {
         if (!StringUtils.isBlank(getParameters().getVm().getName())) {
             return Collections.singletonMap(getParameters().getVm().getName(),
-                    LockMessagesMatchUtil.makeLockingPair(LockingGroup.VM_NAME, EngineMessage.ACTION_TYPE_FAILED_OBJECT_LOCKED));
+                    LockMessagesMatchUtil.makeLockingPair(LockingGroup.VM_NAME,
+                            EngineMessage.ACTION_TYPE_FAILED_OBJECT_LOCKED));
         }
         return null;
     }
@@ -1717,24 +1798,24 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     protected boolean isVirtioScsiEnabled() {
         Boolean virtioScsiEnabled = getParameters().isVirtioScsiEnabled();
         boolean isOsSupportedForVirtIoScsi = vmValidationUtils.isDiskInterfaceSupportedByOs(
-                getParameters().getVm().getOs(), getEffectiveCompatibilityVersion(),
-                getEffectiveBiosType().getChipsetType(), DiskInterface.VirtIO_SCSI);
+                getParameters().getVm().getOs(),
+                getEffectiveCompatibilityVersion(),
+                getParameters().getVmStaticData().getBiosType().getChipsetType(),
+                DiskInterface.VirtIO_SCSI);
 
         return virtioScsiEnabled != null ? virtioScsiEnabled : isOsSupportedForVirtIoScsi;
     }
 
-    protected boolean isBalloonEnabled() {
-        Boolean balloonEnabled = getParameters().isBalloonEnabled();
-        return balloonEnabled != null ? balloonEnabled :
-            osRepository.isBalloonEnabled(getParameters().getVmStaticData().getOsId(),
-                    getEffectiveCompatibilityVersion());
-    }
-
     protected boolean isSoundDeviceEnabled() {
         Boolean soundDeviceEnabled = getParameters().isSoundDeviceEnabled();
-        return soundDeviceEnabled != null ? soundDeviceEnabled :
-                osRepository.isSoundDeviceEnabled(getParameters().getVmStaticData().getOsId(),
+        return soundDeviceEnabled != null ? soundDeviceEnabled
+                : osRepository.isSoundDeviceEnabled(getParameters().getVmStaticData().getOsId(),
                         getEffectiveCompatibilityVersion());
+    }
+
+    protected boolean isTpmEnabled() {
+        Boolean tpmEnabled = getParameters().isTpmEnabled();
+        return tpmEnabled != null ? tpmEnabled : false;
     }
 
     private boolean hasWatchdog() {
@@ -1746,8 +1827,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     }
 
     /**
-     * This method override vm values with the instance type values
-     * in case instance type is selected for this vm
+     * This method override vm values with the instance type values in case instance type is selected for this vm
      */
     private void updateVmObject() {
         updateParametersVmFromInstanceType();
@@ -1766,7 +1846,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             vmStatic.setKernelUrl(imageType.getKernelUrl());
             vmStatic.setKernelParams(imageType.getKernelParams());
             // set vm disks source to be the image type, vm disks are taken from it
-            vmDisksSource = (VmTemplate)imageType;
+            vmDisksSource = (VmTemplate) imageType;
         }
 
         // Choose a proper default OS according to the cluster architecture
@@ -1781,13 +1861,13 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
         vmHandler.autoSelectUsbPolicy(getParameters().getVmStaticData());
 
         // Choose a proper default display type according to the cluster architecture
-        vmHandler.autoSelectDefaultDisplayType(vmDevicesSourceId,
-            getParameters().getVmStaticData(),
-            getCluster(),
-            getParameters().getGraphicsDevices());
+        vmHandler.autoSelectDefaultDisplayType(vmDevicesSource.getId(),
+                getParameters().getVmStaticData(),
+                getCluster(),
+                getParameters().getGraphicsDevices());
 
         // If not set by user, choose proper graphics device according to the cluster architecture
-        vmHandler.autoSelectGraphicsDevice(vmDevicesSourceId,
+        vmHandler.autoSelectGraphicsDevice(vmDevicesSource.getId(),
                 getParameters().getVmStaticData(),
                 getCluster(),
                 getParameters().getGraphicsDevices(),
@@ -1821,15 +1901,14 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
     /**
      * Icon processing policy:
      * <ul>
-     *     <li>If there is an attached icon, it is used as large icon as base for computation of small icon.
-     *         Predefined icons should not be sent in parameters.</li>
-     *     <li>If there are no icon in parameters && both (small and large) icon ids are set then those ids are used.
-     *         </li>
-     *     <li>Otherwise (at least one icon id is null) both icon ids are copied from template.</li>
+     * <li>If there is an attached icon, it is used as large icon as base for computation of small icon. Predefined
+     * icons should not be sent in parameters.</li>
+     * <li>If there are no icon in parameters && both (small and large) icon ids are set then those ids are used.</li>
+     * <li>Otherwise (at least one icon id is null) both icon ids are copied from template.</li>
      * </ul>
      */
     private void setIconIds(VmStatic vmStatic) {
-        if (getParameters().getVmLargeIcon() != null){
+        if (getParameters().getVmLargeIcon() != null) {
             final VmIconIdSizePair iconIds = iconUtils.ensureIconPairInDatabase(getParameters().getVmLargeIcon());
             vmStatic.setLargeIconId(iconIds.getLarge());
             vmStatic.setSmallIconId(iconIds.getSmall());
@@ -1844,7 +1923,7 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
 
     @Override
     public CommandCallback getCallback() {
-        return getParameters().isUseCinderCommandCallback() ? callbackProvider.get() : null;
+        return callbackProvider.get();
     }
 
     private InClusterUpgradeValidator getClusterUpgradeValidator() {
@@ -1881,4 +1960,62 @@ public class AddVmCommand<T extends AddVmParameters> extends VmManagementCommand
             labelDao.addVmToLabels(getVmId(), labelIds);
         }
     }
+
+    VmBase getVmBase(Guid vmId) {
+        VmStatic vmStatic = vmStaticDao.get(vmId);
+        return vmStatic != null ? vmStatic : vmTemplateDao.get(vmId);
+    }
+
+    private boolean shouldSealVm() {
+        return getParameters().getSeal() != null ? getParameters().getSeal()
+                : getVmTemplate().isSealed() && !osRepository.isWindows(getVm().getOs())
+                        && getParameters().getPoolId() == null;
+    }
+
+    @Override
+    public boolean performNextOperation(int completedChildCount) {
+        if (!shouldSealVm()) {
+            return false;
+        }
+
+        switch (getParameters().getPhase()) {
+            case CREATE_VM:
+                getParameters().setPhase(Phase.SEAL);
+                break;
+
+            case SEAL:
+                return false;
+        }
+        persistCommandIfNeeded();
+        executeNextOperation();
+        return true;
+    }
+
+    private void executeNextOperation() {
+        switch (getParameters().getPhase()) {
+            case SEAL:
+                sealVm();
+                break;
+        }
+    }
+
+    private void sealVm() {
+        ActionReturnValue returnValue = runInternalAction(ActionType.SealVm,
+                buildSealVmParameters(),
+                ExecutionHandler.createDefaultContextForTasks(getContext()));
+
+        if (!returnValue.getSucceeded()) {
+            throw new EngineException(returnValue.getFault().getError(), returnValue.getFault().getMessage());
+        }
+    }
+
+    private SealVmParameters buildSealVmParameters() {
+        SealVmParameters parameters = new SealVmParameters();
+        parameters.setVmId(getVmId());
+        parameters.setParentCommand(getActionType());
+        parameters.setParentParameters(getParameters());
+        parameters.setEndProcedure(ActionParametersBase.EndProcedure.COMMAND_MANAGED);
+        return parameters;
+    }
+
 }

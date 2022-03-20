@@ -300,6 +300,7 @@ public abstract class CommonVmPoolCommand<T extends AddVmPoolParameters> extends
         } else {
             parameters.setDiskInfoDestinationMap(diskInfoDestinationMap);
         }
+        parameters.getDiskInfoDestinationMap().values().forEach(this::setVolumeFormat);
         if (StringUtils.isEmpty(getParameters().getSessionId())) {
             parameters.setParametersCurrentUser(getCurrentUser());
         } else {
@@ -313,9 +314,10 @@ public abstract class CommonVmPoolCommand<T extends AddVmPoolParameters> extends
                         getParameters().getVmStaticData(),
                         getEffectiveCompatibilityVersion(),
                         getParameters().isSoundDeviceEnabled()));
+        parameters.setTpmEnabled(getParameters().isTpmEnabled());
         parameters.setConsoleEnabled(getParameters().isConsoleEnabled());
         parameters.setVirtioScsiEnabled(getParameters().isVirtioScsiEnabled());
-        parameters.setBalloonEnabled(getParameters().isBalloonEnabled());
+        parameters.setSeal(getParameters().getSeal());
         parameters.setEndProcedure(EndProcedure.COMMAND_MANAGED);
 
         VmRngDevice rngDevice = getParameters().getRngDevice();
@@ -495,20 +497,22 @@ public abstract class CommonVmPoolCommand<T extends AddVmPoolParameters> extends
             }
             // Set target domain
             diskImage.setStorageIds(storageIds);
-            // Set volume format.
-            // Note that the disks of VMs in a pool are essentially snapshots of the template's disks.
-            // therefore when creating the VM's disks, the image parameters are overridden anyway.
-            // We were required to change only the VolumeFormat here for passing the AddVMCommand's
-            // validation
-            if (diskImage.getDiskStorageType() == DiskStorageType.CINDER) {
-                diskImage.setVolumeFormat(VolumeFormat.RAW);
-            } else {
-                diskImage.setVolumeFormat(VolumeFormat.COW);
-            }
 
             destinationMap.put(disk.getId(), diskImage);
         }
         return destinationMap;
+    }
+
+    private void setVolumeFormat(DiskImage diskImage) {
+        // Note that the disks of VMs in a pool are essentially snapshots of the template's disks.
+        // therefore when creating the VM's disks, the image parameters are overridden anyway.
+        // We were required to change only the VolumeFormat here for passing the AddVMCommand's
+        // validation
+        if (diskImage.getDiskStorageType() == DiskStorageType.CINDER) {
+            diskImage.setVolumeFormat(VolumeFormat.RAW);
+        } else {
+            diskImage.setVolumeFormat(VolumeFormat.COW);
+        }
     }
 
     protected void ensureDestinationImageMap() {
@@ -556,7 +560,7 @@ public abstract class CommonVmPoolCommand<T extends AddVmPoolParameters> extends
             if (storageToDisksMap.containsKey(domainId)) {
                 int numOfDisksOnDomain = storageToDisksMap.get(domainId).size();
                 if (numOfDisksOnDomain > 0
-                        && (domain.getStorageDomainType() == StorageDomainType.ImportExport)) {
+                        && domain.getStorageDomainType() == StorageDomainType.ImportExport) {
                     return failValidation(EngineMessage.ACTION_TYPE_FAILED_STORAGE_DOMAIN_TYPE_ILLEGAL);
                 }
             }

@@ -1,5 +1,7 @@
 package org.ovirt.engine.core.bll.network.host;
 
+import static org.ovirt.engine.core.common.utils.NetworkCommonUtils.isEl8;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -557,12 +559,12 @@ public class HostSetupNetworksValidator {
                          * we're creating new bond, and it's definition contains reference to slave already assigned
                          * to a different bond.
                          */
-                (!potentialSlave.isPartOfBond(modifiedOrNewBond.getName())
+                !potentialSlave.isPartOfBond(modifiedOrNewBond.getName())
                     //… but this bond is also removed in this request, so it's ok.
                     && !isBondRemoved(currentSlavesBondName)
 
                     //… or slave was removed from its former bond
-                    && !bondIsUpdatedAndDoesNotContainCertainSlave(slaveName, currentSlavesBondName))) {
+                    && !bondIsUpdatedAndDoesNotContainCertainSlave(slaveName, currentSlavesBondName)) {
 
 
                 EngineMessage engineMessage = EngineMessage.NETWORK_INTERFACE_ALREADY_IN_BOND;
@@ -705,7 +707,7 @@ public class HostSetupNetworksValidator {
 
             vr = skipValidation(vr) ? vr : validator.networkNotChanged(existingAttachmentsById.get(attachment.getId()));
             vr = skipValidation(vr) ? vr : networkAttachmentIpConfigurationValidator.validateNetworkAttachmentIpConfiguration(
-                params.getNetworkAttachments(), currentDefaultRouteNetworkAttachment);
+                params.getNetworkAttachments(), currentDefaultRouteNetworkAttachment, isEl8(host.getKernelVersion()));
 
             boolean attachmentUpdated = !isNewAttachment(attachment.getId());
             if (attachmentUpdated) {
@@ -908,8 +910,8 @@ public class HostSetupNetworksValidator {
                     NicLabel nicLabel = nicLabelByLabel.get(label);
                     boolean labelRemovedFromNic =
                             params.getRemovedLabels().contains(label)
-                                    || (nicLabel != null && !Objects.equals(nicLabel.getNicName(),
-                                            existingNic.getName()));
+                                    || nicLabel != null && !Objects.equals(nicLabel.getNicName(),
+                                            existingNic.getName());
                     if (!labelRemovedFromNic) {
                         labelsToConfigure.add(label);
                     }

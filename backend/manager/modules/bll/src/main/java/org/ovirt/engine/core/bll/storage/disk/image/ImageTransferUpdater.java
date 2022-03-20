@@ -50,15 +50,11 @@ public class ImageTransferUpdater {
                     entity.setId(updates.getId());
                 }
                 if (updates.getPhase() != null) {
-                    String disk = entity.getDiskId() != null
-                            ? String.format(" (image %s)", entity.getDiskId().toString()) : "";
-                    String message = entity.getMessage() != null
-                            ? String.format(" (message: '%s')", entity.getMessage()) : "";
-                    log.info("Updating image transfer {}{} phase to {}{}",
+                    // TODO: Validate that phase change is valid. For now just log.
+                    log.info("Updating image transfer '{}' phase from '{}' to '{}'",
                             commandId,
-                            disk,
-                            updates.getPhase(),
-                            message);
+                            entity.getPhase(),
+                            updates.getPhase());
                     entity.setPhase(updates.getPhase());
                 }
                 if (updates.getType() != null) {
@@ -86,9 +82,6 @@ public class ImageTransferUpdater {
                 if (updates.getDaemonUri() != null) {
                     entity.setDaemonUri(updates.getDaemonUri());
                 }
-                if (updates.getSignedTicket() != null) {
-                    entity.setSignedTicket(updates.getSignedTicket());
-                }
 
                 if (updates.getBytesSent() != null) {
                     entity.setBytesSent(updates.getBytesSent());
@@ -99,6 +92,7 @@ public class ImageTransferUpdater {
             }
 
             imageTransferDao.update(entity);
+
             return entity;
         } finally {
             lockManager.releaseLock(lock);

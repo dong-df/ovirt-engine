@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -25,13 +26,14 @@ import org.ovirt.engine.core.common.businessentities.ArchitectureType;
 import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.ChipsetType;
 import org.ovirt.engine.core.common.businessentities.DisplayType;
+import org.ovirt.engine.core.common.businessentities.Entities;
 import org.ovirt.engine.core.common.businessentities.GraphicsInfo;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
 import org.ovirt.engine.core.common.businessentities.HostDevice;
 import org.ovirt.engine.core.common.businessentities.HugePage;
-import org.ovirt.engine.core.common.businessentities.NumaTuneMode;
 import org.ovirt.engine.core.common.businessentities.OriginType;
 import org.ovirt.engine.core.common.businessentities.VM;
+import org.ovirt.engine.core.common.businessentities.VdsDynamic;
 import org.ovirt.engine.core.common.businessentities.VdsNumaNode;
 import org.ovirt.engine.core.common.businessentities.VdsStatistics;
 import org.ovirt.engine.core.common.businessentities.VgpuPlacement;
@@ -41,7 +43,6 @@ import org.ovirt.engine.core.common.businessentities.VmDeviceId;
 import org.ovirt.engine.core.common.businessentities.VmHostDevice;
 import org.ovirt.engine.core.common.businessentities.VmNumaNode;
 import org.ovirt.engine.core.common.businessentities.VmPayload;
-import org.ovirt.engine.core.common.businessentities.VmType;
 import org.ovirt.engine.core.common.businessentities.network.Network;
 import org.ovirt.engine.core.common.businessentities.network.NetworkFilter;
 import org.ovirt.engine.core.common.businessentities.network.VmInterfaceType;
@@ -63,6 +64,7 @@ import org.ovirt.engine.core.common.businessentities.storage.VolumeFormat;
 import org.ovirt.engine.core.common.config.Config;
 import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.utils.HugePageUtils;
+import org.ovirt.engine.core.common.utils.MDevTypesUtils;
 import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.common.utils.VmCpuCountHelper;
 import org.ovirt.engine.core.common.utils.VmDeviceCommonUtils;
@@ -99,9 +101,12 @@ public class LibvirtVmXmlBuilder {
     // Namespace URIs:
     public static final String OVIRT_TUNE_URI = "http://ovirt.org/vm/tune/1.0";
     public static final String OVIRT_VM_URI = "http://ovirt.org/vm/1.0";
+    public static final String QEMU_URI = "http://libvirt.org/schemas/domain/qemu/1.0";
+
     // Namespace prefixes:
     public static final String OVIRT_TUNE_PREFIX = "ovirt-tune";
     public static final String OVIRT_VM_PREFIX = "ovirt-vm";
+    public static final String QEMU_PREFIX = "qemu";
 
     /** Timeout for the boot menu, in milliseconds */
     public static final int BOOT_MENU_TIMEOUT = 30000;
@@ -110,8 +115,8 @@ public class LibvirtVmXmlBuilder {
             "main", "display", "inputs", "cursor", "playback", "record", "smartcard", "usbredir"));
     private static final String SCSI_HD = "scsi_hd";
     private static final String SCSI_BLOCK = "scsi_block";
-    private static final String SCSI_VIRTIO_BLK_PCI = "virtio_blk_pci";
-    private static final List<String> scsiHostDevDrivers = Arrays.asList(SCSI_HD, SCSI_BLOCK, SCSI_VIRTIO_BLK_PCI);
+    public static final String SCSI_VIRTIO_BLK_PCI = "virtio_blk_pci";
+    public static final List<String> SCSI_HOST_DEV_DRIVERS = Arrays.asList(SCSI_HD, SCSI_BLOCK, SCSI_VIRTIO_BLK_PCI);
 
     private VmInfoBuildUtils vmInfoBuildUtils;
 
@@ -127,16 +132,21 @@ public class LibvirtVmXmlBuilder {
     private boolean volatileRun;
     private Map<Guid, String> passthroughVnicToVfMap;
     private Map<String, String> vmCustomProperties;
+    private boolean legacyVirtio;
 
     private VM vm;
     private int vdsCpuThreads;
     private MemoizingSupplier<Map<String, HostDevice>> hostDevicesSupplier;
+    private MemoizingSupplier<List<VmDevice>> vmDevicesSupplier;
     private MemoizingSupplier<VdsStatistics> hostStatisticsSupplier;
     private MemoizingSupplier<List<VdsNumaNode>> hostNumaNodesSupplier;
     private MemoizingSupplier<List<VmNumaNode>> vmNumaNodesSupplier;
     private MemoizingSupplier<VgpuPlacement> hostVgpuPlacementSupplier;
     private MemoizingSupplier<String> tscFrequencySupplier;
     private MemoizingSupplier<String> cpuFlagsSupplier;
+    private MemoizingSupplier<String> cpuModelSupplier;
+    private MemoizingSupplier<Boolean> incrementalBackupSupplier;
+    private MemoizingSupplier<Boolean> kernelFipsModeSupplier;
 
     private Map<String, Map<String, Object>> vnicMetadata;
     private Map<String, Map<String, String>> diskMetadata;
@@ -149,7 +159,6 @@ public class LibvirtVmXmlBuilder {
     private VmNic nic;
     private Disk disk;
     private VmDevice device;
-    private boolean mdevDisplayOn;
     private int sdIndex;
 
     /**
@@ -240,18 +249,26 @@ public class LibvirtVmXmlBuilder {
             hostStatisticsSupplier = new MemoizingSupplier<>(() -> vmInfoBuildUtils.getVdsStatistics(hostId));
             hostNumaNodesSupplier = new MemoizingSupplier<>(() -> vmInfoBuildUtils.getVdsNumaNodes(hostId));
             hostVgpuPlacementSupplier = new MemoizingSupplier<>(() -> vmInfoBuildUtils.vgpuPlacement(hostId));
-            tscFrequencySupplier = new MemoizingSupplier<>(() -> vmInfoBuildUtils.getTscFrequency(hostId));
-            cpuFlagsSupplier = new MemoizingSupplier<>(() -> vmInfoBuildUtils.getCpuFlags(hostId));
+            VdsDynamic vds = vmInfoBuildUtils.getVdsDynamic(hostId);
+            tscFrequencySupplier = new MemoizingSupplier<>(() -> vds.getTscFrequency());
+            cpuFlagsSupplier = new MemoizingSupplier<>(() -> vds.getCpuFlags());
+            cpuModelSupplier = new MemoizingSupplier<>(() -> vds.getCpuModel());
+            incrementalBackupSupplier = new MemoizingSupplier<>(() -> vds.isBackupEnabled());
+            kernelFipsModeSupplier = new MemoizingSupplier<>(() -> vmInfoBuildUtils.isKernelFipsMode(vds));
         } else {
             hostDevicesSupplier = new MemoizingSupplier<>(() -> Collections.emptyMap());
             hostStatisticsSupplier = new MemoizingSupplier<>(() -> null);
             hostNumaNodesSupplier = new MemoizingSupplier<>(() -> Collections.emptyList());
             hostVgpuPlacementSupplier = new MemoizingSupplier<>(() -> null);
-            tscFrequencySupplier = new MemoizingSupplier<>(() -> "");
+            tscFrequencySupplier = new MemoizingSupplier<>(() -> null);
             cpuFlagsSupplier = new MemoizingSupplier<>(() -> "");
+            cpuModelSupplier = new MemoizingSupplier<>(() -> "");
+            incrementalBackupSupplier = new MemoizingSupplier<>(() -> false);
+            kernelFipsModeSupplier = new MemoizingSupplier<>(() -> false);
         }
+        vmDevicesSupplier = new MemoizingSupplier<>(() -> vmInfoBuildUtils.getVmDevices(vm.getId()));
         vmNumaNodesSupplier = new MemoizingSupplier<>(() -> vmInfoBuildUtils.getVmNumaNodes(vm));
-        mdevDisplayOn = isMdevDisplayOn(vmCustomProperties, vm);
+        legacyVirtio = vmInfoBuildUtils.isLegacyVirtio(vm.getVmOsId(), ChipsetType.fromMachineType(emulatedMachine));
     }
 
     public String buildCreateVm() {
@@ -270,8 +287,9 @@ public class LibvirtVmXmlBuilder {
         if (numaEnabled) {
             writeNumaTune();
         }
-        writeCpu(numaEnabled || (vm.isHostedEngine() && !vmNumaNodesSupplier.get().isEmpty()));
+        writeCpu(numaEnabled || vm.isHostedEngine() && !vmNumaNodesSupplier.get().isEmpty());
         writeCpuTune(numaEnabled);
+        writeQemuCapabilities();
         writeDevices();
         writePowerManagement();
         // note that this must be called after writeDevices to get the serial console, if exists
@@ -327,11 +345,17 @@ public class LibvirtVmXmlBuilder {
     private void writeHeader() {
         writer.setPrefix(OVIRT_TUNE_PREFIX, OVIRT_TUNE_URI);
         writer.setPrefix(OVIRT_VM_PREFIX, OVIRT_VM_URI);
+        if (incrementalBackupSupplier.get()) {
+            writer.setPrefix(QEMU_PREFIX, QEMU_URI);
+        }
         writer.writeStartDocument(false);
         writer.writeStartElement("domain");
         writer.writeAttributeString("type", "kvm");
         writer.writeNamespace(OVIRT_TUNE_PREFIX, OVIRT_TUNE_URI);
         writer.writeNamespace(OVIRT_VM_PREFIX, OVIRT_VM_URI);
+        if (incrementalBackupSupplier.get()) {
+            writer.writeNamespace(QEMU_PREFIX, QEMU_URI);
+        }
     }
 
     private void writeName() {
@@ -357,24 +381,26 @@ public class LibvirtVmXmlBuilder {
     }
 
     private void writeMaxMemory() {
+        Long nvdimmSize = vmInfoBuildUtils.getNvdimmTotalSize(vm, hostDevicesSupplier);
+
         if (!FeatureSupported.hotPlugMemory(vm.getCompatibilityVersion(), vm.getClusterArch())
                 // the next check is because QEMU fails if memory and maxMemory are the same
-                || vm.getVmMemSizeMb() == vm.getMaxMemorySizeMb()) {
+                || vm.getVmMemSizeMb() == vm.getMaxMemorySizeMb() && nvdimmSize == 0) {
                 return;
         }
 
+        long maxMemory = (long) vm.getMaxMemorySizeMb() * 1024 + nvdimmSize / 1024;
         writer.writeStartElement("maxMemory");
         writer.writeAttributeString("slots", Config.getValue(ConfigValues.MaxMemorySlots).toString());
-        writer.writeRaw(String.valueOf((long) vm.getMaxMemorySizeMb() * 1024));
+        writer.writeRaw(String.valueOf(maxMemory));
         writer.writeEndElement();
     }
 
     private void writevCpu() {
         writer.writeStartElement("vcpu");
-        writer.writeAttributeString("current", String.valueOf(vm.getNumOfCpus()));
-        writer.writeRaw(FeatureSupported.supportedInConfig(ConfigValues.HotPlugCpuSupported, vm.getCompatibilityVersion(), vm.getClusterArch()) ?
-                VmCpuCountHelper.calcMaxVCpu(vm, vm.getClusterCompatibilityVersion()).toString()
-                : String.valueOf(vm.getNumOfCpus()));
+        writer.writeAttributeString("current", String.valueOf(VmCpuCountHelper.getDynamicNumOfCpu(vm)));
+        writer.writeRaw(String.valueOf(VmCpuCountHelper.isResizeAndPinPolicy(vm) ?
+                VmCpuCountHelper.getDynamicNumOfCpu(vm) : VmInfoBuildUtils.maxNumberOfVcpus(vm)));
         writer.writeEndElement();
     }
 
@@ -386,8 +412,21 @@ public class LibvirtVmXmlBuilder {
         if (vm.isUseHostCpuFlags()){
             cpuType = "hostPassthrough";
         }
-        if (vm.getUseTscFrequency()) {
+        if (vm.getUseTscFrequency() && tscFrequencySupplier.get() != null) {
             cpuType += ",+invtsc";
+        }
+
+        // Work around for https://bugzilla.redhat.com/1689362
+        // If it is a nested VM on AMD EPYC, monitor feature must be
+        // disabled manually, until libvirt is fixed.
+        if (cpuModelSupplier.get() != null && cpuModelSupplier.get().contains("AMD EPYC") &&
+                cpuFlagsSupplier.get() != null && !cpuFlagsSupplier.get().contains("monitor")) {
+            cpuType += ",-monitor";
+        }
+
+        String cpuFlagsProperty = vmCustomProperties.get("extra_cpu_flags");
+        if (StringUtils.isNotEmpty(cpuFlagsProperty)) {
+            cpuType += "," + cpuFlagsProperty;
         }
 
         String[] typeAndFlags = cpuType.split(",");
@@ -421,13 +460,23 @@ public class LibvirtVmXmlBuilder {
         }
 
         if ((boolean) Config.getValue(ConfigValues.SendSMPOnRunVm)) {
+            int sockets;
+            int cores;
+            int threads;
+            if (VmCpuCountHelper.isDynamicCpuTopologySet(vm)) {
+                sockets = vm.getCurrentSockets();
+                cores = vm.getCurrentCoresPerSocket();
+                threads = vm.getCurrentThreadsPerCore();
+            } else {
+                int vcpus = VmInfoBuildUtils.maxNumberOfVcpus(vm);
+                sockets = vcpus / vm.getCpuPerSocket() / vm.getThreadsPerCpu();
+                cores = vm.getCpuPerSocket();
+                threads = vm.getThreadsPerCpu();
+            }
             writer.writeStartElement("topology");
-            writer.writeAttributeString("cores", Integer.toString(vm.getCpuPerSocket()));
-            writer.writeAttributeString("threads", Integer.toString(vm.getThreadsPerCpu()));
-            int vcpus = FeatureSupported.supportedInConfig(ConfigValues.HotPlugCpuSupported, vm.getCompatibilityVersion(), vm.getClusterArch()) ?
-                    VmCpuCountHelper.calcMaxVCpu(vm, vm.getClusterCompatibilityVersion())
-                    : vm.getNumOfCpus();
-            writer.writeAttributeString("sockets", String.valueOf(vcpus / vm.getCpuPerSocket() / vm.getThreadsPerCpu()));
+            writer.writeAttributeString("cores", Integer.toString(cores));
+            writer.writeAttributeString("threads", Integer.toString(threads));
+            writer.writeAttributeString("sockets", String.valueOf(sockets));
             writer.writeEndElement();
         }
 
@@ -470,7 +519,8 @@ public class LibvirtVmXmlBuilder {
 
     private void writeCpuTune(boolean numaEnabled) {
         writer.writeStartElement("cputune");
-        Map<String, Object> cpuPinning = vmInfoBuildUtils.parseCpuPinning(vm.getCpuPinning());
+        Map<String, Object> cpuPinning = vmInfoBuildUtils.parseCpuPinning(VmCpuCountHelper.isDynamicCpuPinning(vm) ?
+                vm.getCurrentCpuPinning() : vm.getCpuPinning());
         if (cpuPinning.isEmpty() && numaEnabled) {
             cpuPinning = NumaSettingFactory.buildCpuPinningWithNumaSetting(
                     vmNumaNodesSupplier.get(),
@@ -506,73 +556,81 @@ public class LibvirtVmXmlBuilder {
     }
 
     private void writeSystemInfo() {
+        /*
+         RHEL-8.2.0  AV will now report:
+
+         System Manufacturer: oVirt or Red Hat    RHV needs 'Red Hat' for Windows Update, decided by OriginType
+         System Product Name: OS name
+         System Version: OS version
+         System Family: oVirt or RHV
+         System SKU Number:                       can be set in vdc_options (SkuToAVLevel)
+         Baseboard Manufacturer: Red Hat          hardcoded but added only if SkuToAVLevel options set
+         Baseboard Product Name: RHEL-AV          hardcoded but added only if SkuToAVLevel options set
+        */
+
         if (vm.getClusterArch().getFamily() != ArchitectureType.x86) {
             return;
         }
-        /**
-         <sysinfo type="smbios">
-          <system>
-            <entry name="manufacturer">Fedora</entry>
-            <entry name="product">Virt-Manager</entry>
-            <entry name="version">0.8.2-3.fc14</entry>
-            <entry name="serial">32dfcb37-5af1-552b-357c-be8c3aa38310</entry>
-            <entry name="uuid">c7a5fdbd-edaf-9455-926a-d65c16db1809</entry>
-          </system>
-         </sysinfo>
-         */
+
+        final String product = Config.getValue(ConfigValues.OriginType);
+        final String manufacturer = OriginType.valueOf(product) == OriginType.OVIRT ? "oVirt" : "Red Hat";
+        final String productName = OriginType.valueOf(product) == OriginType.OVIRT ? "oVirt" : "RHV";
+        boolean skuToAVLevelExists = StringUtils.isNotEmpty(
+                Config.getValue(ConfigValues.SkuToAVLevel, vm.getCompatibilityVersion().toString()));
+        boolean version4_4orHigher = vm.getClusterCompatibilityVersion().greaterOrEquals(Version.v4_4);
+
         writer.writeStartElement("sysinfo");
         writer.writeAttributeString("type", "smbios");
 
         writer.writeStartElement("system");
+        writeEntryElement("manufacturer", manufacturer);
+        writeEntryElement("product", "OS-NAME:");
+        writeEntryElement("version", "OS-VERSION:");
+        if (version4_4orHigher) {
+            writeEntryElement("family", productName);
+            if (skuToAVLevelExists) {
+                writeEntryElement("sku", Config.getValue(ConfigValues.SkuToAVLevel, vm.getCompatibilityVersion().toString()));
+            }
+        }
+        writeEntryElement("serial", vmInfoBuildUtils.getVmSerialNumber(vm, "HOST-SERIAL:"));
+        writeEntryElement("uuid", vm.getId().toString());
+        writer.writeEndElement(); // system
 
+        if (version4_4orHigher && skuToAVLevelExists) {
+            writer.writeStartElement("baseBoard");
+            writeEntryElement("manufacturer", "Red Hat");
+            writeEntryElement("product", "RHEL-AV");
+            writer.writeEndElement(); // baseBoard
+        }
+        writer.writeEndElement(); // sysinfo
+    }
+
+    private void writeEntryElement(String attributeValue, String rawString) {
         writer.writeStartElement("entry");
-        writer.writeAttributeString("name", "manufacturer");
-        String product = Config.getValue(ConfigValues.OriginType);
-        writer.writeRaw(OriginType.valueOf(product) == OriginType.OVIRT ? "oVirt" : "Red Hat");
-        writer.writeEndElement();
-
-        writer.writeStartElement("entry");
-        writer.writeAttributeString("name", "product");
-        writer.writeRaw("OS-NAME:");
-        writer.writeEndElement();
-
-        writer.writeStartElement("entry");
-        writer.writeAttributeString("name", "version");
-        writer.writeRaw("OS-VERSION:");
-        writer.writeEndElement();
-
-        writer.writeStartElement("entry");
-        writer.writeAttributeString("name", "serial");
-        writer.writeRaw(vmInfoBuildUtils.getVmSerialNumber(vm, "HOST-SERIAL:"));
-        writer.writeEndElement();
-
-        writer.writeStartElement("entry");
-        writer.writeAttributeString("name", "uuid");
-        writer.writeRaw(vm.getId().toString());
-        writer.writeEndElement();
-
-        writer.writeEndElement();
-
+        writer.writeAttributeString("name", attributeValue);
+        writer.writeRaw(rawString);
         writer.writeEndElement();
     }
 
-    private void writeNumaTune() {
-        NumaTuneMode numaTune = vm.getNumaTuneMode();
-        if (numaTune == null) {
-            return;
-        }
-
+    private Map<String, Object> getNumaTuneSetting() {
         Map<String, Object> numaTuneSetting = NumaSettingFactory.buildVmNumatuneSetting(
-                numaTune,
                 vmNumaNodesSupplier.get());
         if (numaTuneSetting.isEmpty()) {
+            return null;
+        }
+
+        return numaTuneSetting;
+    }
+
+    private void writeNumaTune() {
+        Map<String, Object> numaTuneSetting = getNumaTuneSetting();
+        if (numaTuneSetting == null) {
             return;
         }
 
         // <numatune>
         //   <memnode cellid='0' mode='strict' nodeset='1'>
         // </numatune>
-        String mode = (String) numaTuneSetting.get(VdsProperties.NUMA_TUNE_MODE);
         @SuppressWarnings("unchecked")
         List<Map<String, String>> memNodes = (List<Map<String, String>>) numaTuneSetting.get(VdsProperties.NUMA_TUNE_MEMNODES);
         if (memNodes != null) {
@@ -580,9 +638,9 @@ public class LibvirtVmXmlBuilder {
 
             for (Map<String, String> memnode : memNodes) {
                 writer.writeStartElement("memnode");
-                writer.writeAttributeString("mode", mode);
-                writer.writeAttributeString("cellid", (String) memnode.get(VdsProperties.NUMA_TUNE_VM_NODE_INDEX));
-                writer.writeAttributeString("nodeset", (String) memnode.get(VdsProperties.NUMA_TUNE_NODESET));
+                writer.writeAttributeString("mode", memnode.get(VdsProperties.NUMA_TUNE_MODE));
+                writer.writeAttributeString("cellid", memnode.get(VdsProperties.NUMA_TUNE_VM_NODE_INDEX));
+                writer.writeAttributeString("nodeset", memnode.get(VdsProperties.NUMA_TUNE_NODESET));
                 writer.writeEndElement();
             }
 
@@ -634,17 +692,21 @@ public class LibvirtVmXmlBuilder {
             writer.writeEndElement();
         }
 
-        if (vm.getEffectiveBiosType().isOvmf()) {
+        if (vm.getBiosType().isOvmf()) {
             writer.writeStartElement("loader");
             writer.writeAttributeString("readonly", "yes");
-            boolean secureBoot = vm.getEffectiveBiosType() == BiosType.Q35_SECURE_BOOT;
+            boolean secureBoot = vm.getBiosType() == BiosType.Q35_SECURE_BOOT;
             writer.writeAttributeString("secure", secureBoot ? "yes" : "no");
             writer.writeAttributeString("type", "pflash");
             writer.writeRaw("/usr/share/OVMF/OVMF_CODE.secboot.fd");
             writer.writeEndElement();
             writer.writeStartElement("nvram");
-            writer.writeAttributeString("template",
-                    String.format("/usr/share/OVMF/%s", secureBoot ? "OVMF_VARS.secboot.fd" : "OVMF_VARS.fd"));
+            String nvramTemplate = vmCustomProperties.get("nvram_template");
+            if (nvramTemplate == null) {
+                nvramTemplate = String.format("/usr/share/OVMF/%s",
+                        secureBoot ? "OVMF_VARS.secboot.fd" : "OVMF_VARS.fd");
+            }
+            writer.writeAttributeString("template", nvramTemplate);
             writer.writeRaw(String.format("/var/lib/libvirt/qemu/nvram/%s.fd", vm.getId()));
             writer.writeEndElement();
         }
@@ -701,10 +763,10 @@ public class LibvirtVmXmlBuilder {
             writer.writeAttributeString("present", "no");
             writer.writeEndElement();
         }
-        if (vm.getUseTscFrequency()) {
+        if (vm.getUseTscFrequency() && tscFrequencySupplier.get() != null) {
             writer.writeStartElement("timer");
             writer.writeAttributeString("name", "tsc");
-            writer.writeAttributeString("frequency", tscFrequencySupplier.get().split("\\.")[0] + "000000");
+            writer.writeAttributeString("frequency", tscFrequencySupplier.get());
             writer.writeEndElement();
         }
         // Intentionally no 'break;', as code for s390x is shared with x86
@@ -719,7 +781,7 @@ public class LibvirtVmXmlBuilder {
 
         boolean acpiEnabled = vm.getAcpiEnable();
         boolean kaslrEnabled = vmInfoBuildUtils.isKASLRDumpEnabled(vm.getVmOsId());
-        boolean secureBootEnabled = vm.getEffectiveBiosType() == BiosType.Q35_SECURE_BOOT;
+        boolean secureBootEnabled = vm.getBiosType() == BiosType.Q35_SECURE_BOOT;
         if (!acpiEnabled && !hypervEnabled && !kaslrEnabled && !secureBootEnabled) {
             return;
         }
@@ -753,6 +815,43 @@ public class LibvirtVmXmlBuilder {
 
                 writer.writeStartElement("stimer");
                 writer.writeAttributeString("state", "on");
+                if (vm.getCompatibilityVersion().greater(Version.v4_6)) {
+                    writer.writeStartElement("direct");
+                    writer.writeAttributeString("state", "on");
+                    writer.writeEndElement();
+                }
+                writer.writeEndElement();
+            }
+
+            if (vm.getCompatibilityVersion().greaterOrEquals(Version.v4_4)) {
+                writer.writeStartElement("reset");
+                writer.writeAttributeString("state", "on");
+                writer.writeEndElement();
+
+                writer.writeStartElement("vpindex");
+                writer.writeAttributeString("state", "on");
+                writer.writeEndElement();
+
+                writer.writeStartElement("runtime");
+                writer.writeAttributeString("state", "on");
+                writer.writeEndElement();
+
+                writer.writeStartElement("frequencies");
+                writer.writeAttributeString("state", "on");
+                writer.writeEndElement();
+
+                writer.writeStartElement("reenlightenment");
+                writer.writeAttributeString("state", "on");
+                writer.writeEndElement();
+
+                writer.writeStartElement("tlbflush");
+                writer.writeAttributeString("state", "on");
+                writer.writeEndElement();
+            }
+
+            if (vm.getCompatibilityVersion().greater(Version.v4_6)) {
+                writer.writeStartElement("ipi");
+                writer.writeAttributeString("state", "on");
                 writer.writeEndElement();
             }
 
@@ -766,6 +865,12 @@ public class LibvirtVmXmlBuilder {
         if (secureBootEnabled) {
             writer.writeStartElement("smm");
             writer.writeAttributeString("state", "on");
+            writer.writeEndElement();
+        }
+
+        if (VmInfoBuildUtils.isVmWithHighNumberOfX86Vcpus(vm)) {
+            writer.writeStartElement("ioapic");
+            writer.writeAttributeString("driver", "qemu");
             writer.writeEndElement();
         }
 
@@ -813,9 +918,13 @@ public class LibvirtVmXmlBuilder {
     }
 
     private void writeNetworkInterfaceMetadata() {
-        vnicMetadata.forEach((mac, data) -> {
+        vnicMetadata.forEach((alias, data) -> {
             writer.writeStartElement(OVIRT_VM_URI, "device");
-            writer.writeAttributeString("mac_address", mac);
+            writer.writeAttributeString("alias", alias);
+            var mac = (String) data.remove("mac");
+            if (mac != null) {
+                writer.writeAttributeString("mac_address", mac);
+            }
             List<String> portMirroring = (List<String>) data.remove("portMirroring");
             if (portMirroring != null) {
                 writer.writeStartElement(OVIRT_VM_URI, "portMirroring");
@@ -885,6 +994,8 @@ public class LibvirtVmXmlBuilder {
         writeRunAndPauseMetadata();
         writePayloadMetadata();
         writeResumeBehaviorMetadata();
+        writeBalloonMetadata();
+        writeCpuPinningPolicyMetadata();
         writer.writeEndElement();
     }
 
@@ -926,6 +1037,14 @@ public class LibvirtVmXmlBuilder {
         writer.writeEndElement();
     }
 
+    private void writeBalloonMetadata() {
+        writer.writeElement(OVIRT_VM_URI, "ballooningEnabled", String.valueOf(vm.isBalloonEnabled()));
+    }
+
+    private void writeCpuPinningPolicyMetadata() {
+        writer.writeElement(OVIRT_VM_URI, "cpuPolicy", vm.getCpuPinningPolicy().name().toLowerCase());
+    }
+
     private void writePowerEvents() {
         if (volatileRun) {
             writer.writeElement("on_reboot", "destroy");
@@ -934,19 +1053,26 @@ public class LibvirtVmXmlBuilder {
 
     void writeDevices() {
         List<Pair<VmDevice, HostDevice>> hostDevDisks = new ArrayList<>();
-        List<VmDevice> devices = vmInfoBuildUtils.getVmDevices(vm.getId());
+        List<VmDevice> devices = vmDevicesSupplier.get();
         // replacement of some devices in run-once mode should eventually be done by the run-command
         devices = overrideDevicesForRunOnce(devices);
         devices = processPayload(devices);
         devices.stream().filter(d -> d.getSpecParams() == null).forEach(d -> d.setSpecParams(Collections.emptyMap()));
         ArchStrategyFactory.getStrategy(vm.getClusterArch()).run(new CreateAdditionalControllersForDomainXml(devices));
+        Map<Integer, Map<VmDevice, Integer>> vmDeviceVirtioScsiUnitMap = vmInfoBuildUtils.getVmDeviceUnitMapForVirtioScsiDisks(vm);
 
         writer.writeStartElement("devices");
 
-        if (vm.getClusterArch() != ArchitectureType.s390x &&
-            !(vm.getClusterArch().getFamily() == ArchitectureType.ppc && vm.getVmType() == VmType.HighPerformance)) {
-            // no mouse or tablet for s390x and for HP VMS with ppc architecture type
+        switch(vm.getClusterArch().getFamily()) {
+        // No mouse or tablet for s390x and for headless HP VMS with ppc architecture type.
+        case x86:
             writeInput();
+            break;
+        case ppc:
+            if (vmInfoBuildUtils.hasUsbController(vm)) {
+                writeInput();
+                break;
+            }
         }
 
         writeGuestAgentChannels();
@@ -954,6 +1080,8 @@ public class LibvirtVmXmlBuilder {
         if (vm.getClusterArch() == ArchitectureType.ppc64 || vm.getClusterArch() == ArchitectureType.ppc64le) {
             writeEmulator();
         }
+
+        writeIommu();
 
         Map<DiskInterface, Integer> controllerIndexMap =
                 ArchStrategyFactory.getStrategy(vm.getClusterArch()).run(new GetControllerIndices()).returnValue();
@@ -978,6 +1106,9 @@ public class LibvirtVmXmlBuilder {
             switch (device.getType()) {
             case BALLOON:
                 balloonExists = true;
+                if (legacyVirtio) {
+                    device.getSpecParams().put("model", "virtio-transitional");
+                }
                 writeBalloon(device);
                 break;
             case SMARTCARD:
@@ -996,29 +1127,36 @@ public class LibvirtVmXmlBuilder {
             case CONTROLLER:
                 switch(device.getDevice()) {
                 case "usb":
-                    if (device.getSpecParams().get("model") != null &&
-                            device.getSpecParams().get("model").equals("qemu-xhci")) {
+                    if ("qemu-xhci".equals(device.getSpecParams().get("model"))) {
                         device.getSpecParams().put("ports", 8);
                     }
                     break;
                 case "virtio-serial":
                     device.getSpecParams().put("index", 0);
                     device.getSpecParams().put("ports", 16);
+                    if (legacyVirtio) {
+                        device.getSpecParams().put("model", "virtio-transitional");
+                    }
                     break;
                 case "virtio-scsi":
                     device.setDevice(VdsProperties.Scsi);
                     device.getSpecParams().put("index", virtioScsiIndex++);
-                    device.getSpecParams().put("model", "virtio-scsi");
+                    if (legacyVirtio) {
+                        device.getSpecParams().put("model", "virtio-transitional");
+                    } else {
+                        device.getSpecParams().put("model", "virtio-scsi");
+                    }
                     break;
                 case "pci":
-                    if ("pcie-root".equals(device.getSpecParams().get("model"))) {
+                    Object model = device.getSpecParams().get("model");
+                    if ("pcie-root".equals(model)) {
                         pciERootExists = true;
-                    } else if ("pcie-root-port".equals(device.getSpecParams().get("model"))) {
+                    } else if ("pcie-root-port".equals(model)) {
                         pciEPorts++;
                     }
                     break;
                 }
-                writeController(device);
+                writeController(device, vmDeviceVirtioScsiUnitMap);
                 break;
             case GRAPHICS:
                 writeGraphics(device);
@@ -1029,6 +1167,9 @@ public class LibvirtVmXmlBuilder {
                 break;
             case RNG:
                 writeRng(device);
+                break;
+            case TPM:
+                writeTpm(device);
                 break;
             case CONSOLE:
                 writeConsole(device);
@@ -1100,7 +1241,7 @@ public class LibvirtVmXmlBuilder {
         }
 
         if (vm.getClusterArch().getFamily() == ArchitectureType.x86
-                && vm.getEffectiveBiosType().getChipsetType() == ChipsetType.Q35) {
+                && vm.getBiosType().getChipsetType() == ChipsetType.Q35) {
             writePciEControllers(pciERootExists, pciEPorts);
         }
 
@@ -1110,7 +1251,7 @@ public class LibvirtVmXmlBuilder {
         writeCdRom(cdromDevices);
         writeFloppy(floppyDevice);
         // we must write the disk after writing cd-rom and floppy to know reserved indices
-        writeDisks(diskDevices);
+        writeDisks(diskDevices, vmDeviceVirtioScsiUnitMap);
         writeHostdevDisks(hostDevDisks);
         writeLeases();
 
@@ -1149,7 +1290,7 @@ public class LibvirtVmXmlBuilder {
         }
 
         // graphics device handling
-        if (displayType == DisplayType.none || (vm.getGraphicsInfos() != null && !vm.getGraphicsInfos().isEmpty())) {
+        if (displayType == DisplayType.none || vm.getGraphicsInfos() != null && !vm.getGraphicsInfos().isEmpty()) {
             // remove existing graphics devices
             devices = devices.stream()
                     .filter(dev -> dev.getType() != VmDeviceGeneralType.GRAPHICS)
@@ -1170,6 +1311,10 @@ public class LibvirtVmXmlBuilder {
                 devices.stream().noneMatch(dev -> dev.getDevice().equals(VmDeviceType.FLOPPY.getName()))) {
             devices.add(vmInfoBuildUtils.createFloppyDevice(vm));
         }
+        // the user may want a secondary disk for windows guest tools
+        if (vm.getWgtCdPath() != null && !StringUtils.isEmpty(vm.getWgtCdPath())) {
+            devices.add(vmInfoBuildUtils.createCdRomDevice(vm));
+        }
 
         return devices;
     }
@@ -1187,61 +1332,58 @@ public class LibvirtVmXmlBuilder {
                 VmDeviceCommonUtils.extractDiskVmElements(vm));
     }
 
-    boolean isMdevDisplayOn(Map<String, String> vmCustomProperties, VM vm) {
-        String mdevTypes = vmCustomProperties.get("mdev_type");
-        if (mdevTypes == null) {
-            return false;
-        }
-        String[] mdevDevices = mdevTypes.split(",");
-        boolean hasNoDisplay = mdevDevices.length > 0 && mdevDevices[0].equals("nodisplay");
-
-        return vm.getCompatibilityVersion().greaterOrEquals(Version.v4_3) && !hasNoDisplay;
-    }
-
     void writeVGpu() {
-        String mdevTypes = vmCustomProperties.remove("mdev_type");
-        if (StringUtils.isNotEmpty(mdevTypes)) {
-            String[] mdevDevices = mdevTypes.split(",");
-            if (mdevDevices.length > 0 && mdevDevices[0].equals("nodisplay")) {
-                mdevDevices = Arrays.copyOfRange(mdevDevices, 1, mdevDevices.length);
-            }
-            for (String mdevType : mdevDevices) {
-                writer.writeStartElement("hostdev");
-                writer.writeAttributeString("mode", "subsystem");
-                writer.writeAttributeString("type", "mdev");
-                writer.writeAttributeString("model", "vfio-pci");
-                if (mdevDisplayOn) {
-                    // Nvidia vGPU VNC console is only supported on RHEL >= 7.6
-                    // See https://bugzilla.redhat.com/show_bug.cgi?id=1633623 for details and discussion
-                    writer.writeAttributeString("display", "on");
+        for (VmDevice mdev : MDevTypesUtils.getMdevs(vmDevicesSupplier.get(), VmDeviceType.VGPU)) {
+            final Version compatibilityVersion = vm.getCompatibilityVersion();
+
+            writer.writeStartElement("hostdev");
+            writer.writeAttributeString("mode", "subsystem");
+            writer.writeAttributeString("type", "mdev");
+            writer.writeAttributeString("model", "vfio-pci");
+            final Map<String, Object> mdevSpecParams = mdev.getSpecParams();
+            if (!Boolean.TRUE.equals(mdevSpecParams.get(MDevTypesUtils.NODISPLAY))
+                    && MDevTypesUtils.isMdevDisplayOnSupported(compatibilityVersion)) {
+                writer.writeAttributeString("display", "on");
+                if (FeatureSupported.isVgpuFramebufferSupported(compatibilityVersion)) {
+                    writer.writeAttributeString("ramfb", "on");
                 }
-
-                writer.writeStartElement("source");
-                String address = Guid.newGuid().toString();
-                writer.writeStartElement("address");
-                writer.writeAttributeString("uuid", address);
-                writer.writeEndElement();
-                writer.writeEndElement();
-
-                writer.writeEndElement();
-
-                String mdevTypeMeta = mdevType;
-                if (FeatureSupported.isVgpuPlacementSupported(vm.getCompatibilityVersion())) {
-                    VgpuPlacement vgpuPlacement = hostVgpuPlacementSupplier.get();
-                    String vgpuPlacementString;
-                    if (vgpuPlacement == VgpuPlacement.CONSOLIDATED) {
-                        vgpuPlacementString = "compact";
-                    } else if (vgpuPlacement == VgpuPlacement.SEPARATED) {
-                        vgpuPlacementString = "separate";
-                    } else {
-                        log.warn("Unrecognized vGPU placement type (using `{}' instead): {}",
-                                 VgpuPlacement.CONSOLIDATED, vgpuPlacement);
-                        vgpuPlacementString = "compact";
-                    }
-                    mdevTypeMeta = mdevTypeMeta + "|" + vgpuPlacementString;
-                }
-                mdevMetadata.put(address, Collections.singletonMap("mdevType", mdevTypeMeta));
             }
+
+            String address = mdev.getDeviceId().toString();
+            writer.writeStartElement("source");
+            writer.writeStartElement("address");
+            writer.writeAttributeString("uuid", address);
+            writer.writeEndElement();
+            writer.writeEndElement();
+
+            writer.writeEndElement();
+
+            Map<String, String> metadata = new HashMap<>();
+            String mdevTypeMeta = (String)mdevSpecParams.get(MDevTypesUtils.MDEV_TYPE);
+            if (FeatureSupported.isVgpuPlacementSupported(compatibilityVersion)) {
+                VgpuPlacement vgpuPlacement = hostVgpuPlacementSupplier.get();
+                String vgpuPlacementString;
+                if (vgpuPlacement == VgpuPlacement.CONSOLIDATED) {
+                    vgpuPlacementString = "compact";
+                } else if (vgpuPlacement == VgpuPlacement.SEPARATED) {
+                    vgpuPlacementString = "separate";
+                } else {
+                    log.warn("Unrecognized vGPU placement type (using `{}' instead): {}",
+                            VgpuPlacement.CONSOLIDATED,
+                            vgpuPlacement);
+                    vgpuPlacementString = "compact";
+                }
+                mdevTypeMeta = mdevTypeMeta + "|" + vgpuPlacementString;
+            }
+            metadata.put("mdevType", mdevTypeMeta);
+            String mdevDriverParameters = (String) mdevSpecParams.get(MDevTypesUtils.DRIVER_PARAMETERS);
+            if (mdevDriverParameters != null) {
+                metadata.put("mdevDriverParameters", mdevDriverParameters);
+                if (!FeatureSupported.isVgpuDriverParametersSupported(compatibilityVersion)) {
+                    log.warn("vGPU driver parameters not supported in cluster version {}", compatibilityVersion);
+                }
+            }
+            mdevMetadata.put(address, metadata);
         }
     }
 
@@ -1288,16 +1430,33 @@ public class LibvirtVmXmlBuilder {
     private void writeInterfaces(List<VmDevice> devices) {
         Map<VmDeviceId, VmNetworkInterface> devIdToNic = vm.getInterfaces().stream()
                 .collect(Collectors.toMap(nic -> new VmDeviceId(nic.getId(), nic.getVmId()), nic -> nic));
+        Map<Guid, VnicProfile> vnicProfilesById = Entities.businessEntitiesById(vmInfoBuildUtils.getAllVnicProfiles());
+
         devices.stream()
                 .sorted(Comparator.comparing(dev -> devIdToNic.get(dev.getId()).getMacAddress()))
-                .forEach(dev -> writeInterface(dev, devIdToNic.get(dev.getId())));
+                .forEach(dev -> {
+                            var nic = devIdToNic.get(dev.getId());
+                            writeInterface(dev, nic);
+
+                            var vnicProfile = vnicProfilesById.get(nic.getVnicProfileId());
+                            if (vnicProfile != null && vnicProfile.getFailoverVnicProfileId() != null) {
+                                writeFailoverInterface(vnicProfile.getFailoverVnicProfileId(), nic.getMacAddress());
+                            }
+                        }
+                );
+
     }
 
-    private void writeDisks(List<VmDevice> devices) {
+    private void writeFailoverInterface(Guid failoverId, String macAddress) {
+        var failoverDevice = VmDeviceCommonUtils.createFailoverVmDevice(failoverId, vm.getId());
+        var failoverNic = VmDeviceCommonUtils.createFailoverVmNic(failoverId, vm.getId(), macAddress);
+        writeInterface(failoverDevice, failoverNic);
+    }
+
+    private void writeDisks(List<VmDevice> devices, Map<Integer, Map<VmDevice, Integer>> vmDeviceVirtioScsiUnitMap) {
         Map<VmDeviceId, VmDevice> deviceIdToDevice = devices.stream()
                 .collect(Collectors.toMap(VmDevice::getId, dev -> dev));
         Map<Integer, Map<VmDevice, Integer>> vmDeviceSpaprVscsiUnitMap = vmInfoBuildUtils.getVmDeviceUnitMapForSpaprScsiDisks(vm);
-        Map<Integer, Map<VmDevice, Integer>> vmDeviceVirtioScsiUnitMap = vmInfoBuildUtils.getVmDeviceUnitMapForVirtioScsiDisks(vm);
         int hdIndex = -1;
         sdIndex = -1;
         int vdIndex = -1;
@@ -1389,6 +1548,21 @@ public class LibvirtVmXmlBuilder {
         writer.writeEndElement();
     }
 
+    private void writeIommu() {
+        if (VmInfoBuildUtils.isVmWithHighNumberOfX86Vcpus(vm)) {
+            writer.writeStartElement("iommu");
+            writer.writeAttributeString("model", "intel");
+            writer.writeStartElement("driver");
+            writer.writeAttributeString("intremap", "on");
+            writer.writeAttributeString("eim", "on");
+            if (vmInfoBuildUtils.needsIommuCachingMode(vm, hostDevicesSupplier, vmDevicesSupplier)) {
+                writer.writeAttributeString("caching_mode", "on");
+            }
+            writer.writeEndElement();
+            writer.writeEndElement();
+        }
+    }
+
     private void writeSpiceVmcChannel() {
         writer.writeStartElement("channel");
         writer.writeAttributeString("type", "spicevmc");
@@ -1406,20 +1580,22 @@ public class LibvirtVmXmlBuilder {
         //   <target type='virtio' name='org.linux-kvm.port.0'/>
         //   <source mode='bind' path='/tmp/socket'/>
         // </channel>
-        writer.writeStartElement("channel");
-        writer.writeAttributeString("type", "unix");
+        if (vmInfoBuildUtils.isOvirtGuestAgent(vm.getVmOsId())) {
+            writer.writeStartElement("channel");
+            writer.writeAttributeString("type", "unix");
 
-        writer.writeStartElement("target");
-        writer.writeAttributeString("type", "virtio");
-        writer.writeAttributeString("name", "ovirt-guest-agent.0");
-        writer.writeEndElement();
+            writer.writeStartElement("target");
+            writer.writeAttributeString("type", "virtio");
+            writer.writeAttributeString("name", "ovirt-guest-agent.0");
+            writer.writeEndElement();
 
-        writer.writeStartElement("source");
-        writer.writeAttributeString("mode", "bind");
-        writer.writeAttributeString("path", String.format("/var/lib/libvirt/qemu/channels/%s.ovirt-guest-agent.0", vm.getId()));
-        writer.writeEndElement();
+            writer.writeStartElement("source");
+            writer.writeAttributeString("mode", "bind");
+            writer.writeAttributeString("path", String.format("/var/lib/libvirt/qemu/channels/%s.ovirt-guest-agent.0", vm.getId()));
+            writer.writeEndElement();
 
-        writer.writeEndElement();
+            writer.writeEndElement();
+        }
 
         writer.writeStartElement("channel");
         writer.writeAttributeString("type", "unix");
@@ -1486,11 +1662,14 @@ public class LibvirtVmXmlBuilder {
             writeUsbHostDevice(new VmHostDevice(device), hostDevice);
             break;
         case "scsi":
-            if (scsiHostDevDrivers.contains(vmCustomProperties.get("scsi_hostdev"))) {
+            if (SCSI_HOST_DEV_DRIVERS.contains(vmCustomProperties.get("scsi_hostdev"))) {
                 hostDevDisks.add(new Pair<>(device, hostDevice));
             } else {
                 writeScsiHostDevice(new VmHostDevice(device), hostDevice);
             }
+            break;
+        case "nvdimm":
+            writeNvdimmHostDevice(new VmHostDevice(device), hostDevice);
             break;
         default:
             log.warn("Skipping host device: {}", device.getDevice());
@@ -1506,7 +1685,8 @@ public class LibvirtVmXmlBuilder {
         );
 
         for (Pair<VmDevice, HostDevice> pair : hostDevDisks) {
-            String diskName = vmInfoBuildUtils.makeDiskName("scsi", ++sdIndex);
+            sdIndex = skipCdIndices(++sdIndex, DiskInterface.VirtIO_SCSI);
+            String diskName = vmInfoBuildUtils.makeDiskName("scsi", sdIndex);
 
             writeScsiHostDevAsDisk(new VmHostDevice(pair.getFirst()), pair.getSecond(), diskName);
         }
@@ -1517,6 +1697,13 @@ public class LibvirtVmXmlBuilder {
 
         writer.writeStartElement("disk");
         writer.writeAttributeString("type", "block");
+        // Adding snapshot='no' attribute to prevent libvirt from adding this disk from the domxml. This will prevent
+        // libvirt from selecting this disk as a target to snapshot. Snapshots of passthrough disks are not allowed.
+        writer.writeAttributeString("snapshot", "no");
+
+        if (SCSI_VIRTIO_BLK_PCI.equals(scsiHostdevProperty) && legacyVirtio) {
+            writer.writeAttributeString("model", "virtio-transitional");
+        }
         if (SCSI_BLOCK.equals(scsiHostdevProperty)) {
             writer.writeAttributeString("device", "lun");
             writer.writeAttributeString("rawio", "yes");
@@ -1527,22 +1714,22 @@ public class LibvirtVmXmlBuilder {
         writer.writeStartElement("driver");
         writer.writeAttributeString("name", "qemu");
         writer.writeAttributeString("type", "raw");
-        writer.writeEndElement();
+        writer.writeEndElement(); // driver
 
         writer.writeStartElement("source");
-        writer.writeAttributeString("dev", "/dev/" + diskName);
+        writer.writeAttributeString("dev", hostDevice.getBlockPath());
         writer.writeStartElement("seclabel");
         writer.writeAttributeString("model", "dac");
         writer.writeAttributeString("type", "none");
         writer.writeAttributeString("relabel", "yes");
-        writer.writeEndElement();
-        writer.writeEndElement();
+        writer.writeEndElement(); // seclabel
+        writer.writeEndElement(); // source
 
         if (SCSI_HD.equals(scsiHostdevProperty)) {
             writer.writeStartElement("blockio");
             writer.writeAttributeString("logical_block_size", "512");
             writer.writeAttributeString("physical_block_size", "4096");
-            writer.writeEndElement();
+            writer.writeEndElement(); // blockio
         }
 
         writer.writeStartElement("target");
@@ -1554,15 +1741,19 @@ public class LibvirtVmXmlBuilder {
             writer.writeAttributeString("dev", diskName);
             writer.writeAttributeString("bus", "scsi");
         }
-        writer.writeEndElement();
+        writer.writeEndElement(); // target
 
         writeAlias(device);
         if (SCSI_VIRTIO_BLK_PCI.equals(scsiHostdevProperty)) {
-            writeAddress(StringMapUtils.string2Map(device.getAddress()));
+            var addressMap = StringMapUtils.string2Map(device.getAddress());
+            if ("pci".equals(addressMap.get("type"))) {
+                writeAddress(addressMap);
+            }
         } else {
             writeAddress(buildDriveAddress(hostDevice.getAddress()));
         }
-        writer.writeEndElement();
+
+        writer.writeEndElement(); // disk
     }
 
     private Map<String, String> buildDriveAddress(Map<String, String> address) {
@@ -1602,7 +1793,6 @@ public class LibvirtVmXmlBuilder {
         writer.writeEndElement();
 
         writeAlias(device);
-        writeAddress(device);
         // TODO: boot
         writer.writeEndElement();
     }
@@ -1665,6 +1855,74 @@ public class LibvirtVmXmlBuilder {
         writer.writeEndElement();
     }
 
+    private void writeNvdimmHostDevice(VmHostDevice device, HostDevice hostDevice) {
+        Map<String, Object> specParams = hostDevice.getSpecParams();
+        String mode = (String)specParams.get(VdsProperties.MODE);
+        String numaNode = (String)specParams.get(VdsProperties.NUMA_NODE);
+        String targetNode = vmInfoBuildUtils.getMatchingNumaNode(getNumaTuneSetting(), vmNumaNodesSupplier, numaNode);
+        if (targetNode == null) {
+            log.error("No NUMA node, cannot add NVDIMM devices");
+            return;
+        }
+        Long alignSize = (Long)specParams.get(VdsProperties.ALIGN_SIZE);
+        if (alignSize == null) {
+            // If we didn't specify alignsize, libvirt would select one based on memory page size.
+            // Better to set it ourselves, to the memory block size.
+            // See also VmInfoBuildUtils::getNvdimmAlignedSize().
+            alignSize = new Long(vm.getClusterArch().getHotplugMemorySizeFactorMb() * 1024 * 1024);
+        }
+        Long size = vmInfoBuildUtils.getNvdimmAlignedSize(vm, hostDevice);
+        if (size == null) {
+            log.error("Invalid alignment, cannot add NVDIMM device");
+            return;
+        }
+
+        // <memory model='nvdimm' access='shared'>
+        //   <source>
+        //     <path>/dev/pmem0</path>
+        //     <alignsize unit='KiB'>2048</alignsize>
+        //     <pmem/>
+        //   </source>
+        //   <target>
+        //     <size unit='KiB'>16646144</size>
+        //     <node>0</node>
+        //     <label>
+        //       <size unit='KiB'>128</size>
+        //     </label>
+        //   </target>
+        //   <alias name="ua-1234"/>
+        // </memory>
+        writer.writeStartElement("memory");
+        writer.writeAttributeString("model", "nvdimm");
+        writer.writeAttributeString("access", "shared");
+
+        writer.writeStartElement("source");
+        writer.writeElement("path", (String)specParams.get(VdsProperties.DEVICE_PATH));
+        writer.writeStartElement("alignsize");
+        writer.writeAttributeString("unit", "KiB");
+        writer.writeRaw(String.valueOf(alignSize / 1024));
+        writer.writeEndElement();  // alignsize
+        writer.writeElement("pmem");
+        writer.writeEndElement();  // source
+
+        writer.writeStartElement("target");
+        writer.writeStartElement("size");
+        writer.writeAttributeString("unit", "KiB");
+        writer.writeRaw(String.valueOf(size / 1024));
+        writer.writeEndElement();  // size
+        writer.writeElement("node", targetNode);
+        writer.writeStartElement("label");
+        writer.writeStartElement("size");
+        writer.writeAttributeString("unit", "KiB");
+        writer.writeRaw(String.valueOf(VmInfoBuildUtils.NVDIMM_LABEL_SIZE / 1024));
+        writer.writeEndElement();  // size
+        writer.writeEndElement();  // label
+        writer.writeEndElement();  // target
+
+        writeAlias(device);
+        writer.writeEndElement();  // memory
+    }
+
     private void writeRedir(VmDevice device) {
         // <redirdev bus='usb' type='spicevmc'>
         //   <address type='usb' bus='0' port='1'/>
@@ -1683,7 +1941,11 @@ public class LibvirtVmXmlBuilder {
         //   <backend model='random'>/dev/random</backend>
         // </rng>
         writer.writeStartElement("rng");
-        writer.writeAttributeString("model", "virtio");
+        if (legacyVirtio) {
+            writer.writeAttributeString("model", "virtio-transitional");
+        } else {
+            writer.writeAttributeString("model", "virtio");
+        }
 
         Map<String, Object> specParams = device.getSpecParams();
         if (specParams.containsKey("bytes")) {
@@ -1711,6 +1973,19 @@ public class LibvirtVmXmlBuilder {
         writer.writeEndElement();
 
         writeAlias(device);
+        writer.writeEndElement();
+    }
+
+    private void writeTpm(VmDevice device) {
+        writer.writeStartElement("tpm");
+        if (vm.getClusterArch().getFamily() == ArchitectureType.x86) {
+            writer.writeAttributeString("model", "tpm-crb");
+        }
+        writeAlias(device);
+        writer.writeStartElement("backend");
+        writer.writeAttributeString("type", "emulator");
+        writer.writeAttributeString("version", "2.0");
+        writer.writeEndElement();
         writer.writeEndElement();
     }
 
@@ -1745,9 +2020,8 @@ public class LibvirtVmXmlBuilder {
         writer.writeAttributeString("port", String.valueOf(LIBVIRT_PORT_AUTOSELECT));
         writer.writeAttributeString("autoport", "yes");
         // TODO: defaultMode
-        if (graphicsType == GraphicsType.SPICE      // SPICE always needs password
-            || hostStatisticsSupplier.get() == null // when there's no host, it doesn't matter; use password to be safe
-            || !vmInfoBuildUtils.isKernelFipsMode(hostStatisticsSupplier.get().getId())) {
+        if (graphicsType == GraphicsType.SPICE  // SPICE always needs password
+                || !kernelFipsModeSupplier.get()) {
             writer.writeAttributeString("passwd", "*****");
             writer.writeAttributeString("passwdValidTo", "1970-01-01T00:00:01");
         }
@@ -1846,7 +2120,7 @@ public class LibvirtVmXmlBuilder {
         }
     }
 
-    private void writeController(VmDevice device) {
+    private void writeController(VmDevice device, Map<Integer, Map<VmDevice, Integer>> vmDeviceVirtioScsiUnitMap) {
         writer.writeStartElement("controller");
         writer.writeAttributeString("type", device.getDevice());
 
@@ -1863,16 +2137,34 @@ public class LibvirtVmXmlBuilder {
             writer.writeAttributeString("ports", ports.toString());
         }
         Object ioThreadId = device.getSpecParams().get(VdsProperties.ioThreadId);
-        if (ioThreadId != null) {
+
+        // Add multiple queues support to the virtio-scsi controller
+        int queues = 0;
+
+        if ("virtio-scsi".equals(model)) {
+            if (vm.getVirtioScsiMultiQueues() == -1) {
+                int numOfDisks = 0;
+                if (index != null && vmDeviceVirtioScsiUnitMap.containsKey(index)) {
+                    numOfDisks = vmDeviceVirtioScsiUnitMap.get(index).size();
+                }
+                queues = vmInfoBuildUtils.getNumOfScsiQueues(numOfDisks, VmCpuCountHelper.getDynamicNumOfCpu(vm));
+            } else if (vm.getVirtioScsiMultiQueues() > 0) {
+                queues = vm.getVirtioScsiMultiQueues();
+            }
+        }
+
+        if (ioThreadId != null || queues > 0) {
             writer.writeStartElement("driver");
-            writer.writeAttributeString("iothread", ioThreadId.toString());
+            if (queues > 0) {
+                writer.writeAttributeString("queues", String.valueOf(queues));
+            }
+            if (ioThreadId != null) {
+                writer.writeAttributeString("iothread", ioThreadId.toString());
+            }
             writer.writeEndElement();
         }
 
-        // USB controllers must not be set with user-aliases (bz #1552127)
-        if (!VmDeviceType.USB.getName().equals(device.getDevice())) {
-            writeAlias(device);
-        }
+        writeAlias(device);
 
         writeAddress(device);
         writer.writeEndElement();
@@ -1904,7 +2196,7 @@ public class LibvirtVmXmlBuilder {
         writeAddress(device);
         writeBootOrder(device.getBootOrder());
 
-        if (disk.getDiskStorageType() != DiskStorageType.LUN) {
+        if (disk.getDiskStorageType() != DiskStorageType.LUN || !disk.isScsiPassthrough()) {
             writer.writeElement("serial", disk.getId().toString());
         }
 
@@ -1925,6 +2217,30 @@ public class LibvirtVmXmlBuilder {
         }
 
         writer.writeEndElement();
+    }
+
+    private void writeQemuCapabilities() {
+        // TODO: using the qemu namespace XML override is needed in order
+        // to use experimental incremental backup feature, should be removed
+        // when the feature will be fully supported by libvirt -
+        // <qemu:capabilities>
+        //   <qemu:add capability='blockdev'/>
+        //   <qemu:add capability='incremental-backup'/>
+        // </qemu:capabilities>
+
+        if (incrementalBackupSupplier.get()) {
+            writer.writeStartElement(QEMU_URI, "capabilities");
+
+            writer.writeStartElement(QEMU_URI, "add");
+            writer.writeAttributeString("capability", "blockdev");
+            writer.writeEndElement();
+
+            writer.writeStartElement(QEMU_URI, "add");
+            writer.writeAttributeString("capability", "incremental-backup");
+            writer.writeEndElement();
+
+            writer.writeEndElement();
+        }
     }
 
     private void writeNetworkDiskAuth(CinderDisk cinderDisk) {
@@ -1965,7 +2281,16 @@ public class LibvirtVmXmlBuilder {
         if (pinTo > 0) {
             writer.writeAttributeString("iothread", String.valueOf(pinTo));
         }
-
+        /**
+        When the disk propagate error is set to On, we need to ensure that the proper
+        error policy is set.
+        For IMAGE, we need to use enospace since image may be thin provisioned and requires
+        handling of enospace in vdsm. Using report will break the thin provisioning.
+        For LUN and Cinder, enospace is incorrect since the system cannot handle this value. This
+        must be handled by the guest. For these reasons, report is the right value.
+        Here is link to the thread in Ovirt Development -
+        https://lists.ovirt.org/archives/list/devel@ovirt.org/thread/YY56B5LCNO6ROSUPDWWHGKGUQVOLHCAR/
+        **/
         boolean nativeIO = false;
         switch (disk.getDiskStorageType()) {
         case IMAGE:
@@ -1980,14 +2305,14 @@ public class LibvirtVmXmlBuilder {
             nativeIO = true;
             writer.writeAttributeString("io", "native");
             writer.writeAttributeString("type", "raw");
-            writer.writeAttributeString("error_policy", disk.getPropagateErrors() == PropagateErrors.On ? "enospace" : "stop");
+            writer.writeAttributeString("error_policy", disk.getPropagateErrors() == PropagateErrors.On ? "report" : "stop");
             break;
 
         case CINDER:
             // case RBD
             writer.writeAttributeString("io", "threads");
             writer.writeAttributeString("type", "raw");
-            writer.writeAttributeString("error_policy", "stop");
+            writer.writeAttributeString("error_policy", disk.getPropagateErrors() == PropagateErrors.On ? "report" : "stop");
             break;
         }
 
@@ -2120,7 +2445,10 @@ public class LibvirtVmXmlBuilder {
             } else if (managedBlockStorageDisk.getCinderVolumeDriver() == CinderVolumeDriver.BLOCK) {
                 Map<String, Object> attachment =
                         (Map<String, Object>) managedBlockStorageDisk.getDevice().get(DeviceInfoReturn.ATTACHMENT);
-                metadata = Collections.singletonMap("GUID", (String)attachment.get(DeviceInfoReturn.SCSI_WWN));
+                metadata = Map.of(
+                        "GUID", (String)attachment.get(DeviceInfoReturn.SCSI_WWN),
+                        "managed", "true"
+                );
             }
 
             writer.writeAttributeString("dev", path);
@@ -2182,7 +2510,14 @@ public class LibvirtVmXmlBuilder {
     }
 
     private void writeGeneralDiskAttributes(VmDevice device, Disk disk, DiskVmElement dve) {
+        // Adding snapshot='no' attribute to prevent from libvirt adding this disk from the domxml. This will prevent
+        // libvirt from selecting this disk as a target to snapshot. When we do execute snapshot, we specify the disks
+        // we wish to take a snapshot for explicitly.
         writer.writeAttributeString("snapshot", "no");
+
+        if (dve.getDiskInterface() == DiskInterface.VirtIO && legacyVirtio) {
+            writer.writeAttributeString("model", "virtio-transitional");
+        }
 
         switch (disk.getDiskStorageType()) {
         case IMAGE:
@@ -2301,13 +2636,20 @@ public class LibvirtVmXmlBuilder {
             writer.writeEndElement();
         });
 
-        // add a device that points to vm.getCdPath()
-        String cdPath = vm.getCdPath();
-        VmDevice nonPayload = devices.stream()
-                .filter(d -> !VmPayload.isPayload(d.getSpecParams()))
-                .findAny().orElse(null);
-        if (nonPayload != null || (vm.isRunOnce() && !StringUtils.isEmpty(cdPath))) {
-            cdRomIndex = VmDeviceCommonUtils.getCdDeviceIndex(cdInterface);
+        // add devices that points to vm.getCdPath() and vm.getWgtCdPath
+        Iterator<String> cdPaths = List.of(
+                vm.getCdPath() != null ? vm.getCdPath() : "", vm.getWgtCdPath() != null ? vm.getWgtCdPath() : "")
+                .iterator();
+        int cdRomCounter = 0;
+        for (VmDevice device : devices) {
+            if (VmPayload.isPayload(device.getSpecParams())) {
+                continue;
+            }
+            if (!cdPaths.hasNext()) {
+                break;
+            }
+            String cdPath = cdPaths.next();
+            cdRomIndex = VmDeviceCommonUtils.getCdDeviceIndex(cdInterface) + cdRomCounter;
             String dev = vmInfoBuildUtils.makeDiskName(cdInterface, cdRomIndex);
 
             boolean isoOnBlockDomain = vmInfoBuildUtils.isBlockDomainPath(cdPath);
@@ -2328,7 +2670,9 @@ public class LibvirtVmXmlBuilder {
 
             writer.writeStartElement("source");
             writer.writeAttributeString(isoOnBlockDomain ? "dev" : "file", cdPath);
-            writer.writeAttributeString("startupPolicy", "optional");
+            if (!isoOnBlockDomain) {
+                writer.writeAttributeString("startupPolicy", "optional");
+            }
             writeSeclabel();
             writer.writeEndElement();
 
@@ -2339,19 +2683,17 @@ public class LibvirtVmXmlBuilder {
 
             writer.writeElement("readonly");
 
-            if (nonPayload != null) {
-                writeAlias(nonPayload);
-                if ("scsi".equals(cdInterface)) {
-                    writeAddress(vmInfoBuildUtils.createAddressForScsiDisk(0, cdRomIndex));
-                } else {
-                    writeAddress(nonPayload);
-                }
-                writeBootOrder(nonPayload.getBootOrder());
+            writeAlias(device);
+            if ("scsi".equals(cdInterface)) {
+                writeAddress(vmInfoBuildUtils.createAddressForScsiDisk(0, cdRomIndex));
+            } else {
+                writeAddress(device);
             }
+            writeBootOrder(device.getBootOrder());
 
             writer.writeEndElement();
+            cdRomCounter++;
         }
-
     }
 
     private void writeInterface(VmDevice device, VmNic nic) {
@@ -2391,6 +2733,11 @@ public class LibvirtVmXmlBuilder {
         VnicProfile vnicProfile = vmInfoBuildUtils.getVnicProfile(nic.getVnicProfileId());
         Network network = vnicProfile != null ? vmInfoBuildUtils.getNetwork(vnicProfile.getNetworkId()) : null;
         boolean networkless = network == null;
+        boolean hasFailover = vnicProfile != null && vnicProfile.getFailoverVnicProfileId() != null;
+
+        String alias = generateUserAliasForDevice(device);
+        vnicMetadata.computeIfAbsent(alias, a -> new HashMap<>());
+        vnicMetadata.get(alias).put("mac", nic.getMacAddress());
 
         switch (device.getDevice()) {
         case "bridge":
@@ -2402,6 +2749,9 @@ public class LibvirtVmXmlBuilder {
             String evaluatedIfaceType = vmInfoBuildUtils.evaluateInterfaceType(ifaceType, vm.getHasAgent());
             if ("pv".equals(evaluatedIfaceType)) {
                 evaluatedIfaceType = "virtio";
+                if (legacyVirtio) {
+                    evaluatedIfaceType = "virtio-transitional";
+                }
             }
             writer.writeAttributeString("type", evaluatedIfaceType);
             writer.writeEndElement();
@@ -2415,13 +2765,19 @@ public class LibvirtVmXmlBuilder {
             writer.writeAttributeString("bridge", !networkless ? network.getVdsmName() : ";vdsmdummy;");
             writer.writeEndElement();
 
+            if (!networkless && network.isPortIsolation()) {
+                writer.writeStartElement("port");
+                writer.writeAttributeString("isolated", "yes");
+                writer.writeEndElement();
+            }
+
             String queues = null;
             if (vnicProfile != null) {
                 queues = vnicProfile.getCustomProperties().remove("queues");
             }
 
             if (queues == null && vm.isMultiQueuesEnabled() && vmInfoBuildUtils.isInterfaceQueuable(device, nic)) {
-                queues = String.valueOf(vmInfoBuildUtils.getOptimalNumOfQueuesPerVnic(vm.getNumOfCpus()));
+                queues = String.valueOf(vmInfoBuildUtils.getOptimalNumOfQueuesPerVnic(VmCpuCountHelper.getDynamicNumOfCpu(vm)));
             }
 
             String driverName = getDriverNameForNetwork(!networkless ? network.getName() : "");
@@ -2435,6 +2791,12 @@ public class LibvirtVmXmlBuilder {
                     }
                 }
                 writer.writeAttributeString("name", driverName);
+                writer.writeEndElement();
+            }
+
+            if (vnicProfile != null && device.getCustomProperties().remove("failover") != null) {
+                writer.writeStartElement("teaming");
+                writer.writeAttributeString("type", "persistent");
                 writer.writeEndElement();
             }
 
@@ -2461,6 +2823,13 @@ public class LibvirtVmXmlBuilder {
             sourceAddress.forEach(writer::writeAttributeString);
             writer.writeEndElement();
             writer.writeEndElement();
+            if (hasFailover) {
+                writer.writeStartElement("teaming");
+                writer.writeAttributeString("type", "transient");
+                writer.writeAttributeString("persistent",
+                        String.format("ua-%s", vnicProfile.getFailoverVnicProfileId()));
+                writer.writeEndElement();
+            }
             break;
         }
 
@@ -2507,20 +2876,17 @@ public class LibvirtVmXmlBuilder {
         List<String> portMirroring = (List<String>) profileData.get(VdsProperties.PORT_MIRRORING);
         if (portMirroring != null && !portMirroring.isEmpty()) {
             // store port mirroring in the metadata
-            vnicMetadata.computeIfAbsent(nic.getMacAddress(), mac -> new HashMap<>());
-            vnicMetadata.get(nic.getMacAddress()).put("portMirroring", portMirroring);
+            vnicMetadata.get(alias).put("portMirroring", portMirroring);
         }
 
         Map<String, String> runtimeCustomProperties = vm.getRuntimeDeviceCustomProperties().get(device.getId());
         if (runtimeCustomProperties != null && !runtimeCustomProperties.isEmpty()) {
             // store runtime custom properties in the metadata
-            vnicMetadata.computeIfAbsent(nic.getMacAddress(), mac -> new HashMap<>());
-            vnicMetadata.get(nic.getMacAddress()).put("runtimeCustomProperties", runtimeCustomProperties);
+            vnicMetadata.get(alias).put("runtimeCustomProperties", runtimeCustomProperties);
         }
 
         if (vnicProfile != null && vnicProfile.getCustomProperties() != null) {
-            vnicMetadata.computeIfAbsent(nic.getMacAddress(), mac -> new HashMap<>());
-            vnicMetadata.get(nic.getMacAddress()).putAll(vnicProfile.getCustomProperties());
+            vnicMetadata.get(alias).putAll(vnicProfile.getCustomProperties());
         }
 
         writer.writeStartElement("bandwidth");
@@ -2626,6 +2992,9 @@ public class LibvirtVmXmlBuilder {
         writer.writeStartElement("video");
 
         writer.writeStartElement("model");
+        boolean mdevDisplayOn = MDevTypesUtils
+                .getMdevs(vmDevicesSupplier.get(), VmDeviceType.VGPU).stream()
+                .anyMatch(mdev -> !Boolean.TRUE.equals(mdev.getSpecParams().get(MDevTypesUtils.NODISPLAY)));
         if (mdevDisplayOn) {
             writer.writeAttributeString("type", "none");
         } else {
@@ -2684,6 +3053,10 @@ public class LibvirtVmXmlBuilder {
         if (!addressMap.isEmpty()) {
             writer.writeStartElement("address");
             addressMap.forEach(writer::writeAttributeString);
+            if (!addressMap.containsKey("type")) {
+                // Default type
+                writer.writeAttributeString("type", "drive");
+            }
             writer.writeEndElement();
         }
     }

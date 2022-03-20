@@ -1,5 +1,7 @@
 package org.ovirt.engine.ui.common.widget.uicommon.popup.vm;
 
+import static org.ovirt.engine.ui.common.widget.editor.generic.StringEntityModelPasswordBoxEditor.AUTOCOMPLETE_NEW_PASSWORD;
+
 import java.util.Map;
 
 import org.gwtbootstrap3.client.ui.Button;
@@ -35,6 +37,8 @@ import org.ovirt.engine.ui.common.widget.uicommon.popup.AbstractModelBoundPopupW
 import org.ovirt.engine.ui.uicommonweb.models.vms.VmInitModel;
 
 import com.google.gwt.core.client.GWT;
+import com.google.gwt.dom.client.Style.Display;
+import com.google.gwt.dom.client.Style.Unit;
 import com.google.gwt.resources.client.ClientBundle;
 import com.google.gwt.resources.client.CssResource;
 import com.google.gwt.uibinder.client.UiBinder;
@@ -68,7 +72,6 @@ public abstract class VmInitWidget extends AbstractModelBoundPopupWidget<VmInitM
         String customScript();
 
         String expanderContent();
-
     }
 
     public static interface Resources extends ClientBundle {
@@ -207,10 +210,13 @@ public abstract class VmInitWidget extends AbstractModelBoundPopupWidget<VmInitM
     @WithElementId
     EntityModelCheckBoxEditor cloudInitPasswordSetEditor;
 
-    @UiField
     @Path(value = "cloudInitRootPassword.entity")
     @WithElementId
     StringEntityModelPasswordBoxEditor cloudInitRootPasswordEditor;
+
+    @UiField(provided = true)
+    @Ignore
+    EntityModelWidgetWithInfo cloudInitRootPasswordEditorWithInfo;
 
     @UiField
     @Path(value = "cloudInitRootPasswordVerification.entity")
@@ -390,7 +396,11 @@ public abstract class VmInitWidget extends AbstractModelBoundPopupWidget<VmInitM
         initComboBoxEditors();
         initWidget(ViewUiBinder.uiBinder.createAndBindUi(this));
         sysprepScriptEditor.hideLabel();
+        sysprepScriptEditor.asValueBox().getElement().getStyle().setHeight(610, Unit.PX);
+        sysprepScriptEditor.asValueBox().getElement().getStyle().setWidth(100, Unit.PCT);
         customScriptEditor.hideLabel();
+        customScriptEditor.asValueBox().getElement().getStyle().setHeight(610, Unit.PX);
+        customScriptEditor.asValueBox().getElement().getStyle().setWidth(100, Unit.PCT);
         initAdvancedParameterExpanders();
 
         networkRemoveButton.setIcon(IconType.MINUS);
@@ -402,6 +412,32 @@ public abstract class VmInitWidget extends AbstractModelBoundPopupWidget<VmInitM
         driver.initialize(this);
     }
 
+    private void showIgnitionFields(){
+        timeZoneEnabledEditor.setVisible(false);
+        timeZoneEditor.setVisible(false);
+        networkExpander.setVisible(false);
+        networkExpander.toggleExpander(false);
+        regenerateKeysEnabledEditor.setVisible(false);
+        cloudInitRootPasswordEditorWithInfo.setLabel(constants.ignitionRootPasswordLabel());
+        cloudInitRootPasswordEditorWithInfo.showInfoIcon();
+        customScriptInfoIcon.setText(templates.italicText(constants.ignitionScriptInfo()));
+        customScriptExpander.setTitleWhenExpanded(constants.ignitionScriptLabel());
+        customScriptExpander.setTitleWhenCollapsed(constants.ignitionScriptLabel());
+    }
+
+    private void showCloudInitFields(){
+        timeZoneEnabledEditor.setVisible(true);
+        timeZoneEditor.setVisible(true);
+        networkExpander.setVisible(true);
+        networkExpander.toggleExpander(false);
+        regenerateKeysEnabledEditor.setVisible(true);
+        cloudInitRootPasswordEditorWithInfo.setLabel(constants.cloudInitRootPasswordLabel());
+        cloudInitRootPasswordEditorWithInfo.hideInfoIcon();
+        customScriptInfoIcon.setText(templates.italicText(constants.customScriptInfo()));
+        customScriptExpander.setTitleWhenExpanded(constants.customScriptLabel());
+        customScriptExpander.setTitleWhenCollapsed(constants.customScriptLabel());
+    }
+
     private void initEditorsWithIcon() {
         windowsHostnameEditor = new StringEntityModelTextBoxOnlyEditor();
 
@@ -409,6 +445,11 @@ public abstract class VmInitWidget extends AbstractModelBoundPopupWidget<VmInitM
         label.setText(constants.cloudInitHostnameLabel());
         windowsHostnameEditorWithInfo = new EntityModelWidgetWithInfo(label, windowsHostnameEditor);
         windowsHostnameEditorWithInfo.setExplanation(templates.italicText(constants.windowsHostNameInfo()));
+
+        cloudInitRootPasswordEditor = new StringEntityModelPasswordBoxEditor();
+        cloudInitRootPasswordEditor.setLabelDisplay(Display.NONE);
+        cloudInitRootPasswordEditorWithInfo = new EntityModelWidgetWithInfo(new EnableableFormLabel(), cloudInitRootPasswordEditor);
+        cloudInitRootPasswordEditorWithInfo.setExplanation(templates.italicText(constants.ignitionPasswordInfo()));
     }
 
     private void initAdvancedParameterExpanders() {
@@ -477,10 +518,14 @@ public abstract class VmInitWidget extends AbstractModelBoundPopupWidget<VmInitM
         timeZoneEditor.setLabel(constants.cloudInitTimeZoneLabel());
         windowsSyspreptimeZoneEnabledEditor.setLabel(constants.cloudInitConfigureTimeZoneLabel());
         windowsSysprepTimeZoneEditor.setLabel(constants.cloudInitTimeZoneLabel());
-        cloudInitRootPasswordEditor.setLabel(constants.cloudInitRootPasswordLabel());
+        cloudInitRootPasswordEditorWithInfo.setLabel(constants.cloudInitRootPasswordLabel());
+        cloudInitRootPasswordEditor.setAutocomplete(AUTOCOMPLETE_NEW_PASSWORD);
         cloudInitRootPasswordVerificationEditor.setLabel(constants.cloudInitRootPasswordVerificationLabel());
+        cloudInitRootPasswordVerificationEditor.setAutocomplete(AUTOCOMPLETE_NEW_PASSWORD);
         sysprepAdminPasswordEditor.setLabel(constants.sysprepAdminPasswordLabel());
+        sysprepAdminPasswordEditor.setAutocomplete(AUTOCOMPLETE_NEW_PASSWORD);
         sysprepAdminPasswordVerificationEditor.setLabel(constants.sysprepAdminPasswordVerificationLabel());
+        sysprepAdminPasswordVerificationEditor.setAutocomplete(AUTOCOMPLETE_NEW_PASSWORD);
 
         String sep = "|"; //$NON-NLS-1$
         // sequence is: <select label> | [+] <add label> | [-] <remove label>
@@ -778,6 +823,16 @@ public abstract class VmInitWidget extends AbstractModelBoundPopupWidget<VmInitM
 
     public void setCloudInitContentVisible(boolean visible) {
         cloudInitOptionsContent.setVisible(visible);
+        if (visible) {
+            showCloudInitFields();
+        }
+    }
+
+    public void setIgnitionContentVisible(boolean visible) {
+        cloudInitOptionsContent.setVisible(visible);
+        if (visible) {
+            showIgnitionFields();
+        }
     }
 
     public void setSyspepContentVisible(boolean visible) {

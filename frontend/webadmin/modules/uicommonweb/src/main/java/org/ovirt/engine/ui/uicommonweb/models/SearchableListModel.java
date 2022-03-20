@@ -29,6 +29,7 @@ import org.ovirt.engine.ui.uicommonweb.UICommand;
 import org.ovirt.engine.ui.uicommonweb.dataprovider.AsyncDataProvider;
 import org.ovirt.engine.ui.uicompat.Event;
 import org.ovirt.engine.ui.uicompat.EventArgs;
+import org.ovirt.engine.ui.uicompat.IEventListener;
 import org.ovirt.engine.ui.uicompat.NotifyCollectionChangedEventArgs;
 import org.ovirt.engine.ui.uicompat.PropertyChangedEventArgs;
 
@@ -48,6 +49,13 @@ import com.google.gwt.event.shared.HandlerRegistration;
  */
 // TODO once all the children of this class will be refactored to use generics, change from <T> to <T extends Queryable>
 public abstract class SearchableListModel<E, T> extends SortedListModel<T> implements HasEntity<E>, GridController {
+    public static final String MODEL_CHANGE_RELEVANT_FOR_ACTIONS = "model_change_relevant_for_actions"; // $NON-NLS-1$
+    private IEventListener<? super PropertyChangedEventArgs> modelChangeRelevantForActionsListener = (ev, sender, args) -> {
+        if (args.propertyName.equals(MODEL_CHANGE_RELEVANT_FOR_ACTIONS)) {
+            onModelChangeRelevantForActions();
+        }
+    };
+
     private static final int UnknownInteger = -1;
     private static final Logger logger = Logger.getLogger(SearchableListModel.class.getName());
 
@@ -210,18 +218,8 @@ public abstract class SearchableListModel<E, T> extends SortedListModel<T> imple
         return this.currentPageNumber;
     }
 
-    public String getItemsCountString() {
-        if (getItems() == null) {
-            return ""; //$NON-NLS-1$
-        }
-        int fromItemCount = getSearchPageSize() * (getSearchPageNumber() - 1) + 1;
-        int toItemCount = (fromItemCount - 1) + getItems().size();
-
-        if (toItemCount == 0 || fromItemCount > toItemCount) {
-            return ""; //$NON-NLS-1$
-        }
-
-        return fromItemCount + "-" + toItemCount; //$NON-NLS-1$
+    public int getTotalItemsCount() {
+        return -1;
     }
 
     public int getNextSearchPageNumber() {
@@ -268,6 +266,7 @@ public abstract class SearchableListModel<E, T> extends SortedListModel<T> imple
                 SearchableListModel.this.entityChanging(newValue, oldValue);
             }
         };
+        getPropertyChangedEvent().addListener(modelChangeRelevantForActionsListener);
     }
 
     @Override
@@ -466,6 +465,13 @@ public abstract class SearchableListModel<E, T> extends SortedListModel<T> imple
         }
     }
 
+    /**
+     * Inform all buttons (including those added by UI extension) that they should update button availability.
+     */
+    protected void fireModelChangeRelevantForActionsEvent() {
+        getPropertyChangedEvent().raise(this, new PropertyChangedEventArgs(MODEL_CHANGE_RELEVANT_FOR_ACTIONS));
+    }
+
     @Override
     public void eventRaised(Event<? extends EventArgs> ev, Object sender, EventArgs args) {
         super.eventRaised(ev, sender, args);
@@ -487,7 +493,7 @@ public abstract class SearchableListModel<E, T> extends SortedListModel<T> imple
         // of type 'valueObjectEnumerableList', which is not IList).
         if (getItems() != null) {
             Iterator<T> enumerator = getItems().iterator();
-            setIsEmpty(enumerator.hasNext() ? false : true);
+            setIsEmpty(!enumerator.hasNext());
         } else {
             setIsEmpty(true);
         }
@@ -657,7 +663,7 @@ public abstract class SearchableListModel<E, T> extends SortedListModel<T> imple
 
     @Override
     public final boolean hasItemsSorted() {
-        return (sortBy != null) || super.hasItemsSorted();
+        return sortBy != null || super.hasItemsSorted();
     }
 
     /**
@@ -716,8 +722,8 @@ public abstract class SearchableListModel<E, T> extends SortedListModel<T> imple
                 }
             }
 
-            if (comparator == null || ((value instanceof SortedSet)
-                    && Objects.equals(((SortedSet<?>) value).comparator(), comparator))) {
+            if (comparator == null || value instanceof SortedSet
+                    && Objects.equals(((SortedSet<?>) value).comparator(), comparator)) {
                 itemsChanging(value, items);
                 items = value;
             } else {
@@ -830,6 +836,10 @@ public abstract class SearchableListModel<E, T> extends SortedListModel<T> imple
         if (command != null && command.isAutoRefresh()) {
             getTimer().fastForward();
         }
+    }
+
+    protected void onModelChangeRelevantForActions() {
+        // no-op by default. Override if needed.
     }
 
     public static final class PrivateAsyncCallback<E, T> {
@@ -973,4 +983,13 @@ public abstract class SearchableListModel<E, T> extends SortedListModel<T> imple
                 }));
     }
 
+    @Override
+    public boolean isEntityPresent() {
+        return true;
+    }
+
+    @Override
+    public void setEntityPresent(boolean flag) {
+        // not used
+    }
 }

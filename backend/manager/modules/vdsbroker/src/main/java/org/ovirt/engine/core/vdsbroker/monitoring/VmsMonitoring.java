@@ -108,9 +108,11 @@ public class VmsMonitoring {
 
     private void unlockVms(List<VmAnalyzer> vmAnalyzers) {
         vmAnalyzers.stream().map(VmAnalyzer::getVmId).forEach(vmId -> {
-            VmManager vmManager = getVmManager(vmId);
-            vmManager.updateVmDataChangedTime();
-            vmManager.unlock();
+            VmManager vmManager = getVmManager(vmId, false);
+            if (vmManager != null) {
+                vmManager.updateVmDataChangedTime();
+                vmManager.unlockVm();
+            }
         });
     }
 
@@ -138,7 +140,7 @@ public class VmsMonitoring {
                 } catch (RuntimeException ex) {
                     Guid vmId = getVmId(vm.getFirst(), vm.getSecond());
                     VmManager vmManager = getVmManager(vmId);
-                    vmManager.unlock();
+                    vmManager.unlockVm();
 
                     log.error("Failed during monitoring vm: {} , error is: {}", vmId, ex);
                     log.error("Exception:", ex);
@@ -164,7 +166,7 @@ public class VmsMonitoring {
         Guid vmId = getVmId(pair.getFirst(), pair.getSecond());
         VmManager vmManager = getVmManager(vmId);
 
-        if (!vmManager.trylock()) {
+        if (!vmManager.tryLockVm()) {
             log.debug("skipping VM '{}' from this monitoring cycle" +
                     " - the VM is locked by its VmManager ", vmId);
             return false;
@@ -173,14 +175,14 @@ public class VmsMonitoring {
         if (!vmManager.isLatestData(pair.getSecond(), vdsId)) {
             log.warn("skipping VM '{}' from this monitoring cycle" +
                     " - newer VM data was already processed", vmId);
-            vmManager.unlock();
+            vmManager.unlockVm();
             return false;
         }
 
         if (vmManager.getVmDataChangedTime() != null && fetchTime - vmManager.getVmDataChangedTime() <= 0) {
             log.warn("skipping VM '{}' from this monitoring cycle" +
                     " - the VM data has changed since fetching the data", vmId);
-            vmManager.unlock();
+            vmManager.unlockVm();
             return false;
         }
 
@@ -252,14 +254,14 @@ public class VmsMonitoring {
 
         getVdsEventListener().updateSlaPolicies(succeededToRunVms, vdsManager.getVdsId());
 
+        // process all vms that went down
+        getVdsEventListener().processOnVmStop(movedToDownVms, vdsManager.getVdsId());
+
         // run all vms that crashed that marked with auto startup
         getVdsEventListener().runFailedAutoStartVMs(autoVmsToRun);
 
         // run all vms that went down as a part of cold reboot process
         getVdsEventListener().runColdRebootVms(coldRebootVmsToRun);
-
-        // process all vms that went down
-        getVdsEventListener().processOnVmStop(movedToDownVms, vdsManager.getVdsId());
 
         getVdsEventListener().refreshHostIfAnyVmHasHostDevices(succeededToRunVms, vdsManager.getVdsId());
 
@@ -281,11 +283,11 @@ public class VmsMonitoring {
     }
 
     private void flush(List<VmAnalyzer> vmAnalyzers) {
+        saveVmGuestAgentNetworkDevices(vmAnalyzers);
         saveVmDynamic(vmAnalyzers);
         saveVmStatistics(vmAnalyzers);
         saveVmInterfaceStatistics(vmAnalyzers);
         saveVmDiskImageStatistics(vmAnalyzers);
-        saveVmGuestAgentNetworkDevices(vmAnalyzers);
     }
 
     private void saveVmDiskImageStatistics(List<VmAnalyzer> vmAnalyzers) {
@@ -315,7 +317,12 @@ public class VmsMonitoring {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
         vmStatisticsDao.updateAllInBatch(statistics);
-        statistics.forEach(stats -> getVmManager(stats.getId()).setStatistics(stats));
+        statistics.forEach(stats -> {
+            VmManager vmManager = getVmManager(stats.getId(), false);
+            if (vmManager != null) {
+                vmManager.setStatistics(stats);
+            }
+        });
     }
 
     protected void addUnmanagedVms(List<VmAnalyzer> vmAnalyzers, Guid vdsId) {
@@ -345,7 +352,7 @@ public class VmsMonitoring {
             analyzersWithChangeGuestAgentNics.stream()
                 .map(VmAnalyzer::getVmGuestAgentNics)
                 .flatMap(List::stream)
-                .forEach(nic -> vmGuestAgentInterfaceDao.save(nic));
+                .forEach(vmGuestAgentInterfaceDao::save);
             return null;
         });
     }
@@ -361,7 +368,11 @@ public class VmsMonitoring {
     }
 
     protected VmManager getVmManager(Guid vmId) {
-        return resourceManager.getVmManager(vmId);
+        return getVmManager(vmId, true);
+    }
+
+    protected VmManager getVmManager(Guid vmId, boolean createIfAbsent) {
+        return resourceManager.getVmManager(vmId, createIfAbsent);
     }
 
 }

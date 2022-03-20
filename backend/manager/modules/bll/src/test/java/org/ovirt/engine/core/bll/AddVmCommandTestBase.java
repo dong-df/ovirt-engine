@@ -27,6 +27,7 @@ import org.ovirt.engine.core.common.businessentities.StorageDomainType;
 import org.ovirt.engine.core.common.businessentities.StoragePool;
 import org.ovirt.engine.core.common.businessentities.StoragePoolStatus;
 import org.ovirt.engine.core.common.businessentities.VM;
+import org.ovirt.engine.core.common.businessentities.VmBase;
 import org.ovirt.engine.core.common.businessentities.VmDynamic;
 import org.ovirt.engine.core.common.businessentities.VmStatic;
 import org.ovirt.engine.core.common.businessentities.VmTemplate;
@@ -106,6 +107,10 @@ public abstract class AddVmCommandTestBase<T extends AddVmCommand<?>> extends Ba
 
     protected void mockOtherDependencies() {
         doReturn(storageDomainValidator).when(cmd).createStorageDomainValidator(any());
+
+        VmBase vmBase = new VmBase();
+        vmBase.setBiosType(BiosType.Q35_SEA_BIOS);
+        doReturn(vmBase).when(cmd).getVmBase(any());
     }
 
     private void generateStorageToDisksMap() {
@@ -167,7 +172,6 @@ public abstract class AddVmCommandTestBase<T extends AddVmCommand<?>> extends Ba
         stat.setMaxMemorySizeMb(MAX_MEMORY_SIZE);
         vm.setStaticData(stat);
         vm.setDynamicData(dynamic);
-        vm.setSingleQxlPci(false);
     }
 
     private void initVmTemplate() {
@@ -196,7 +200,7 @@ public abstract class AddVmCommandTestBase<T extends AddVmCommand<?>> extends Ba
     }
 
     protected void initCommandMethods() {
-        doReturn(true).when(cmd).canAddVm(any(), any(), anyInt());
+        doReturn(true).when(cmd).canAddVm(any(VmStatic.class), any(Guid.class), anyInt());
     }
 
     protected StorageDomain createStorageDomain(Guid sdId) {

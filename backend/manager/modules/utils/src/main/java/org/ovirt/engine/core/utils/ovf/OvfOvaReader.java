@@ -13,6 +13,7 @@ import org.ovirt.engine.core.common.businessentities.storage.CinderDisk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskStorageType;
 import org.ovirt.engine.core.common.businessentities.storage.FullEntityOvfData;
+import org.ovirt.engine.core.common.businessentities.storage.VolumeType;
 import org.ovirt.engine.core.common.osinfo.OsRepository;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.utils.ovf.xml.XmlAttribute;
@@ -71,9 +72,14 @@ public abstract class OvfOvaReader extends OvfReader {
 
     protected void readOsSection(XmlNode section) {
         XmlAttribute ovirtOsId = section.attributes.get("ovirt:id");
-        int osId = ovirtOsId != null ?
-                Integer.parseInt(ovirtOsId.getValue())
-                : mapOsId(section.attributes.get("ovf:id").getValue());
+        int osId;
+        if (ovirtOsId != null) {
+            int parsedInt = Integer.parseInt(ovirtOsId.getValue());
+            // map AlmaLinux 8+ that was dropped to Other Linux (kernel 4.x)
+            osId = parsedInt == 1502 ? 33 : parsedInt;
+        } else {
+            osId = mapOsId(section.attributes.get("ovf:id").getValue());
+        }
         vm.setOsId(osId);
         setClusterArch(osRepository.getArchitectureFromOS(osId));
     }
@@ -112,6 +118,8 @@ public abstract class OvfOvaReader extends OvfReader {
             return 29; // Windows 2016x64
         case "122":
             return 31; // Windows 2019x64
+        case "125":
+            return 35; // RedHat CoreOS
         case "42":
             return 1500; // FreeBSD
         case "78":
@@ -290,5 +298,10 @@ public abstract class OvfOvaReader extends OvfReader {
         super.updateSingleNic(node, iface, nicIdx);
         XmlNode macNode = selectSingleNode(node, "rasd:MACAddress", _xmlNS);
         iface.setMacAddress(macNode != null ? macNode.innerText : null);
+    }
+
+    @Override
+    protected VolumeType getDefaultVolumeType() {
+        return VolumeType.Sparse;
     }
 }

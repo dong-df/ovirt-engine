@@ -20,12 +20,12 @@ import org.ovirt.engine.core.common.businessentities.BootSequence;
 import org.ovirt.engine.core.common.businessentities.BusinessEntitiesDefinitions;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.ConsoleDisconnectAction;
+import org.ovirt.engine.core.common.businessentities.CpuPinningPolicy;
 import org.ovirt.engine.core.common.businessentities.DisplayType;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
 import org.ovirt.engine.core.common.businessentities.InstanceType;
 import org.ovirt.engine.core.common.businessentities.Label;
 import org.ovirt.engine.core.common.businessentities.MigrationSupport;
-import org.ovirt.engine.core.common.businessentities.NumaTuneMode;
 import org.ovirt.engine.core.common.businessentities.OpenstackNetworkProviderProperties;
 import org.ovirt.engine.core.common.businessentities.Provider;
 import org.ovirt.engine.core.common.businessentities.ProviderType;
@@ -35,7 +35,6 @@ import org.ovirt.engine.core.common.businessentities.SerialNumberPolicy;
 import org.ovirt.engine.core.common.businessentities.SsoMethod;
 import org.ovirt.engine.core.common.businessentities.StorageDomain;
 import org.ovirt.engine.core.common.businessentities.StoragePool;
-import org.ovirt.engine.core.common.businessentities.UsbPolicy;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VmNumaNode;
 import org.ovirt.engine.core.common.businessentities.VmPoolType;
@@ -51,6 +50,7 @@ import org.ovirt.engine.core.common.businessentities.storage.RepoImage;
 import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.migration.MigrationPolicy;
 import org.ovirt.engine.core.common.migration.NoMigrationPolicy;
+import org.ovirt.engine.core.common.migration.ParallelMigrationsType;
 import org.ovirt.engine.core.common.scheduling.AffinityGroup;
 import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.common.utils.VmCommonUtils;
@@ -69,9 +69,11 @@ import org.ovirt.engine.ui.uicommonweb.models.HasEntity;
 import org.ovirt.engine.ui.uicommonweb.models.HasValidatedTabs;
 import org.ovirt.engine.ui.uicommonweb.models.ListModel;
 import org.ovirt.engine.ui.uicommonweb.models.Model;
+import org.ovirt.engine.ui.uicommonweb.models.ModelWithMigrationsOptions;
 import org.ovirt.engine.ui.uicommonweb.models.SortedListModel;
 import org.ovirt.engine.ui.uicommonweb.models.TabName;
 import org.ovirt.engine.ui.uicommonweb.models.ValidationCompleteEvent;
+import org.ovirt.engine.ui.uicommonweb.models.VirtioMultiQueueType;
 import org.ovirt.engine.ui.uicommonweb.models.hosts.numa.NumaSupportModel;
 import org.ovirt.engine.ui.uicommonweb.models.hosts.numa.VmNumaSupportModel;
 import org.ovirt.engine.ui.uicommonweb.models.storage.DisksAllocationModel;
@@ -84,6 +86,7 @@ import org.ovirt.engine.ui.uicommonweb.validation.IValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.IconWithOsDefaultValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.IntegerValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.LengthValidation;
+import org.ovirt.engine.ui.uicommonweb.validation.NoTrimmingWhitespacesValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.NotEmptyQuotaValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.NotEmptyValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.NotNullIntegerValidation;
@@ -96,7 +99,7 @@ import org.ovirt.engine.ui.uicompat.PropertyChangedEventArgs;
 import org.ovirt.engine.ui.uicompat.UIConstants;
 import org.ovirt.engine.ui.uicompat.UIMessages;
 
-public class UnitVmModel extends Model implements HasValidatedTabs {
+public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMigrationsOptions {
 
     public static final int VM_TEMPLATE_AND_INSTANCE_TYPE_NAME_MAX_LIMIT = 40;
     public static final int DESCRIPTION_MAX_LIMIT = 255;
@@ -260,95 +263,129 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         this.icon = icon;
     }
 
-    private boolean singleQxlEnabled;
-
-    public boolean isSingleQxlEnabled() {
-        return singleQxlEnabled;
-    }
-
-    public void setSingleQxlEnabled(boolean value) {
-        singleQxlEnabled = value;
-    }
-
     /**
      * Note: We assume that this method is called only once, on the creation stage of the model. if this assumption is
      * changed (i.e the VM can attached/detached from a pool after the model is created), this method should be modified
      */
     public void setVmAttachedToPool(boolean value) {
         if (value) {
-            // ==General Tab==
+            // ==Header==
             getDataCenterWithClustersList().setIsChangeable(!value);
-            getQuota().setIsChangeable(false);
-            getCpuProfiles().setIsChangeable(false);
-
-            getVmId().setIsChangeable(false);
-
-            getNumOfDesktops().setIsChangeable(false);
-            getPrestartedVms().setIsChangeable(false);
-            getMaxAssignedVmsPerUser().setIsChangeable(false);
-
             getBaseTemplate().setIsChangeable(false);
             getTemplateWithVersion().setIsChangeable(false);
+            getOSType().setIsChangeable(false);
             getInstanceTypes().setIsChangeable(false);
+            getVmType().setIsChangeable(false);
+            getQuota().setIsChangeable(false);
+
+            // ==General Tab==
+            getVmId().setIsChangeable(false);
+            getPrestartedVms().setIsChangeable(false);
+            getMaxAssignedVmsPerUser().setIsChangeable(false);
+            getNumOfDesktops().setIsChangeable(false);
+
+            getIsStateless().setIsChangeable(false);
+            getIsRunAndPause().setIsChangeable(false);
+            getIsDeleteProtected().setIsChangeable(false);
+
+            // ==System Tab==
             getMemSize().setIsChangeable(false);
             getMaxMemorySize().setIsChangeable(false);
             getMinAllocatedMemory().setIsChangeable(false);
             getTotalCPUCores().setIsChangeable(false);
 
-            getCustomCpu().setIsChangeable(false);
-            getEmulatedMachine().setIsChangeable(false);
-            getBiosType().setIsChangeable(false);
-
-            getCoresPerSocket().setIsChangeable(false);
             getNumOfSockets().setIsChangeable(false);
+            getCoresPerSocket().setIsChangeable(false);
             getThreadsPerCore().setIsChangeable(false);
+            getEmulatedMachine().setIsChangeable(false);
+            getCustomCpu().setIsChangeable(false);
+            getCustomCompatibilityVersion().setIsChangeable(false);
+
+            getBiosType().setIsChangeable(false);
+            getTimeZone().setIsChangeable(false);
             getSerialNumberPolicy().setIsChangeable(false);
 
-            getOSType().setIsChangeable(false);
-            getIsStateless().setIsChangeable(false);
-            getIsRunAndPause().setIsChangeable(false);
-            getIsDeleteProtected().setIsChangeable(false);
-
             // ==Initial run Tab==
-            getTimeZone().setIsChangeable(false);
+            getVmInitEnabled().setIsChangeable(false);
 
             // ==Console Tab==
             getIsHeadlessModeEnabled().setIsChangeable(false);
             getDisplayType().setIsChangeable(false);
             getGraphicsType().setIsChangeable(false);
-            getUsbPolicy().setIsChangeable(false);
-            getConsoleDisconnectAction().setIsChangeable(false);
-            getResumeBehavior().setIsChangeable(false);
-            getNumOfMonitors().setIsChangeable(false);
-            getIsSmartcardEnabled().setIsChangeable(false);
-            getAllowConsoleReconnect().setIsChangeable(false);
             getVncKeyboardLayout().setIsChangeable(false);
+            getConsoleDisconnectAction().setIsChangeable(false);
+            getConsoleDisconnectActionDelay().setIsChangeable(false);
+            getNumOfMonitors().setIsChangeable(false);
+
+            getIsUsbEnabled().setIsChangeable(false);
+            getIsSmartcardEnabled().setIsChangeable(false);
             getSsoMethodNone().setIsChangeable(false);
             getSsoMethodGuestAgent().setIsChangeable(false);
+
+            getAllowConsoleReconnect().setIsChangeable(false);
+
+            getIsSoundcardEnabled().setIsChangeable(false);
+            getSpiceProxyEnabled().setIsChangeable(false);
+            getSpiceFileTransferEnabled().setIsChangeable(false);
+            getSpiceCopyPasteEnabled().setIsChangeable(false);
+            getIsConsoleDeviceEnabled().setIsChangeable(false);
 
             // ==Host Tab==
             getIsAutoAssign().setIsChangeable(false);
             getDefaultHost().setIsChangeable(false);
             getHostCpu().setIsChangeable(false);
+            getTscFrequency().setIsChangeable(false);
+
             getMigrationMode().setIsChangeable(false);
-            getCpuPinning().setIsChangeable(false);
             getMigrationDowntime().setIsChangeable(false);
             getMigrationPolicies().setIsChangeable(false);
-            getCustomCompatibilityVersion().setIsChangeable(false);
+            getAutoConverge().setIsChangeable(false);
+            getMigrateCompressed().setIsChangeable(false);
+            getMigrateEncrypted().setIsChangeable(false);
+            getParallelMigrationsType().setIsChangeable(false);
+            getCustomParallelMigrations().setIsChangeable(false);
+
+            getNumaEnabled().setIsChangeable(false);
+
+            // ==High Availability==
+            getIsHighlyAvailable().setIsChangeable(false);
+            getLease().setIsChangeable(false);
+            getResumeBehavior().setIsChangeable(false);
+            getPriority().setIsChangeable(false);
+            getWatchdogModel().setIsChangeable(false);
+            getWatchdogAction().setIsChangeable(false);
 
             // ==Resource Allocation Tab==
+            getCpuProfiles().setIsChangeable(false);
+            getCpuSharesAmountSelection().setIsChangeable(false);
+            getCpuSharesAmount().setIsChangeable(false);
+            getCpuPinningPolicy().setIsChangeable(false);
+            getCpuPinning().setIsChangeable(false);
+            getMemoryBalloonEnabled().setIsChangeable(false);
+            getTpmEnabled().setIsChangeable(false);
+            getIoThreadsEnabled().setIsChangeable(false);
+            getNumOfIoThreads().setIsChangeable(false);
+
+            getMultiQueues().setIsChangeable(false);
+
             getProvisioning().setIsChangeable(false);
             getProvisioningThin_IsSelected().setIsChangeable(false);
             getProvisioningClone_IsSelected().setIsChangeable(false);
+            getIsVirtioScsiEnabled().setIsChangeable(false);
+            getVirtioScsiMultiQueueTypeSelection().setIsChangeable(false);
+            getNumOfVirtioScsiMultiQueues().setIsChangeable(false);
+
             getDisksAllocationModel().setIsChangeable(false);
-            getIoThreadsEnabled().setIsChangeable(false);
-            getNumOfIoThreads().setIsChangeable(false);
 
             // ==Boot Options Tab==
             getFirstBootDevice().setIsChangeable(false);
             getSecondBootDevice().setIsChangeable(false);
             getCdAttached().setIsChangeable(false);
             getCdImage().setIsChangeable(false);
+            getBootMenuEnabled().setIsChangeable(false);
+            getKernel_path().setIsChangeable(false);
+            getInitrd_path().setIsChangeable(false);
+            getKernel_parameters().setIsChangeable(false);
 
             // ==Random Generator Tab==
             getIsRngEnabled().setIsChangeable(false);
@@ -363,6 +400,9 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
             // ==Icon Tab==
             getIcon().setIsChangeable(false);
+
+            // ==Foreman Tab==
+            getProviders().setIsChangeable(false);
 
             vmAttachedToPool = true;
         }
@@ -390,6 +430,19 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         if (isLinuxOS != value) {
             isLinuxOS = value;
             onPropertyChanged(new PropertyChangedEventArgs("IsLinuxOS")); //$NON-NLS-1$
+        }
+    }
+
+    private boolean isIgnition;
+
+    public boolean getIsIgnition() {
+        return isIgnition;
+    }
+
+    public void setIsIgnition(boolean value) {
+        if (isIgnition != value) {
+            isIgnition = value;
+            onPropertyChanged(new PropertyChangedEventArgs("IsIgnition")); //$NON-NLS-1$
         }
     }
 
@@ -489,13 +542,13 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         privateName = value;
     }
 
-    private ListModel<BiosType> biosType;
+    private NotChangableForVmInPoolListModel<BiosType> biosType;
 
     public ListModel<BiosType> getBiosType() {
         return biosType;
     }
 
-    private void setBiosType(ListModel<BiosType> value) {
+    private void setBiosType(NotChangableForVmInPoolListModel<BiosType> value) {
         biosType = value;
     }
 
@@ -639,14 +692,14 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         privateQuota = value;
     }
 
-    private NotChangableForVmInPoolListModel<UsbPolicy> privateUsbPolicy;
+    private NotChangableForVmInPoolEntityModel<Boolean> privateUsbEnabled;
 
-    public ListModel<UsbPolicy> getUsbPolicy() {
-        return privateUsbPolicy;
+    public EntityModel<Boolean> getIsUsbEnabled() {
+        return privateUsbEnabled;
     }
 
-    private void setUsbPolicy(NotChangableForVmInPoolListModel<UsbPolicy> value) {
-        privateUsbPolicy = value;
+    public void setIsUsbEnabled(NotChangableForVmInPoolEntityModel<Boolean> usbEnabled) {
+        this.privateUsbEnabled = usbEnabled;
     }
 
     private NotChangableForVmInPoolListModel<ConsoleDisconnectAction> consoleDisconnectAction;
@@ -657,6 +710,16 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     private void setConsoleDisconnectAction(NotChangableForVmInPoolListModel<ConsoleDisconnectAction> value) {
         consoleDisconnectAction = value;
+    }
+
+    private NotChangableForVmInPoolEntityModel<Integer> consoleDisconnectActionDelay;
+
+    public EntityModel<Integer> getConsoleDisconnectActionDelay() {
+        return consoleDisconnectActionDelay;
+    }
+
+    private void setConsoleDisconnectActionDelay(NotChangableForVmInPoolEntityModel<Integer> consoleDisconnectActionDelay) {
+        this.consoleDisconnectActionDelay = consoleDisconnectActionDelay;
     }
 
     private NotChangableForVmInPoolListModel<TimeZoneModel> privateTimeZone;
@@ -902,6 +965,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         this.copyPermissions = copyPermissions;
     }
 
+    // used in the New template dialog
     private NotChangableForVmInPoolEntityModel<Boolean> sealTemplate;
 
     public EntityModel<Boolean> getSealTemplate() {
@@ -912,14 +976,25 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         this.sealTemplate = sealTemplate;
     }
 
-    private EntityModel<Boolean> memoryBalloonDeviceEnabled;
+    // database value, used only for templates
+    private EntityModel<Boolean> isSealed;
 
-    public EntityModel<Boolean> getMemoryBalloonDeviceEnabled() {
-        return memoryBalloonDeviceEnabled;
+    public EntityModel<Boolean> getIsSealed() {
+        return isSealed;
     }
 
-    public void setMemoryBalloonDeviceEnabled(EntityModel<Boolean> memoryBalloonDeviceEnabled) {
-        this.memoryBalloonDeviceEnabled = memoryBalloonDeviceEnabled;
+    public void setIsSealed(EntityModel<Boolean> isSealed) {
+        this.isSealed = isSealed;
+    }
+
+    private EntityModel<Boolean> memoryBalloonEnabled;
+
+    public EntityModel<Boolean> getMemoryBalloonEnabled() {
+        return memoryBalloonEnabled;
+    }
+
+    public void setMemoryBalloonEnabled(EntityModel<Boolean> memoryBalloonEnabled) {
+        this.memoryBalloonEnabled = memoryBalloonEnabled;
     }
 
     private EntityModel<Boolean> multiQueues;
@@ -930,6 +1005,27 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     public void setMultiQueues(EntityModel<Boolean> multiQueues) {
         this.multiQueues = multiQueues;
+    }
+
+    private NotChangableForVmInPoolEntityModel<Integer> numOfVirtioScsiMultiQueues;
+
+    public EntityModel<Integer> getNumOfVirtioScsiMultiQueues() {
+        return numOfVirtioScsiMultiQueues;
+    }
+
+    public void setNumOfVirtioScsiMultiQueues(NotChangableForVmInPoolEntityModel<Integer> numOfVirtioScsiMultiQueues) {
+        this.numOfVirtioScsiMultiQueues = numOfVirtioScsiMultiQueues;
+    }
+
+    private NotChangableForVmInPoolListModel<VirtioMultiQueueType> virtioScsiMultiQueueTypeSelection;
+
+    public ListModel<VirtioMultiQueueType> getVirtioScsiMultiQueueTypeSelection() {
+        return virtioScsiMultiQueueTypeSelection;
+    }
+
+    public void setVirtioScsiMultiQueueTypeSelection(
+            NotChangableForVmInPoolListModel<VirtioMultiQueueType> virtioScsiMultiQueueTypeSelection) {
+        this.virtioScsiMultiQueueTypeSelection = virtioScsiMultiQueueTypeSelection;
     }
 
     private NotChangableForVmInPoolListModel<DisplayType> displayType;
@@ -1036,13 +1132,13 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         privateProvisioningClone_IsSelected = value;
     }
 
-    private EntityModel<Boolean> isVirtioScsiEnabled;
+    private NotChangableForVmInPoolEntityModel<Boolean> isVirtioScsiEnabled;
 
     public EntityModel<Boolean> getIsVirtioScsiEnabled() {
         return isVirtioScsiEnabled;
     }
 
-    public void setIsVirtioScsiEnabled(EntityModel<Boolean> virtioScsiEnabled) {
+    public void setIsVirtioScsiEnabled(NotChangableForVmInPoolEntityModel<Boolean> virtioScsiEnabled) {
         this.isVirtioScsiEnabled = virtioScsiEnabled;
     }
 
@@ -1136,6 +1232,36 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         cdAttached = value;
     }
 
+    private NotChangableForVmInPoolEntityModel<String> privateInitrd_path;
+
+    public EntityModel<String> getInitrd_path() {
+        return privateInitrd_path;
+    }
+
+    private void setInitrd_path(NotChangableForVmInPoolEntityModel<String> value) {
+        privateInitrd_path = value;
+    }
+
+    private NotChangableForVmInPoolEntityModel<String> privateKernel_path;
+
+    public EntityModel<String> getKernel_path() {
+        return privateKernel_path;
+    }
+
+    private void setKernel_path(NotChangableForVmInPoolEntityModel<String> value) {
+        privateKernel_path = value;
+    }
+
+    private NotChangableForVmInPoolEntityModel<String> privateKernel_parameters;
+
+    public EntityModel<String> getKernel_parameters() {
+        return privateKernel_parameters;
+    }
+
+    private void setKernel_parameters(NotChangableForVmInPoolEntityModel<String> value) {
+        privateKernel_parameters = value;
+    }
+
     private NotChangableForVmInPoolEntityModel<String> privateCustomProperties;
 
     public EntityModel<String> getCustomProperties() {
@@ -1160,6 +1286,8 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     private EntityModel<Boolean> sysprepEnabled;
 
+    private EntityModel<Boolean> ignitionEnabled;
+
     public EntityModel<Boolean> getCloudInitEnabled() {
         return cloudInitEnabled;
     }
@@ -1167,6 +1295,15 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
     public void setCloudInitEnabled(EntityModel<Boolean> cloudInitEnabled) {
         this.cloudInitEnabled = cloudInitEnabled;
     }
+
+    public EntityModel<Boolean> getIgnitionEnabled() {
+        return ignitionEnabled;
+    }
+
+    public void setIgnitionEnabled(EntityModel<Boolean> ignitionEnabled) {
+        this.ignitionEnabled = ignitionEnabled;
+    }
+
 
     public EntityModel<Boolean> getSysprepEnabled() {
         return sysprepEnabled;
@@ -1235,6 +1372,36 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     public void setTscFrequency(EntityModel<Boolean> tscFrequency) {
         this.tscFrequency = tscFrequency;
+    }
+
+    private NotChangableForVmInPoolEntityModel<Boolean> tpmEnabled;
+
+    public EntityModel<Boolean> getTpmEnabled() {
+        return tpmEnabled;
+    }
+
+    public void setTpmEnabled(NotChangableForVmInPoolEntityModel<Boolean> tpmEnabled) {
+        this.tpmEnabled = tpmEnabled;
+    }
+
+    private boolean tpmOriginallyEnabled = true;
+
+    public boolean getTpmOriginallyEnabled() {
+        return tpmOriginallyEnabled;
+    }
+
+    public void setTpmOriginallyEnabled(boolean tpmOriginallyEnabled) {
+        this.tpmOriginallyEnabled = tpmOriginallyEnabled;
+    }
+
+    private boolean secureBootOriginallyEnabled = true;
+
+    public boolean getSecureBootOriginallyEnabled() {
+        return secureBootOriginallyEnabled;
+    }
+
+    public void setSecureBootOriginallyEnabled(boolean secureBootOriginallyEnabled) {
+        this.secureBootOriginallyEnabled = secureBootOriginallyEnabled;
     }
 
     private NotChangableForVmInPoolListModel<MigrationSupport> migrationMode;
@@ -1343,6 +1510,16 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
     private void setBehavior(VmModelBehaviorBase value) {
     }
 
+    private CpuPinningListModel cpuPinningPolicy;
+
+    public CpuPinningListModel getCpuPinningPolicy() {
+        return cpuPinningPolicy;
+    }
+
+    public void setCpuPinningPolicy(CpuPinningListModel cpuPinningPolicy) {
+        this.cpuPinningPolicy = cpuPinningPolicy;
+    }
+
     private NotChangableForVmInPoolEntityModel<String> cpuPinning;
 
     public EntityModel<String> getCpuPinning() {
@@ -1445,16 +1622,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     private EntityModel<Boolean> numaEnabled;
 
-    private NotChangableForVmInPoolListModel<NumaTuneMode> numaTuneMode;
-
-    public ListModel<NumaTuneMode> getNumaTuneMode() {
-        return numaTuneMode;
-    }
-
-    public void setNumaTuneMode(NotChangableForVmInPoolListModel<NumaTuneMode> numaTuneMode) {
-        this.numaTuneMode = numaTuneMode;
-    }
-
     private int initialsNumaNodeCount;
 
     private NotChangableForVmInPoolEntityModel<Integer> numaNodeCount;
@@ -1520,6 +1687,26 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         this.migrateEncrypted = migrateEncrypted;
     }
 
+    private ListModelWithClusterDefault<ParallelMigrationsType> parallelMigrationsType;
+
+    public ListModel<ParallelMigrationsType> getParallelMigrationsType() {
+        return parallelMigrationsType;
+    }
+
+    public void setParallelMigrationsType(ListModelWithClusterDefault<ParallelMigrationsType> value) {
+        this.parallelMigrationsType = value;
+    }
+
+    private NotChangableForVmInPoolEntityModel<Integer> customParallelMigrations;
+
+    public NotChangableForVmInPoolEntityModel<Integer> getCustomParallelMigrations() {
+        return customParallelMigrations;
+    }
+
+    public void setCustomParallelMigrations(NotChangableForVmInPoolEntityModel<Integer> customParallelMigrations) {
+        this.customParallelMigrations = customParallelMigrations;
+    }
+
     private ListModel<Label> labelList;
 
     public void setLabelList(ListModel<Label> labelList) {
@@ -1557,8 +1744,11 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         setDescription(new NotChangableForVmInPoolEntityModel<String>());
         setComment(new NotChangableForVmInPoolEntityModel<String>());
         setMinAllocatedMemory(new NotChangableForVmInPoolEntityModel<Integer>());
-        setUsbPolicy(new NotChangableForVmInPoolListModel<UsbPolicy>());
+        setIsUsbEnabled(new NotChangableForVmInPoolEntityModel<Boolean>());
         setConsoleDisconnectAction(new NotChangableForVmInPoolListModel<ConsoleDisconnectAction>());
+        setConsoleDisconnectActionDelay(new NotChangableForVmInPoolEntityModel<Integer>());
+        getConsoleDisconnectActionDelay().setIsChangeable(false, constants.consoleDisconnectActionDelayDisabledReason());
+        getConsoleDisconnectAction().getSelectedItemChangedEvent().addListener(this);
         setIsStateless(new NotChangableForVmInPoolEntityModel<Boolean>());
         setIsRunAndPause(new NotChangableForVmInPoolEntityModel<Boolean>());
         setIsHeadlessModeEnabled(new NotChangableForVmInPoolEntityModel<Boolean>());
@@ -1569,6 +1759,8 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         setConsoleDeviceEnabled(new NotChangableForVmInPoolEntityModel<Boolean>());
         setCopyPermissions(new NotChangableForVmInPoolEntityModel<Boolean>());
         setSealTemplate(new NotChangableForVmInPoolEntityModel<>(false));
+        setIsSealed(new EntityModel<>(false));
+        getIsSealed().setIsAvailable(false);
 
         //rng
         setIsRngEnabled(new NotChangableForVmInPoolEntityModel<Boolean>());
@@ -1600,9 +1792,9 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         setCdImage(new NotChangableForVmInPoolSortedListModel<>(new LexoNumericNameableComparator<>()));
         getCdImage().setIsChangeable(false);
 
-        setMemoryBalloonDeviceEnabled(new EntityModel<Boolean>());
-        getMemoryBalloonDeviceEnabled().setEntity(true);
-        getMemoryBalloonDeviceEnabled().setIsAvailable(false);
+        setMemoryBalloonEnabled(new EntityModel<Boolean>());
+        getMemoryBalloonEnabled().setEntity(true);
+        getMemoryBalloonEnabled().setIsAvailable(false);
 
         setMultiQueues(new EntityModel<Boolean>(true));
 
@@ -1625,8 +1817,12 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         setIsHighlyAvailable(new NotChangableForVmInPoolEntityModel<Boolean>());
         getIsHighlyAvailable().getEntityChangedEvent().addListener(this);
         setIsTemplatePublic(new NotChangableForVmInPoolEntityModel<Boolean>());
+        setKernel_parameters(new NotChangableForVmInPoolEntityModel<String>());
+        setKernel_path(new NotChangableForVmInPoolEntityModel<String>());
+        setInitrd_path(new NotChangableForVmInPoolEntityModel<String>());
         setCustomProperties(new NotChangableForVmInPoolEntityModel<String>());
         setCustomPropertySheet(new NotChangableForVmInPoolKeyValueModel());
+        getCustomPropertySheet().setShowInvalidKeys(true);
         setDisplayType(new NotChangableForVmInPoolListModel<DisplayType>());
         setGraphicsType(new NotChangableForVmInPoolListModel<GraphicsTypes>());
         setSecondBootDevice(new NotChangableForVmInPoolListModel<EntityModel<BootSequence>>());
@@ -1634,6 +1830,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         setPriority(new NotChangableForVmInPoolListModel<EntityModel<Integer>>());
         setVmInitEnabled(new EntityModel<>(false));
         setCloudInitEnabled(new EntityModel<Boolean>());
+        setIgnitionEnabled(new EntityModel<Boolean>());
         setSpiceFileTransferEnabled(new NotChangableForVmInPoolEntityModel<Boolean>());
         setSpiceCopyPasteEnabled(new NotChangableForVmInPoolEntityModel<Boolean>());
         setSysprepEnabled(new EntityModel<Boolean>());
@@ -1643,6 +1840,8 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         getTemplateWithVersion().getSelectedItemChangedEvent().addListener(this);
 
         setInstanceTypes(new NotChangableForVmInPoolListModel<InstanceType>());
+        getInstanceTypes().getSelectedItemChangedEvent().addListener(this);
+
         setInstanceImages(new InstanceImagesModel(this, parentModel));
 
         setQuota(new NotChangableForVmInPoolListModel<Quota>());
@@ -1651,9 +1850,10 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         setDataCenterWithClustersList(new NotChangableForVmInPoolListModel<DataCenterWithCluster>());
         getDataCenterWithClustersList().getSelectedItemChangedEvent().addListener(this);
 
+        setTpmEnabled(new NotChangableForVmInPoolEntityModel<Boolean>(false));
+
         setBiosType(new NotChangableForVmInPoolListModel<>());
-        getBiosType().setItems(AsyncDataProvider.getInstance().getBiosTypeList());
-        getBiosType().setSelectedItem(BiosType.CLUSTER_DEFAULT);
+        getBiosType().getSelectedItemChangedEvent().addListener(this);
 
         setEmulatedMachine(new NotChangableForVmInPoolListModel<String>());
 
@@ -1729,6 +1929,16 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         setMigrationPolicies(new ListModelWithClusterDefault<MigrationPolicy>());
         getMigrationPolicies().getSelectedItemChangedEvent().addListener(this);
 
+        setParallelMigrationsType(new ListModelWithClusterDefault<>());
+        getParallelMigrationsType()
+                .setItems(new ArrayList<ParallelMigrationsType>(Arrays.asList(ParallelMigrationsType.values())));
+
+        setCustomParallelMigrations(new NotChangableForVmInPoolEntityModel<>());
+        getParallelMigrationsType().getSelectedItemChangedEvent().addListener((ev, sender, args) -> {
+            updateCustomParallelMigrations();
+        });
+        updateCustomParallelMigrations();
+
         setHostCpu(new NotChangableForVmInPoolEntityModel<Boolean>());
         getHostCpu().getEntityChangedEvent().addListener(this);
 
@@ -1786,9 +1996,9 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
         setDisksAllocationModel(new DisksAllocationModel());
 
-        setIsVirtioScsiEnabled(new EntityModel<Boolean>());
-        getIsVirtioScsiEnabled().setEntity(false);
+        setIsVirtioScsiEnabled(new NotChangableForVmInPoolEntityModel<Boolean>());
         getIsVirtioScsiEnabled().setIsAvailable(false);
+        getIsVirtioScsiEnabled().getEntityChangedEvent().addListener(this);
 
         setProvisioningClone_IsSelected(new NotChangableForVmInPoolEntityModel<Boolean>());
         getProvisioningClone_IsSelected().getEntityChangedEvent().addListener(this);
@@ -1801,20 +2011,30 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         getCpuPinning().setIsChangeable(false);
         getCpuPinning().getEntityChangedEvent().addListener(this);
 
+        setCpuPinningPolicy(new CpuPinningListModel());
+        getCpuPinningPolicy().getSelectedItemChangedEvent().addListener(this);
+
         setCpuSharesAmount(new NotChangableForVmInPoolEntityModel<Integer>());
         getCpuSharesAmount().setIsChangeable(false);
 
         setCpuSharesAmountSelection(new NotChangableForVmInPoolListModel<CpuSharesAmount>());
         getCpuSharesAmountSelection().setItems(Arrays.asList(CpuSharesAmount.values()));
         getCpuSharesAmountSelection().getSelectedItemChangedEvent().addListener(this);
-        getCpuSharesAmountSelection().getSelectedItemChangedEvent().addListener(this);
         getCpuSharesAmountSelection().setSelectedItem(CpuSharesAmount.DISABLED);
+
+
+        setNumOfVirtioScsiMultiQueues(new NotChangableForVmInPoolEntityModel<Integer>());
+        getNumOfVirtioScsiMultiQueues().setIsChangeable(false);
+
+        setVirtioScsiMultiQueueTypeSelection(new NotChangableForVmInPoolListModel<>());
+        getVirtioScsiMultiQueueTypeSelection().setItems(Arrays.asList(VirtioMultiQueueType.values()));
+        getVirtioScsiMultiQueueTypeSelection().setSelectedItem(VirtioMultiQueueType.DISABLED);
+        getVirtioScsiMultiQueueTypeSelection().getSelectedItemChangedEvent().addListener(this);
+
 
         setIsSoundcardEnabled(new NotChangableForVmInPoolEntityModel<Boolean>());
         getIsSoundcardEnabled().setEntity(false);
         getIsSoundcardEnabled().setIsChangeable(false);
-
-        getBehavior().enableSinglePCI(false);
 
         selectSsoMethod(SsoMethod.GUEST_AGENT);
 
@@ -1823,10 +2043,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
         setCpuProfiles(new NotChangableForVmInPoolListModel<CpuProfile>());
         getCpuProfiles().setIsAvailable(false);
-
-        setNumaTuneMode(new NotChangableForVmInPoolListModel<NumaTuneMode>());
-        getNumaTuneMode().setItems(AsyncDataProvider.getInstance().getNumaTuneModeList());
-        getNumaTuneMode().setSelectedItem(NumaTuneMode.INTERLEAVE);
 
         setNumaNodeCount(new NotChangableForVmInPoolEntityModel<Integer>());
         getNumaNodeCount().setEntity(0);
@@ -1975,7 +2191,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         getIsHighlyAvailable().setEntity(false);
         getIsAutoAssign().setEntity(true);
         getIsTemplatePublic().setEntity(true);
-        getBehavior().enableSinglePCI(false);
 
         isRngEnabled.setEntity(false);
         rngSourceUrandom.setEntity(true);
@@ -1984,6 +2199,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         getMigrationMode().setIsChangeable(true);
 
         getCdImage().setIsChangeable(false);
+        getIsVirtioScsiEnabled().setEntity(false);
 
         initGraphicsAndDisplayListeners();
         initFirstBootDevice();
@@ -1994,6 +2210,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         initConsoleDisconnectAction();
         updateResumeBehavior();
         updateAffinityLists();
+        updateTpmEnabled();
 
         behavior.initialize();
     }
@@ -2010,9 +2227,12 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
                 compatibilityVersionChanged(sender, args);
                 behavior.updateEmulatedMachines();
                 behavior.updateCustomCpu();
+                behavior.updateBiosType();
                 updateTscFrequency();
             } else if (sender == getTemplateWithVersion()) {
                 templateWithVersion_SelectedItemChanged(sender, args);
+            } else if (sender == getInstanceTypes()) {
+                behavior.updateBiosType();
             } else if (sender == getTimeZone()) {
                 timeZone_SelectedItemChanged(sender, args);
             } else if (sender == getOSType()) {
@@ -2046,13 +2266,13 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
                 threadsPerCore_EntityChanged(sender, args);
             } else if (sender == getMigrationMode()) {
                 behavior.updateCpuPinningVisibility();
-                behavior.updateHaAvailability();
-                behavior.updateNumaEnabled();
                 updateTscFrequency();
             } else if (sender == getMigrationPolicies()) {
                 updateMigrationRelatedFields();
             } else if (sender == getCpuSharesAmountSelection()) {
                 behavior.updateCpuSharesAmountChangeability();
+            } else if (sender == getVirtioScsiMultiQueueTypeSelection()) {
+                virtioScsiMultiQueueSelectedItemChanged();
             } else if (sender == getBaseTemplate()) {
                 behavior.baseTemplateSelectedItemChanged();
             } else if (sender == getWatchdogModel()) {
@@ -2074,12 +2294,17 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
                 updateResumeBehavior();
             } else if (sender == getLease()) {
                 updateResumeBehavior();
+            } else if (sender == getBiosType()) {
+                updateDisplayAndGraphics();
+                updateTpmEnabled();
+            } else if (sender == getCpuPinningPolicy()) {
+                cpuPinningPolicyChanged();
+            } else if (sender == getConsoleDisconnectAction()){
+                consoleDisconnectActionSelectedItemChanged();
             }
         } else if (ev.matchesDefinition(ListModel.selectedItemsChangedEventDefinition)) {
             if (sender == getDefaultHost()) {
                 defaultHost_SelectedItemChanged(sender, args);
-                behavior.updateHaAvailability();
-                behavior.updateMigrationAvailability();
                 behavior.updateNumaEnabled();
                 headlessModeChanged();
             }
@@ -2095,9 +2320,8 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             } else if (sender == getIsAutoAssign()) {
                 behavior.updateUseHostCpuAvailability();
                 behavior.updateCpuPinningVisibility();
-                behavior.updateHaAvailability();
                 behavior.updateNumaEnabled();
-                behavior.updateMigrationAvailability();
+                updateCpuPinningPolicy();
             } else if (sender == getProvisioning()) {
                 provisioning_SelectedItemChanged(sender, args);
             } else if (sender == getProvisioningThin_IsSelected()) {
@@ -2109,7 +2333,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
                     getProvisioning().setEntity(true);
                 }
             } else if (sender == getIsHighlyAvailable()) {
-                behavior.updateMigrationAvailability();
                 updateResumeBehavior();
             } else if (sender == getIsSubTemplate()) {
                 behavior.isSubTemplateEntityChanged();
@@ -2120,9 +2343,34 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             } else if (sender == getIsHeadlessModeEnabled()) {
                 headlessModeChanged();
             } else if (sender == getCpuPinning()) {
-                behavior.updateCpuPinningChanged();
+                cpuPinningChanged();
+            } else if (sender == getIsVirtioScsiEnabled()) {
+                virtioScsiChanged();
             }
         }
+    }
+
+    private void virtioScsiChanged() {
+        boolean isVirtioScsiEnabled = getIsVirtioScsiEnabled().getEntity();
+        if (!isVirtioScsiEnabled) {
+            getVirtioScsiMultiQueueTypeSelection().setSelectedItem(VirtioMultiQueueType.DISABLED);
+        }
+        getVirtioScsiMultiQueueTypeSelection()
+                .setIsChangeable(isVirtioScsiEnabled, messages.virtioScsiRequired());
+    }
+
+    private void enableCpuFields() {
+        getTotalCPUCores().setIsChangeable(true);
+        getNumOfSockets().setIsChangeable(true);
+        getCoresPerSocket().setIsChangeable(true);
+        getThreadsPerCore().setIsChangeable(true);
+    }
+
+    private void disableCpuFields() {
+        getTotalCPUCores().setIsChangeable(false, constants.cpuChangesConflictWithAutoPin());
+        getNumOfSockets().setIsChangeable(false, constants.cpuChangesConflictWithAutoPin());
+        getCoresPerSocket().setIsChangeable(false, constants.cpuChangesConflictWithAutoPin());
+        getThreadsPerCore().setIsChangeable(false, constants.cpuChangesConflictWithAutoPin());
     }
 
     private void compatibilityVersionChanged(Object sender, EventArgs args) {
@@ -2132,7 +2380,10 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         initUsbPolicy();
         updateMultiQueues();
         updateMigrateEncrypted();
+        updateParallelMigrationsVersionChange();
         updateSerialNumberPolicy();
+        updateTpmEnabled();
+        updateCpuPinningPolicy();
     }
 
     private void updateMultiQueues() {
@@ -2145,14 +2396,35 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         getMultiQueues().setIsAvailable(true);
     }
 
+    private void virtioScsiMultiQueueSelectedItemChanged() {
+        getNumOfVirtioScsiMultiQueues()
+                .setEntity(null);
+
+        // if the user choose CUSTOM and wrote invalid value, then switched back for example to DISABLED
+        // the input should not appear with red border
+        getNumOfVirtioScsiMultiQueues().setIsValid(true);
+
+        boolean changeable =
+                getVirtioScsiMultiQueueTypeSelection().getSelectedItem() == VirtioMultiQueueType.CUSTOM;
+        getNumOfVirtioScsiMultiQueues().setIsChangeable(changeable);
+    }
+
     private void vmInitEnabledChanged() {
         if(!getVmInitEnabled().getEntity()) {
             getSysprepEnabled().setEntity(false);
             getCloudInitEnabled().setEntity(false);
+            getIgnitionEnabled().setEntity(false);
         } else {
             getSysprepEnabled().setEntity(getIsWindowsOS());
-            // for the "other" also use cloud init
-            getCloudInitEnabled().setEntity(!getIsWindowsOS());
+            if(getIsIgnition()) {
+                // because the usage of the same flow panel order matters
+                getCloudInitEnabled().setEntity(!getIsWindowsOS() && !getIsIgnition());
+                getIgnitionEnabled().setEntity(getIsIgnition());
+            } else {
+                // for the "other" also use cloud init
+                getIgnitionEnabled().setEntity(getIsIgnition());
+                getCloudInitEnabled().setEntity(!getIsWindowsOS() && !getIsIgnition());
+            }
             autoSetHostname();
 
             if (getSysprepEnabled().getEntity()) {
@@ -2177,6 +2449,14 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             getWatchdogAction().setIsChangeable(false);
         } else {
             getWatchdogAction().setIsChangeable(true);
+        }
+    }
+
+    private void consoleDisconnectActionSelectedItemChanged() {
+        if (ConsoleDisconnectAction.SHUTDOWN.equals(consoleDisconnectAction.getSelectedItem())) {
+            getConsoleDisconnectActionDelay().setIsChangeable(true);
+        } else {
+            getConsoleDisconnectActionDelay().setIsChangeable(false, constants.consoleDisconnectActionDelayDisabledReason());
         }
     }
 
@@ -2239,26 +2519,10 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             return;
         }
 
-        getUsbPolicy().setIsChangeable(true);
-
-        UsbPolicy prevSelectedUsbPolicy = getUsbPolicy().getSelectedItem();
-        getUsbPolicy().setItems(Arrays.asList(
-                UsbPolicy.DISABLED,
-                UsbPolicy.ENABLED_NATIVE
-        ));
+        getIsUsbEnabled().setIsChangeable(true);
 
         if (!graphicsTypes.getBackingGraphicsTypes().contains(GraphicsType.SPICE)) {
-            getUsbPolicy().setIsChangeable(false);
-        }
-
-        if (getBehavior().basedOnCustomInstanceType()) {
-            Collection<UsbPolicy> policies = getUsbPolicy().getItems();
-            if (policies.contains(prevSelectedUsbPolicy)) {
-                getUsbPolicy().setSelectedItem(prevSelectedUsbPolicy);
-            } else if (policies.size() > 0) {
-                getUsbPolicy().setSelectedItem(getVmType().getSelectedItem() == VmType.HighPerformance ?
-                        UsbPolicy.DISABLED : policies.iterator().next());
-            }
+            getIsUsbEnabled().setIsChangeable(false);
         }
     }
 
@@ -2294,7 +2558,8 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             return;
         }
 
-        boolean isChangeable = ArchitectureType.x86.equals(getSelectedCluster().getArchitecture().getFamily())
+        boolean isChangeable = AsyncDataProvider.getInstance().isTscSupportedByVersion(getSelectedCluster().getCompatibilityVersion())
+                && ArchitectureType.x86.equals(getSelectedCluster().getArchitecture().getFamily())
                 && VmType.HighPerformance.equals(getVmType().getSelectedItem())
                 && (MigrationSupport.MIGRATABLE.equals(getMigrationMode().getSelectedItem())
                  || MigrationSupport.IMPLICITLY_NON_MIGRATABLE.equals(getMigrationMode().getSelectedItem()));
@@ -2305,33 +2570,40 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     private void updateDisplayAndGraphics() {
         Cluster cluster = getSelectedCluster();
-        Integer osType = getOSType().getSelectedItem();
+        Integer osType = getOSType() != null ? getOSType().getSelectedItem() : null;
+        BiosType biosType = getBiosType() != null ? getBiosType().getSelectedItem() : null;
 
-        if (cluster == null || osType == null) {
+        if (cluster == null || osType == null || biosType == null) {
             return;
         }
 
-        List<Pair<GraphicsType, DisplayType>> graphicsAndDisplays = AsyncDataProvider.getInstance().getGraphicsAndDisplays(
-                osType,
-                getCompatibilityVersion());
-        initDisplayModels(graphicsAndDisplays);
+        initDisplayModels(getSupportedDisplayTypes(osType, getBiosType().getSelectedItem()));
     }
 
-    public void initDisplayModels(List<Pair<GraphicsType, DisplayType>> graphicsAndDisplays) {
-        // get supported display types
-        Set<DisplayType> displayTypes = new LinkedHashSet<>();
-        for (Pair<GraphicsType, DisplayType> graphicsTypeDisplayTypePair : graphicsAndDisplays) {
-            if(graphicsTypeDisplayTypePair.getSecond() != DisplayType.none) {
-                displayTypes.add(graphicsTypeDisplayTypePair.getSecond());
-            }
+    private Set<DisplayType> getSupportedDisplayTypes(int osId, BiosType biosType) {
+        if (biosType == null) {
+            return Collections.emptySet();
         }
+        return AsyncDataProvider.getInstance().getGraphicsAndDisplays(osId, getCompatibilityVersion()).stream()
+                .map(Pair::getSecond)
+                .filter(dt -> dt != DisplayType.none)
+                .filter(dt -> biosType.isOvmf() || dt != DisplayType.bochs)
+                .collect(Collectors.toSet());
+    }
 
-        // set items and set selected one
+    public void initDisplayModels(Set<DisplayType> displayTypes) {
         DisplayType selectedDisplayType = getDisplayType().getSelectedItem();
+        initDisplayModels(displayTypes, selectedDisplayType);
+    }
+
+    public void initDisplayModels(Set<DisplayType> displayTypes, DisplayType selectedDisplayType) {
+        // set items and set selected one
         if (displayTypes.contains(selectedDisplayType)) {
-            getDisplayType().setItems(displayTypes, selectedDisplayType);
+            getDisplayType().setItems(displayTypes);
+            getDisplayType().setSelectedItem(selectedDisplayType);
         } else if (displayTypes.size() > 0) {
-            getDisplayType().setItems(displayTypes, displayTypes.iterator().next());
+            getDisplayType().setItems(displayTypes);
+            getDisplayType().setSelectedItem(displayTypes.iterator().next());
         }
     }
 
@@ -2396,7 +2668,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         }
 
         updateMigrationOptions();
-        handleQxlClusterLevel();
+        updateSpiceFeatures();
 
         updateWatchdogModels();
         updateBootMenu();
@@ -2406,7 +2678,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
         updateSoundCard();
         updateResumeBehavior();
-        updateBiosType();
+        updateTpmEnabled();
 
         getBehavior().updateOSValue(selectedOsId);
 
@@ -2423,48 +2695,22 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         }
     }
 
-    public boolean getIsQxlSupported() {
-        // Enable Single PCI only on cluster 3.3 and high and on Linux OS
-        boolean isLinux = getIsLinuxOS();
-        boolean isQxl = getDisplayType().getSelectedItem() == DisplayType.qxl;
-        boolean isSpice = getGraphicsType().getSelectedItem() == GraphicsTypes.SPICE;
-
-        return isLinux && isQxl && isSpice;
-    }
-
-    private void handleQxlClusterLevel() {
-        getBehavior().enableSinglePCI(getIsQxlSupported());
-
+    private void updateSpiceFeatures() {
         if (getSelectedCluster() != null) {
-            boolean isQxl = getDisplayType().getSelectedItem() == DisplayType.qxl;
-            if (!isQxl) {
-                handleQxlChangeProhibitionReason(
-                        getSpiceFileTransferEnabled(),
-                        getCompatibilityVersion().toString(),
-                        false);
-            }
-            getSpiceFileTransferEnabled().setIsChangeable(isQxl);
-
             GraphicsTypes selectedGraphics = getGraphicsType().getSelectedItem();
-            boolean spiceCopyPasteToggle = selectedGraphics != null
+            boolean isSpiceUsed = selectedGraphics != null
                     && selectedGraphics.getBackingGraphicsTypes().contains(GraphicsType.SPICE);
-            if (!spiceCopyPasteToggle) {
-                handleQxlChangeProhibitionReason(
-                        getSpiceCopyPasteEnabled(),
-                        getCompatibilityVersion().toString(),
-                        isQxl);
+            if (!isSpiceUsed) {
+                setSpiceFeatureProhibitionReason(getSpiceFileTransferEnabled());
+                setSpiceFeatureProhibitionReason(getSpiceCopyPasteEnabled());
             }
-            getSpiceCopyPasteEnabled().setIsChangeable(spiceCopyPasteToggle);
+            getSpiceFileTransferEnabled().setIsChangeable(isSpiceUsed);
+            getSpiceCopyPasteEnabled().setIsChangeable(isSpiceUsed);
         }
-
     }
 
-    private void handleQxlChangeProhibitionReason(EntityModel<Boolean> checkbox, String version, boolean isQxl) {
-        if (isQxl) {
-            checkbox.setChangeProhibitionReason(ConstantsManager.getInstance().getMessages().optionNotSupportedClusterVersionTooOld(version));
-        } else {
-            checkbox.setChangeProhibitionReason(ConstantsManager.getInstance().getMessages().optionRequiresSpiceEnabled());
-        }
+    private void setSpiceFeatureProhibitionReason(EntityModel<Boolean> checkbox) {
+        checkbox.setChangeProhibitionReason(ConstantsManager.getInstance().getMessages().optionRequiresSpiceEnabled());
     }
 
     private void templateWithVersion_SelectedItemChanged(Object sender, EventArgs args) {
@@ -2476,6 +2722,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
     private void defaultHost_SelectedItemChanged(Object sender, EventArgs args) {
         behavior.defaultHost_SelectedItemChanged();
+        updateCpuPinningPolicy();
     }
 
     private void oSType_SelectedItemChanged(Object sender, EventArgs args) {
@@ -2483,10 +2730,20 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
         setIsWindowsOS(AsyncDataProvider.getInstance().isWindowsOsType(osType));
         setIsLinuxOS(AsyncDataProvider.getInstance().isLinuxOsType(osType));
+        setIsIgnition(AsyncDataProvider.getInstance().isIgnition(osType));
+
+        getInitrd_path().setIsChangeable(getIsLinuxOS());
+        getInitrd_path().setIsAvailable(getIsLinuxOS());
+
+        getKernel_path().setIsChangeable(getIsLinuxOS());
+        getKernel_path().setIsAvailable(getIsLinuxOS());
+
+        getKernel_parameters().setIsChangeable(getIsLinuxOS());
+        getKernel_parameters().setIsAvailable(getIsLinuxOS());
 
         getBehavior().updateDefaultTimeZone();
 
-        handleQxlClusterLevel();
+        updateSpiceFeatures();
 
         updateWatchdogModels(osType);
 
@@ -2498,6 +2755,9 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         initGraphicsConsoles();
 
         updateSoundCard();
+        updateTpmEnabled();
+        getBehavior().updateMemory();
+        getBehavior().updateTotalCpuCores();
     }
 
     private void updateIconAccordingToOs() {
@@ -2637,12 +2897,12 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         }
 
         if (display != DisplayType.qxl || !graphics.getBackingGraphicsTypes().contains(GraphicsType.SPICE)) {
-            getUsbPolicy().setSelectedItem(UsbPolicy.DISABLED);
+            getIsUsbEnabled().setEntity(false);
             getIsSmartcardEnabled().setEntity(false);
         }
 
-        handleQxlClusterLevel();
-        getUsbPolicy().setIsChangeable(graphics.getBackingGraphicsTypes().contains(GraphicsType.SPICE));
+        updateSpiceFeatures();
+        getIsUsbEnabled().setIsChangeable(graphics.getBackingGraphicsTypes().contains(GraphicsType.SPICE));
         getIsSmartcardEnabled().setIsChangeable(graphics.getBackingGraphicsTypes().contains(GraphicsType.SPICE));
         getVncKeyboardLayout().setIsAvailable(graphics.getBackingGraphicsTypes().contains(GraphicsType.VNC));
         updateNumOfMonitors();
@@ -2662,7 +2922,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         getIsSoundcardEnabled().setIsChangeable(!isHeadlessEnabled);
 
         if (isHeadlessEnabled) {
-            getUsbPolicy().setIsChangeable(!isHeadlessEnabled);
+            getIsUsbEnabled().setIsChangeable(!isHeadlessEnabled);
             getNumOfMonitors().setIsChangeable(!isHeadlessEnabled);
             getIsSmartcardEnabled().setIsChangeable(!isHeadlessEnabled);
             getSpiceFileTransferEnabled().setIsChangeable(!isHeadlessEnabled);
@@ -2882,21 +3142,65 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             getCdImage().validateSelectedItem(new IValidation[] { new NotEmptyValidation() });
         }
 
+        if (getIsLinuxOS()) {
+            getKernel_path().validateEntity(new IValidation[] { new NoTrimmingWhitespacesValidation() });
+            getInitrd_path().validateEntity(new IValidation[] { new NoTrimmingWhitespacesValidation() });
+            getKernel_parameters().validateEntity(new IValidation[] { new NoTrimmingWhitespacesValidation() });
+
+            // initrd path and kernel params require kernel path to be filled
+            if (StringHelper.isNullOrEmpty(getKernel_path().getEntity())) {
+
+                if (!StringHelper.isNullOrEmpty(getInitrd_path().getEntity())) {
+                    getInitrd_path().getInvalidityReasons().add(constants.initrdPathInvalid());
+                    getInitrd_path().setIsValid(false);
+                    getKernel_path().getInvalidityReasons().add(constants.initrdPathInvalid());
+                    getKernel_path().setIsValid(false);
+                }
+
+                if (!StringHelper.isNullOrEmpty(getKernel_parameters().getEntity())) {
+                    getKernel_parameters().getInvalidityReasons().add(constants.kernelParamsInvalid());
+                    getKernel_parameters().setIsValid(false);
+                    getKernel_path().getInvalidityReasons().add(constants.kernelParamsInvalid());
+                    getKernel_path().setIsValid(false);
+                }
+            }
+        }
+
         if (!getBehavior().isBlankTemplateBehavior()) {
             setValidTab(TabName.GENERAL_TAB, isValidTab(TabName.GENERAL_TAB)
                     && getDataCenterWithClustersList().getIsValid()
                     && getTemplateWithVersion().getIsValid());
         }
 
-        setValidTab(TabName.HOST_TAB, isValidTab(TabName.HOST_TAB) && getMigrationDowntime().getIsValid());
+        if (getParallelMigrationsType().getSelectedItem() == ParallelMigrationsType.CUSTOM) {
+            getCustomParallelMigrations().validateEntity(
+                    new IValidation[] { new NotNullIntegerValidation(ParallelMigrationsType.MIN_PARALLEL_CONNECTIONS,
+                            ParallelMigrationsType.MAX_PARALLEL_CONNECTIONS) });
+        } else {
+            getCustomParallelMigrations().setIsValid(true);
+        }
 
+        setValidTab(TabName.HOST_TAB, isValidTab(TabName.HOST_TAB) && getMigrationDowntime().getIsValid()
+                && getCustomParallelMigrations().getIsValid());
+
+        getCpuPinningPolicy().validateSelectedItem();
+
+        if (getCpuPinningPolicy().getSelectedItem().getPolicy() == CpuPinningPolicy.MANUAL) {
+            getCpuPinning().validateEntity(new IValidation[]{new NotEmptyValidation()});
+        } else {
+            getCpuPinning().setIsValid(true);
+        }
         boolean diskAliasesValid = getDisksAllocationModel().getIsValid();
 
-        setValidTab(TabName.RESOURCE_ALLOCATION_TAB, isValidTab(TabName.RESOURCE_ALLOCATION_TAB)
-                && getCpuSharesAmount().getIsValid() && diskAliasesValid);
+        setValidTab(TabName.RESOURCE_ALLOCATION_TAB,
+                isValidTab(TabName.RESOURCE_ALLOCATION_TAB)
+                && getCpuSharesAmount().getIsValid()
+                && getCpuPinningPolicy().getIsValid()
+                && getCpuPinning().getIsValid()
+                && diskAliasesValid);
 
         setValidTab(TabName.BOOT_OPTIONS_TAB, isValidTab(TabName.BOOT_OPTIONS_TAB) &&
-                getCdImage().getIsValid());
+                getCdImage().getIsValid() && getKernel_path().getIsValid());
 
         boolean vmInitIsValid = getVmInitModel().validate();
         setValidTab(TabName.INITIAL_RUN_TAB, isValidTab(TabName.INITIAL_RUN_TAB) && vmInitIsValid);
@@ -2987,6 +3291,15 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
                     , new IntegerValidation(0, 262144)});
         }
 
+        if (getNumOfVirtioScsiMultiQueues().getIsAvailable()) {
+            if (getVirtioScsiMultiQueueTypeSelection().getSelectedItem() == VirtioMultiQueueType.CUSTOM) {
+                getNumOfVirtioScsiMultiQueues().validateEntity(
+                        new IValidation[] { new NotEmptyValidation(), new IntegerValidation(1, 262144) });
+            } else {
+                getNumOfVirtioScsiMultiQueues().setIsValid(true);
+            }
+        }
+
         setValidTab(TabName.CUSTOM_PROPERTIES_TAB, isValidTab(TabName.CUSTOM_PROPERTIES_TAB) &&
                 getCustomPropertySheet().validate());
 
@@ -3000,10 +3313,17 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
                 BusinessEntitiesDefinitions.VM_EMULATED_MACHINE_SIZE)});
         getCustomCpu().validateSelectedItem(new IValidation[] { new CpuNameValidation(), new LengthValidation(BusinessEntitiesDefinitions.VM_CPU_NAME_SIZE)});
 
-        setValidTab(TabName.CONSOLE_TAB, isValidTab(TabName.CONSOLE_TAB) &&
-                getUsbPolicy().getIsValid() && getNumOfMonitors().getIsValid() && getSpiceProxy().getIsValid());
+        if (getConsoleDisconnectAction().getSelectedItem() == ConsoleDisconnectAction.SHUTDOWN) {
+            getConsoleDisconnectActionDelay().validateEntity(new IValidation[]{new IntegerValidation(0, Integer.MAX_VALUE)});
+        } else {
+            getConsoleDisconnectActionDelay().setIsValid(true);
+        }
 
-        setValidTab(TabName.HOST_TAB, isValidTab(TabName.HOST_TAB) && getMigrationDowntime().getIsValid());
+        setValidTab(TabName.CONSOLE_TAB, isValidTab(TabName.CONSOLE_TAB) &&
+                getIsUsbEnabled().getIsValid() && getNumOfMonitors().getIsValid() && getSpiceProxy().getIsValid() && getConsoleDisconnectActionDelay().getIsValid());
+
+        setValidTab(TabName.HOST_TAB, isValidTab(TabName.HOST_TAB) && getMigrationDowntime().getIsValid()
+                && getCustomParallelMigrations().getIsValid());
 
         getRngBytes().validateEntity(new IValidation[]{new IntegerValidation(0, Integer.MAX_VALUE), new RngDevValidation()});
         getRngPeriod().validateEntity(new IValidation[]{new IntegerValidation(0, Integer.MAX_VALUE)});
@@ -3016,8 +3336,10 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             });
         }
 
+        boolean virtioScsiMultiQueuesValid = getNumOfVirtioScsiMultiQueues().getIsValid();
+
         setValidTab(TabName.RESOURCE_ALLOCATION_TAB, isValidTab(TabName.RESOURCE_ALLOCATION_TAB) &&
-                getNumOfIoThreads().getIsValid());
+                getNumOfIoThreads().getIsValid() && virtioScsiMultiQueuesValid);
 
         // Minimum 'Physical Memory Guaranteed' is 1MB
         validateMemorySize(getMemSize(), Integer.MAX_VALUE, 1);
@@ -3047,17 +3369,8 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
     }
 
     private void resetTabsValidity() {
-        setValidTab(TabName.HOST_TAB, true);
+        clearTabsValidity();
         setIsCustomPropertiesTabAvailable(true);
-
-        setValidTab(TabName.TAB_RNG, true);
-        setValidTab(TabName.CUSTOM_PROPERTIES_TAB, true);
-        setValidTab(TabName.BOOT_OPTIONS_TAB, true);
-        setValidTab(TabName.RESOURCE_ALLOCATION_TAB, true);
-        setValidTab(TabName.CONSOLE_TAB, true);
-        setValidTab(TabName.INITIAL_RUN_TAB, true);
-        setValidTab(TabName.GENERAL_TAB, true);
-        setValidTab(TabName.ICON_TAB, true);
         getValid().setEntity(true);
     }
 
@@ -3137,27 +3450,26 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
     }
 
     private void validateMaxMemorySize() {
-        final int maxMemSize = getMaxMemorySize().getEntity();
+        getMaxMemorySize().setIsValid(true);
 
+        final int maxMemSize = getMaxMemorySize().getEntity();
         if (maxMemSize < getMemSize().getEntity()) {
-            getMaxMemorySize().setIsValid(false);
             getMaxMemorySize().getInvalidityReasons().add(
                     ConstantsManager.getInstance().getConstants().maxMemoryHasToBeLargerThanMemorySize());
+            getMaxMemorySize().setIsValid(false);
             return;
         }
 
         final int maxMaxMemorySize = AsyncDataProvider.getInstance()
                 .getMaxMaxMemorySize(getOSType().getSelectedItem(), getCompatibilityVersion());
         if (maxMemSize > maxMaxMemorySize) {
-            getMaxMemorySize().setIsValid(false);
             final String errorMessage = getOSType().getSelectedItem() != null
                     ? ConstantsManager.getInstance().getMessages().maxMaxMemoryForSelectedOsIs(maxMaxMemorySize)
                     : ConstantsManager.getInstance().getMessages().maxMaxMemoryIs(maxMaxMemorySize);
             getMaxMemorySize().getInvalidityReasons().add(errorMessage);
+            getMaxMemorySize().setIsValid(false);
             return;
         }
-
-        getMaxMemorySize().setIsValid(true);
     }
 
     private void validateMemoryAlignment(EntityModel<Integer> model) {
@@ -3263,13 +3575,33 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             }
             return this;
         }
+
+        @Override
+        public Model setIsChangeable(boolean value, String reason) {
+            if (!isVmAttachedToPool()) {
+                super.setIsChangeable(value, reason);
+            }
+            return this;
+        }
     }
 
     public class ListModelWithClusterDefault<T> extends NotChangableForVmInPoolListModel<T> {
 
         public static final String CLUSTER_VALUE_EVENT = "ClusterValue";//$NON-NLS-1$
 
+        // item that should be added to the items list to represent the cluster value,
+        // it is usually null but e.g. for BiosType it is a special enum value
+        private T clusterValuePlaceholder;
+
         private T clusterValue;
+
+        public ListModelWithClusterDefault() {
+            this(null);
+        }
+
+        public ListModelWithClusterDefault(T clusterValuePlaceholder) {
+            this.clusterValuePlaceholder = clusterValuePlaceholder;
+        }
 
         @Override
         public void setItems(Collection<T> value) {
@@ -3279,15 +3611,11 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         @Override
         public void setItems(Collection<T> value, T selectedItem) {
             List<T> items = value == null ? new ArrayList<>() : new ArrayList<>(value);
-            if (items.isEmpty() || items.get(0) != null) {
-                items.add(0, null);
+            if (!containsPlaceholder(items)) {
+                items.add(0, clusterValuePlaceholder);
             }
-            super.setItems(items, selectedItem);
-        }
 
-        public void fireItemsChangedEvent() {
-            getItemsChangedEvent().raise(this, EventArgs.EMPTY);
-            onPropertyChanged(new PropertyChangedEventArgs("Items")); //$NON-NLS-1$
+            super.setItems(items, selectedItem);
         }
 
         public void setClusterValue(T clusterValue) {
@@ -3297,6 +3625,14 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
 
         public T getClusterValue() {
             return clusterValue;
+        }
+
+        private boolean containsPlaceholder(List<T> items) {
+            if (items.isEmpty()) {
+                return false;
+            }
+
+            return Objects.equals(items.get(0), clusterValuePlaceholder);
         }
     }
 
@@ -3312,9 +3648,17 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             }
             return this;
         }
+
+        @Override
+        public Model setIsChangeable(boolean value, String reason) {
+            if (!isVmAttachedToPool()) {
+                super.setIsChangeable(value, reason);
+            }
+            return this;
+        }
     }
 
-    private class NotChangableForVmInPoolEntityModel<T> extends EntityModel<T> {
+    public class NotChangableForVmInPoolEntityModel<T> extends EntityModel<T> {
         public NotChangableForVmInPoolEntityModel() {
         }
 
@@ -3329,13 +3673,30 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             }
             return this;
         }
+
+        @Override
+        public EntityModel<T> setIsChangeable(boolean value, String reason) {
+            if (!isVmAttachedToPool()) {
+                super.setIsChangeable(value, reason);
+            }
+            return this;
+        }
     }
 
     private class NotChangableForVmInPoolKeyValueModel extends KeyValueModel {
+
         @Override
         public KeyValueModel setIsChangeable(boolean value) {
             if (!isVmAttachedToPool()) {
                 super.setIsChangeable(value);
+            }
+            return this;
+        }
+
+        @Override
+        public KeyValueModel setIsChangeable(boolean value, String reason) {
+            if (!isVmAttachedToPool()) {
+                super.setIsChangeable(value, reason);
             }
             return this;
         }
@@ -3540,7 +3901,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         }
 
         Version version = getCompatibilityVersion();
-        if (version == null || version.greaterOrEquals(Version.v4_4)) {
+        if (cluster != null && version != null && version.greaterOrEquals(Version.v4_4)) {
             getMigrationDowntime().setIsAvailable(false);
             getAutoConverge().setIsAvailable(false);
             getMigrateCompressed().setIsAvailable(false);
@@ -3575,22 +3936,8 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
             encrypt = AsyncDataProvider.getInstance().getMigrateEncrypted();
         }
         migrateEncrypted.setClusterValue(encrypt);
-    }
 
-    private void updateBiosType() {
-        Cluster cluster = getSelectedCluster();
-
-        if (cluster == null) {
-            return;
-        }
-        if (cluster.getArchitecture().getFamily() != ArchitectureType.x86) {
-            getBiosType().setIsChangeable(false, ConstantsManager.getInstance().getMessages().biosTypeSupportedForX86Only());
-        } else {
-            getBiosType().updateChangeability(ConfigValues.BiosTypeSupported, getCompatibilityVersion());
-        }
-        if (!getBiosType().getIsChangable()) {
-            getBiosType().setSelectedItem(BiosType.CLUSTER_DEFAULT);
-        }
+        updateParallelMigrationsVersionChange();
     }
 
     private void updateMigrateEncrypted() {
@@ -3600,6 +3947,52 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         } else {
             getMigrateEncrypted().setIsChangeable(false, messages.availableInVersionOrHigher(Version.v4_4.toString()));
             getMigrateEncrypted().setSelectedItem(null);
+        }
+    }
+
+    private boolean parallelMigrationsSupported() {
+        final Version version = getCompatibilityVersion();
+        return version != null && AsyncDataProvider.getInstance().isParallelMigrationsSupportedByVersion(version);
+    }
+
+    private void updateParallelMigrationsVersionChange() {
+        if (parallelMigrationsSupported()) {
+            getParallelMigrationsType().setIsChangeable(true);
+        } else {
+            getParallelMigrationsType().setSelectedItem(null);
+            getParallelMigrationsType().setIsChangeable(false,
+                    messages.availableInVersionOrHigher(Version.v4_7.toString()));
+        }
+        updateParallelMigrationValues();
+    }
+
+    private void updateParallelMigrationValues() {
+        Cluster cluster = getSelectedCluster();
+        if (cluster != null && cluster.getParallelMigrations() != null) {
+            ParallelMigrationsType policy = ParallelMigrationsType.forValue(cluster.getParallelMigrations());
+            if (policy == null) {
+                // Illegal value, let's set the policy to disabled as a safe value
+                policy = ParallelMigrationsType.DISABLED;
+            }
+            parallelMigrationsType.setClusterValue(policy);
+        }
+        updateCustomParallelMigrations();
+    }
+
+    private void updateCustomParallelMigrations() {
+        if (ParallelMigrationsType.CUSTOM.equals(parallelMigrationsType.getSelectedItem())) {
+            getCustomParallelMigrations().setIsChangeable(true);
+            if (getCustomParallelMigrations().getEntity() == null) {
+                getCustomParallelMigrations().setEntity(0);
+            }
+        } else {
+            getCustomParallelMigrations().setIsChangeable(false, constants.customParallelMigrationsDisabledReason());
+            final Integer customParallelMigrations =
+                    parallelMigrationsType.getSelectedItem() == null
+                    && ParallelMigrationsType.CUSTOM.equals(parallelMigrationsType.getClusterValue())
+                    && getSelectedCluster() != null
+                    ? getSelectedCluster().getParallelMigrations() : null;
+            getCustomParallelMigrations().setEntity(customParallelMigrations);
         }
     }
 
@@ -3633,6 +4026,69 @@ public class UnitVmModel extends Model implements HasValidatedTabs {
         } else {
             getCustomSerialNumber().setEntity(null);
             getCustomSerialNumber().setIsChangeable(false, constants.customSerialNumberDisabledReason());
+        }
+    }
+
+    public boolean secureBootEnabled() {
+        return getBiosType().getSelectedItem() == BiosType.Q35_SECURE_BOOT;
+    }
+
+    private void updateTpmEnabled() {
+        Cluster cluster = getSelectedCluster();
+        Version version = getCompatibilityVersion();
+        if (version != null && version.less(Version.v4_5)) {
+            getTpmEnabled().setIsChangeable(false, messages.availableInVersionOrHigher(Version.v4_5.toString()));
+            getTpmEnabled().setEntity(false);
+        } else if (!AsyncDataProvider.getInstance().isTpmAllowedForOs(getOSType().getSelectedItem())) {
+            getTpmEnabled().setIsChangeable(false, constants.guestOsVersionNotSupported());
+            getTpmEnabled().setEntity(false);
+        } else if (AsyncDataProvider.getInstance().isTpmRequiredForOs(getOSType().getSelectedItem())) {
+            if (getBiosType().getSelectedItem() == null || !getBiosType().getSelectedItem().isOvmf()) {
+                getBiosType().setSelectedItem(BiosType.Q35_OVMF);
+            }
+            getTpmEnabled().setIsChangeable(false, constants.tpmDeviceRequired());
+            getTpmEnabled().setEntity(true);
+        } else if (cluster == null || cluster.getArchitecture() == null
+                || cluster.getArchitecture().getFamily() == ArchitectureType.x86
+                        && (getBiosType().getSelectedItem() == null || !getBiosType().getSelectedItem().isOvmf())) {
+            getTpmEnabled().setIsChangeable(false, constants.uefiRequired());
+            getTpmEnabled().setEntity(false);
+        } else {
+            getTpmEnabled().setIsChangeable(true);
+        }
+    }
+
+    protected void updateCpuPinningPolicy() {
+        boolean defaultHostSelected =  Boolean.FALSE.equals(getIsAutoAssign().getEntity()) &&
+                getDefaultHost().getSelectedItems() != null &&
+                getDefaultHost().getSelectedItems().size() > 0;
+
+        boolean isDedicatedCpusSupported = false;
+        if(getSelectedCluster() != null && getSelectedCluster().getCompatibilityVersion() != null) {
+            isDedicatedCpusSupported = AsyncDataProvider.getInstance()
+                    .isDedicatedPolicySupportedByVersion(getCompatibilityVersion());
+        }
+        cpuPinningPolicy.setCpuPolicyEnabled(CpuPinningPolicy.MANUAL, defaultHostSelected);
+        cpuPinningPolicy.setCpuPolicyEnabled(CpuPinningPolicy.DEDICATED, isDedicatedCpusSupported);
+    }
+
+    protected void cpuPinningPolicyChanged() {
+        updateCpuFields();
+        behavior.updateCpuPinningVisibility();
+    }
+
+    protected void updateCpuFields() {
+        if (getCpuPinningPolicy().getSelectedItem().getPolicy() == CpuPinningPolicy.RESIZE_AND_PIN_NUMA) {
+            disableCpuFields();
+        } else {
+            enableCpuFields();
+        }
+    }
+
+    protected void cpuPinningChanged() {
+        // Set migration mode
+        if (behavior.isVmHpOrPinningConfigurationEnabled()) {
+            getMigrationMode().setSelectedItem(MigrationSupport.IMPLICITLY_NON_MIGRATABLE);
         }
     }
 }

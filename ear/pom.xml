@@ -4,7 +4,7 @@
   <parent>
     <groupId>org.ovirt.engine</groupId>
     <artifactId>root</artifactId>
-    <version>4.4.0-SNAPSHOT</version>
+    <version>4.5.0.1-SNAPSHOT</version>
   </parent>
 
   <artifactId>engine-server-ear</artifactId>
@@ -110,18 +110,6 @@
 
     <!-- Set the scope of depedencies provided by JBoss so that
          they are not included in the resulting archive: -->
-    <dependency>
-      <groupId>org.codehaus.jackson</groupId>
-      <artifactId>jackson-core-asl</artifactId>
-      <scope>provided</scope>
-    </dependency>
-
-    <dependency>
-      <groupId>org.codehaus.jackson</groupId>
-      <artifactId>jackson-mapper-asl</artifactId>
-      <scope>provided</scope>
-    </dependency>
-
     <dependency>
       <groupId>org.infinispan</groupId>
       <artifactId>infinispan-core</artifactId>

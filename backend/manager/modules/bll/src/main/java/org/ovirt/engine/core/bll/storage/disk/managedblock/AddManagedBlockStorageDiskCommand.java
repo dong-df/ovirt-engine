@@ -80,10 +80,12 @@ public class AddManagedBlockStorageDiskCommand<T extends AddManagedBlockStorageD
         Guid volumeId = getParameters().getDiskInfo().getId();
         List<String> extraParams = new ArrayList<>();
         extraParams.add(volumeId.toString());
-        Number sizeInGiB = SizeConverter.convert(getParameters().getDiskInfo().getSize(),
+
+        // Rounding and converting to GiB is required since cinderlib works with GiB multiples and not bytes
+        extraParams.add(Long.toString(SizeConverter.convert(getDiskSize(getParameters().getDiskInfo().getSize()),
                 SizeConverter.SizeUnit.BYTES,
-                SizeConverter.SizeUnit.GiB);
-        extraParams.add(Long.toString(sizeInGiB.longValue()));
+                SizeConverter.SizeUnit.GiB).longValue()));
+
         CinderlibReturnValue returnValue;
 
         try {
@@ -114,11 +116,16 @@ public class AddManagedBlockStorageDiskCommand<T extends AddManagedBlockStorageD
         disk.setImageId(volumeId);
         disk.setId(volumeId);
         TransactionSupport.executeInNewTransaction(() -> {
-            baseDiskDao.save(disk);
-            imageDao.save(disk.getImage());
-            managedBlockStorageDiskUtil.saveDisk(disk);
+            if (!disk.isTemplate()) {
+                // In case of a template disk, the disk already exists in the DB, so no need to save it again,
+                // only add a storage domain mapping (executed in CopyImageGroupCommand).
+                baseDiskDao.save(disk);
+                imageDao.save(disk.getImage());
+                managedBlockStorageDiskUtil.saveDisk(disk);
+                managedBlockStorageDiskUtil.lockImage(disk.getImageId());
+            }
 
-            if (getParameters().getVmId() != null) {
+            if (!Guid.isNullOrEmpty(getParameters().getVmId())) {
                 // Set correct device id
                 DiskVmElement diskVmElement = getParameters().getDiskVmElement();
                 diskVmElement.getId().setDeviceId(volumeId);
@@ -146,7 +153,7 @@ public class AddManagedBlockStorageDiskCommand<T extends AddManagedBlockStorageD
     private ManagedBlockStorageDisk createDisk() {
         ManagedBlockStorageDisk disk = new ManagedBlockStorageDisk();
         disk.setDiskAlias(getParameters().getDiskInfo().getDiskAlias());
-        disk.setSize(getParameters().getDiskInfo().getSize());
+        disk.setSize(getDiskSize(getParameters().getDiskInfo().getSize()));
         disk.setDiskDescription(getParameters().getDiskInfo().getDiskDescription());
         disk.setShareable(getParameters().getDiskInfo().isShareable());
         disk.setStorageIds(new ArrayList<>(Arrays.asList(getParameters().getStorageDomainId())));
@@ -156,10 +163,25 @@ public class AddManagedBlockStorageDiskCommand<T extends AddManagedBlockStorageD
         disk.setCreationDate(new Date());
         disk.setLastModified(new Date());
         disk.setActive(true);
+        disk.setVmEntityType(getParameters().getDiskInfo().getVmEntityType());
         disk.setVmSnapshotId(getParameters().getVmSnapshotId());
-        disk.setDiskVmElements(Collections.singletonList(getParameters().getDiskVmElement()));
+        disk.setDiskVmElements(getParameters().getDiskVmElement() == null ? new ArrayList<>()
+                : Collections.singletonList(getParameters().getDiskVmElement()));
 
         return disk;
+    }
+
+    /***
+     * Round a size in bytes to the next GiB multiple.
+     * For example, 2.4 GiB will be rounded to 3 GiB.
+     *
+     * @param size Disk size in bytes
+     * @return The next GiB multiple in bytes
+     */
+    private long getDiskSize(long size) {
+        long correctedSize = (long) Math.ceil((double)size / (double)SizeConverter.BYTES_IN_GB);
+        return SizeConverter.convert(correctedSize, SizeConverter.SizeUnit.GiB, SizeConverter.SizeUnit.BYTES)
+                .longValue();
     }
 
     @Override
@@ -189,6 +211,12 @@ public class AddManagedBlockStorageDiskCommand<T extends AddManagedBlockStorageD
 
     @Override
     protected void endSuccessfully() {
-        setSucceeded(true);
+        managedBlockStorageDiskUtil.unlockImage(getParameters().getDiskInfo().getId());
+        super.endSuccessfully();
+    }
+
+    @Override
+    protected void endWithFailure() {
+        endSuccessfully();
     }
 }

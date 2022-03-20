@@ -77,7 +77,7 @@ public class Model implements IEventListener<EventArgs>, ICommandTarget, IProvid
             command.cleanup();
         }
 
-        invalidTabs.clear();
+        clearTabsValidity();
     }
 
     protected void cleanupEvents(Event<?>... events) {
@@ -267,6 +267,20 @@ public class Model implements IEventListener<EventArgs>, ICommandTarget, IProvid
         }
     }
 
+    public void setIsValid(boolean value, String invalidityReason) {
+        if (!value) {
+            getInvalidityReasons().add(invalidityReason);
+        }
+        setIsValid(value);
+    }
+
+    /**
+     * The invalidity reasons need to be set before {@code #setIsValid(boolean)}
+     * in order to be displayed correctly.
+     *
+     * You can add the invalidity reason like this:
+     * model.getInvalidityReasons().add("My reason");
+     */
     private List<String> invalidityReasons;
 
     public List<String> getInvalidityReasons() {
@@ -467,6 +481,11 @@ public class Model implements IEventListener<EventArgs>, ICommandTarget, IProvid
     protected void onIsAvailableChanged() {
     }
 
+    // public modifier so that the view can force redraw by firing this event
+    public void onPropertyChanged(String name) {
+        onPropertyChanged(new PropertyChangedEventArgs(name));
+    }
+
     protected void onPropertyChanged(PropertyChangedEventArgs e) {
         getPropertyChangedEvent().raise(this, e);
     }
@@ -598,6 +617,10 @@ public class Model implements IEventListener<EventArgs>, ICommandTarget, IProvid
         } else {
             invalidTabs.add(tab);
         }
+    }
+
+    public void clearTabsValidity() {
+        invalidTabs.clear();
     }
 
     public boolean isValidTab(TabName tab) {

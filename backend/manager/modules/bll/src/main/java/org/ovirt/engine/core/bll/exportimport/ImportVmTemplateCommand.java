@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.inject.Inject;
 
@@ -81,7 +82,7 @@ public class ImportVmTemplateCommand<T extends ImportVmTemplateParameters> exten
             return false;
         }
 
-        if ((sourceDomain.getStorageDomainType() != StorageDomainType.ImportExport)
+        if (sourceDomain.getStorageDomainType() != StorageDomainType.ImportExport
                 && !getParameters().isImagesExistOnTargetStorageDomain()) {
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_STORAGE_DOMAIN_TYPE_ILLEGAL);
         }
@@ -146,7 +147,27 @@ public class ImportVmTemplateCommand<T extends ImportVmTemplateParameters> exten
     protected void initImportClonedTemplateDisks() {
         for (DiskImage image : getImages()) {
             // Update the virtual size with value queried from 'qemu-img info'
-            updateDiskSizeByQcowImageInfo(image);
+            // If the image is import from an export domain, we have to query it on
+            // the export domain and not on the target domain.
+            // If we import from a Storage Domain, we'll need to use the image's Storage
+            // Domain ID and not the target domain's.
+            if (!getParameters().isImagesExistOnTargetStorageDomain()) {
+                updateDiskSizeByQcowImageInfo(image);
+            } else {
+                Set<Guid> storageDomains = getParameters().getImageToAvailableStorageDomains().get(image.getImageId());
+                Guid sdToUse;
+
+                // Try to use the target SD, otherwise fallback to one of the available SDs
+                // for the image
+                if (storageDomains.contains(getStorageDomainId())) {
+                    sdToUse = getStorageDomainId();
+                } else {
+                    sdToUse = storageDomains.stream().findFirst().get();
+                }
+
+                updateDiskSizeByQcowImageInfo(image, sdToUse);
+            }
+
             if (getParameters().isImportAsNewEntity()) {
                 generateNewDiskId(image);
                 updateManagedDeviceMap(image, getVmTemplate().getManagedDeviceMap());
@@ -260,7 +281,11 @@ public class ImportVmTemplateCommand<T extends ImportVmTemplateParameters> exten
     }
 
     private void updateDiskSizeByQcowImageInfo(DiskImage diskImage) {
-        QemuImageInfo qemuImageInfo = getQemuImageInfo(diskImage, getParameters().getSourceDomainId());
+        updateDiskSizeByQcowImageInfo(diskImage, getParameters().getSourceDomainId());
+    }
+
+    protected void updateDiskSizeByQcowImageInfo(DiskImage diskImage, Guid storageId) {
+        QemuImageInfo qemuImageInfo = getQemuImageInfo(diskImage, storageId);
         if (qemuImageInfo != null) {
             diskImage.setSize(qemuImageInfo.getSize());
         }

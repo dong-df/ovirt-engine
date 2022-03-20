@@ -136,7 +136,7 @@ public enum ConfigValues {
     oVirtUpgradeScriptName,
     @Reloadable
     @TypeConverterAttribute(Integer.class)
-    VdsCertificateValidityInYears,
+    VdsCertificateValidityInDays,
     @Reloadable
     @TypeConverterAttribute(Integer.class)
     SearchResultsLimit(ClientAccessLevel.User),
@@ -191,8 +191,9 @@ public enum ConfigValues {
     @OptionBehaviourAttribute(behaviour = OptionBehaviour.CommaSeparatedStringArray)
     ValidNumOfMonitors(ClientAccessLevel.User),
     @Reloadable
-    @TypeConverterAttribute(Integer.class)
+    @TypeConverterAttribute(Map.class)
     MaxNumOfVmCpus(ClientAccessLevel.User),
+    @Deprecated
     @Reloadable
     @TypeConverterAttribute(Integer.class)
     MaxNumOfVmSockets(ClientAccessLevel.User),
@@ -202,6 +203,8 @@ public enum ConfigValues {
     @Reloadable
     @TypeConverterAttribute(Integer.class)
     MaxNumOfThreadsPerCpu(ClientAccessLevel.User),
+    @TypeConverterAttribute(Integer.class)
+    MaxNumOfCpusCoefficient(ClientAccessLevel.User),
     @TypeConverterAttribute(Integer.class)
     NumberVmRefreshesBeforeSave,
     @TypeConverterAttribute(Integer.class)
@@ -479,10 +482,10 @@ public enum ConfigValues {
     OvfItemsCountPerUpdate,
 
     @TypeConverterAttribute(String.class)
-    DefaultWindowsTimeZone(ClientAccessLevel.Admin),
+    DefaultWindowsTimeZone(ClientAccessLevel.User),
 
     @TypeConverterAttribute(String.class)
-    DefaultGeneralTimeZone(ClientAccessLevel.Admin),
+    DefaultGeneralTimeZone(ClientAccessLevel.User),
 
     @Reloadable
     @TypeConverterAttribute(Boolean.class)
@@ -644,10 +647,6 @@ public enum ConfigValues {
     DefaultManagementNetwork,
 
     @Reloadable
-    @TypeConverterAttribute(Boolean.class)
-    VdsmUseNmstate,
-
-    @Reloadable
     @TypeConverterAttribute(String.class)
     OvirtInitialSupportedIsoVersion,
 
@@ -684,14 +683,11 @@ public enum ConfigValues {
     OriginType,
 
     @TypeConverterAttribute(String.class)
-    ImageProxyAddress,
-
-    @TypeConverterAttribute(Boolean.class)
-    ImageProxySSLEnabled,
-
-    @TypeConverterAttribute(String.class)
     ImageDaemonPort,
 
+    // For supporting legacy All-In-One deployment.
+    @TypeConverterAttribute(Boolean.class)
+    ImageTransferProxyEnabled,
 
     @TypeConverterAttribute(Integer.class)
     ImageTransferClientTicketValidityInSeconds,
@@ -927,9 +923,6 @@ public enum ConfigValues {
     @TypeConverterAttribute(Integer.class)
     LogMaxNetworkUsedThresholdInPercentage,
 
-    @TypeConverterAttribute(Integer.class)
-    PgMajorRelease,
-
     @TypeConverterAttribute(List.class)
     @OptionBehaviourAttribute(behaviour = OptionBehaviour.CommaSeparatedStringArray)
     VncKeyboardLayoutValidValues(ClientAccessLevel.User),
@@ -1010,6 +1003,12 @@ public enum ConfigValues {
 
     @TypeConverterAttribute(String.class)
     ClientModeVncDefault(ClientAccessLevel.User),
+
+    @TypeConverterAttribute(String.class)
+    ClientModeVncDefaultNonManagedVm(ClientAccessLevel.User),
+
+    @TypeConverterAttribute(String.class)
+    ClientModeConsoleDefault(ClientAccessLevel.User),
 
     @Reloadable
     @TypeConverterAttribute(Double.class)
@@ -1391,6 +1390,27 @@ public enum ConfigValues {
     @TypeConverterAttribute(Integer.class)
     BackupAlertPeriodInDays,
 
+    @TypeConverterAttribute(Integer.class)
+    DbEntitiesCleanupRateInMinutes,
+
+    @TypeConverterAttribute(Integer.class)
+    SucceededBackupCleanupTimeInMinutes,
+
+    @TypeConverterAttribute(Integer.class)
+    FailedBackupCleanupTimeInMinutes,
+
+    @TypeConverterAttribute(Integer.class)
+    SucceededImageTransferCleanupTimeInMinutes,
+
+    @TypeConverterAttribute(Integer.class)
+    FailedImageTransferCleanupTimeInMinutes,
+
+    @TypeConverterAttribute(Integer.class)
+    MaxBackupBlockScratchDiskInitialSizePercents,
+
+    @TypeConverterAttribute(Integer.class)
+    MinBackupBlockScratchDiskInitialSizeInGB,
+
     @TypeConverterAttribute(List.class)
     @OptionBehaviourAttribute(behaviour = OptionBehaviour.CommaSeparatedStringArray)
     HostDevicePassthroughCapabilities(ClientAccessLevel.Admin),
@@ -1425,10 +1445,6 @@ public enum ConfigValues {
     @TypeConverterAttribute(Integer.class)
     MaxMemorySlots,
 
-    /** User can only hot plug multiples of this value. */
-    @TypeConverterAttribute(Integer.class)
-    HotPlugMemoryBlockSizeMb,
-
     @TypeConverterAttribute(String.class)
     HostedEngineVmName,
 
@@ -1456,8 +1472,8 @@ public enum ConfigValues {
     @TypeConverterAttribute(Integer.class)
     HostedEngineConfigDiskSizeInBytes,
 
-    @TypeConverterAttribute(Boolean.class)
-    HystrixMonitoringEnabled,
+    @TypeConverterAttribute(Integer.class)
+    HostedEngineMaximumHighAvailabilityScore,
 
     @TypeConverterAttribute(Boolean.class)
     ipv6IscsiSupported,
@@ -1470,9 +1486,6 @@ public enum ConfigValues {
 
     @TypeConverterAttribute(Long.class)
     CinderlibCommandTimeoutInMinutes,
-
-    @TypeConverterAttribute(Boolean.class)
-    IsDeferringFileVolumePreallocationSupported,
 
     /**
      * Timeout in seconds for the completion of calls to external network providers.
@@ -1524,6 +1537,9 @@ public enum ConfigValues {
     @TypeConverterAttribute(Boolean.class)
     VgpuPlacementSupported,
 
+    @TypeConverterAttribute(Boolean.class)
+    VgpuFramebufferSupported,
+
     @TypeConverterAttribute(Integer.class)
     GlusterVolumeFreeSpaceThresholdInPercent,
 
@@ -1538,6 +1554,69 @@ public enum ConfigValues {
 
     @TypeConverterAttribute(Integer.class)
     SetupNetworksWaitTimeoutSeconds,
+
+    @TypeConverterAttribute(String.class)
+    SkuToAVLevel,
+
+    @TypeConverterAttribute(Integer.class)
+    StorageDeviceSpaceLimit,
+
+    @TypeConverterAttribute(Integer.class)
+    LiveSnapshotTimeoutInMinutes,
+
+    @TypeConverterAttribute(Boolean.class)
+    LiveSnapshotAllowInconsistent,
+
+    @Deprecated
+    @TypeConverterAttribute(Boolean.class)
+    LiveSnapshotPerformFreezeInEngine,
+
+    @TypeConverterAttribute(Integer.class)
+    LiveSnapshotFreezeTimeout,
+
+    @TypeConverterAttribute(Boolean.class)
+    IsIncrementalBackupSupported,
+
+    @TypeConverterAttribute(Boolean.class)
+    UseHybridBackup,
+
+    @TypeConverterAttribute(Boolean.class)
+    IsPortIsolationSupported,
+
+    @TypeConverterAttribute(String.class)
+    VirtioWinIsoPath,
+
+    @Reloadable
+    @TypeConverterAttribute(Boolean.class)
+    PropagateDiskErrors,
+
+    @TypeConverterAttribute(String.class)
+    InstanceId,
+
+    @TypeConverterAttribute(Map.class)
+    TpmDeviceSupported,
+
+    @TypeConverterAttribute(Boolean.class)
+    NvramPersistenceSupported,
+
+    @TypeConverterAttribute(Boolean.class)
+    EnableBochsDisplay,
+
+    @TypeConverterAttribute(Integer.class)
+    HostMonitoringWatchdogIntervalInSeconds,
+
+    @Reloadable
+    @TypeConverterAttribute(Integer.class)
+    HostMonitoringWatchdogInactivityThresholdInSeconds,
+
+    @TypeConverterAttribute(Boolean.class)
+    ParallelMigrationsSupported,
+
+    @TypeConverterAttribute(Integer.class)
+    RemainingMacsInPoolWarningThreshold,
+
+    @TypeConverterAttribute(Boolean.class)
+    IsDedicatedSupported,
 
     Invalid;
 

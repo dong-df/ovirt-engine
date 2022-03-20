@@ -10,7 +10,9 @@ import org.ovirt.engine.core.compat.Guid;
 
 public class HostDevice implements Queryable, BusinessEntity<HostDeviceId>, Nameable {
 
+    private static final String CAPABILITY_NVDIMM = "nvdimm";
     private static final String CAPABILITY_PCI = "pci";
+    private static final String CAPABILITY_SCSI = "scsi";
 
     private Guid hostId;
     private String deviceName;
@@ -29,10 +31,13 @@ public class HostDevice implements Queryable, BusinessEntity<HostDeviceId>, Name
     private boolean assignable;
     private Map<String, String> address;
     private List<MDevType> mdevTypes;
+    private String blockPath;
+    private Map<String, Object> specParams;
 
     public HostDevice() {
         address = Collections.emptyMap();
         mdevTypes = Collections.emptyList();
+        specParams = Collections.emptyMap();
     }
 
     @Override
@@ -183,12 +188,36 @@ public class HostDevice implements Queryable, BusinessEntity<HostDeviceId>, Name
         return CAPABILITY_PCI.equals(getCapability());
     }
 
+    public boolean isScsi() {
+        return CAPABILITY_SCSI.equals(getCapability());
+    }
+
+    public boolean isNvdimm() {
+        return CAPABILITY_NVDIMM.equals(getCapability());
+    }
+
     public List<MDevType> getMdevTypes() {
         return mdevTypes;
     }
 
     public void setMdevTypes(List<MDevType> mdevTypes) {
         this.mdevTypes = mdevTypes;
+    }
+
+    public void setBlockPath(String blockPath) {
+        this.blockPath = blockPath;
+    }
+
+    public String getBlockPath() {
+        return blockPath;
+    }
+
+    public Map<String, Object> getSpecParams() {
+        return specParams;
+    }
+
+    public void setSpecParams(Map<String, Object> specParams) {
+        this.specParams = specParams;
     }
 
     @Override
@@ -215,7 +244,9 @@ public class HostDevice implements Queryable, BusinessEntity<HostDeviceId>, Name
                 && Objects.equals(assignable, other.assignable)
                 && Objects.equals(address, other.address)
                 && Objects.equals(vmId, other.vmId)
-                && Objects.equals(mdevTypes, other.mdevTypes);
+                && Objects.equals(mdevTypes, other.mdevTypes)
+                && Objects.equals(blockPath, other.blockPath)
+                && Objects.equals(specParams, other.specParams);
     }
 
     @Override
@@ -236,7 +267,9 @@ public class HostDevice implements Queryable, BusinessEntity<HostDeviceId>, Name
                 assignable,
                 vmId,
                 address,
-                mdevTypes
+                mdevTypes,
+                blockPath,
+                specParams
         );
     }
 
@@ -260,6 +293,8 @@ public class HostDevice implements Queryable, BusinessEntity<HostDeviceId>, Name
                 .append("vmId", vmId)
                 .append("address", address)
                 .append("mdevTypes", mdevTypes)
+                .append("blockPath", blockPath)
+                .append("specParams", getSpecParams())
                 .build();
     }
 

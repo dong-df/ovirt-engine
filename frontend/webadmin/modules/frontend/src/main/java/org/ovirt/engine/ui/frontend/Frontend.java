@@ -7,6 +7,7 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -14,6 +15,7 @@ import java.util.stream.Collectors;
 import org.ovirt.engine.core.common.action.ActionParametersBase;
 import org.ovirt.engine.core.common.action.ActionReturnValue;
 import org.ovirt.engine.core.common.action.ActionType;
+import org.ovirt.engine.core.common.businessentities.UserProfileProperty;
 import org.ovirt.engine.core.common.businessentities.aaa.DbUser;
 import org.ovirt.engine.core.common.errors.EngineFault;
 import org.ovirt.engine.core.common.queries.QueryParametersBase;
@@ -55,6 +57,7 @@ import com.google.inject.Inject;
  * instance of this class.
  */
 public class Frontend implements HasHandlers {
+
     /**
      * Provides static access to {@code Frontend} singleton instance.
      */
@@ -119,6 +122,15 @@ public class Frontend implements HasHandlers {
      * The currently logged in user.
      */
     private DbUser currentUser;
+
+    private final UserProfileManager userProfileManager = new UserProfileManager(this);
+
+    /**
+     * Cached settings to be used by the UI.
+     * Contains parsed data from {@linkplain UserProfileManager#getWebAdminUserOption()}.
+     */
+    private WebAdminSettings webAdminSettings = WebAdminSettings.defaultSettings();
+
 
     /**
      * Should queries be filtered.
@@ -864,7 +876,7 @@ public class Frontend implements HasHandlers {
 
         // 'runActionExecutionFailed' invokes an error pop-up displaying, therefore calling 'failureEventHandler' is
         // only needed for validate failure
-        if (showErrorDialog && failedOnValidate && (getEventsHandler() != null)
+        if (showErrorDialog && failedOnValidate && getEventsHandler() != null
                 && getEventsHandler().isRaiseErrorModalPanel(actionType, result.getFault())) {
             ArrayList<String> messages = result.getValidationMessages();
             failureEventHandler(result.getDescription(),
@@ -1078,5 +1090,23 @@ public class Frontend implements HasHandlers {
         Collection<ActionReturnValue> failedResults = failedActionsMap.values().stream().flatMap(Collection::stream).collect(Collectors.toList());
         translateErrors(failedResults);
         getEventsHandler().runMultipleActionsFailed(failedActionsMap, messageFormatter);
+    }
+
+    public UserProfileManager getUserProfileManager() {
+        return userProfileManager;
+    }
+
+    /**
+     * Settings retrieved for currently logged-in user.
+     * Note that it may contain outdated settings (not in sync with the server).
+     * In order to refresh settings use {@linkplain UserProfileManager#reload(Consumer)}
+     */
+    public WebAdminSettings getWebAdminSettings() {
+        UserProfileProperty webAdminUserOption = getUserProfileManager().getWebAdminUserOption();
+        if (getLoggedInUser() != null &&
+                !webAdminSettings.getOriginalUserOptions().equals(webAdminUserOption)) {
+            webAdminSettings = WebAdminSettings.from(webAdminUserOption);
+        }
+        return webAdminSettings;
     }
 }

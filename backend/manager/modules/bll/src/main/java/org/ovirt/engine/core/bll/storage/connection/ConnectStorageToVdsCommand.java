@@ -15,6 +15,7 @@ import org.apache.commons.lang.StringUtils;
 import org.ovirt.engine.core.bll.InternalCommandAttribute;
 import org.ovirt.engine.core.bll.ValidationResult;
 import org.ovirt.engine.core.bll.context.CommandContext;
+import org.ovirt.engine.core.bll.utils.GlusterUtil;
 import org.ovirt.engine.core.common.action.StorageServerConnectionParametersBase;
 import org.ovirt.engine.core.common.businessentities.StorageServerConnections;
 import org.ovirt.engine.core.common.businessentities.VDS;
@@ -47,6 +48,9 @@ public class ConnectStorageToVdsCommand<T extends StorageServerConnectionParamet
 
     @Inject
     private ISCSIStorageHelper iscsiStorageHelper;
+
+    @Inject
+    private GlusterUtil glusterUtil;
 
     public ConnectStorageToVdsCommand(T parameters, CommandContext cmdContext) {
         super(parameters, cmdContext);
@@ -134,11 +138,19 @@ public class ConnectStorageToVdsCommand<T extends StorageServerConnectionParamet
     }
 
     private ValidationResult validateVolumeIdAndUpdatePath(StorageServerConnections connection) {
+        EngineMessage engineMessage;
+        GlusterVolumeEntity glusterVolume;
         if (connection.getGlusterVolumeId() != null) {
-            GlusterVolumeEntity glusterVolume = glusterVolumeDao.getById(connection.getGlusterVolumeId());
+            glusterVolume = glusterVolumeDao.getById(connection.getGlusterVolumeId());
             if (glusterVolume == null || glusterVolume.getBricks().isEmpty()) {
                 return new ValidationResult(EngineMessage.VALIDATION_STORAGE_CONNECTION_INVALID_GLUSTER_VOLUME);
             }
+
+            engineMessage = validateGlusterVolumeType(glusterVolume);
+            if (engineMessage != null) {
+                return new ValidationResult(engineMessage);
+            }
+
             Set<String> addressSet = new LinkedHashSet<>();
             glusterVolume.getBricks().forEach(
                     brick -> addressSet.add(brick.getNetworkId() != null && !brick.getNetworkAddress().isEmpty()
@@ -157,8 +169,29 @@ public class ConnectStorageToVdsCommand<T extends StorageServerConnectionParamet
                     connection.setMountOptions(mountOptions);
                 }
             }
+
+            engineMessage = glusterUtil.validateVolumeForStorageDomain(glusterVolume);
+            if(engineMessage != null) {
+                return new ValidationResult(engineMessage);
+            }
+
+        } else {
+            glusterVolume = glusterUtil.getGlusterVolInfoFromVolumePath(connection.getConnection());
+            engineMessage = validateGlusterVolumeType(glusterVolume);
+            if (engineMessage != null) {
+                return new ValidationResult(engineMessage);
+            }
         }
         return ValidationResult.VALID;
+    }
+
+    private EngineMessage validateGlusterVolumeType(GlusterVolumeEntity glusterVolume) {
+        if (glusterVolume != null && glusterVolume.getVolumeType().isDispersedType()) {
+            addValidationMessageVariable("volumeName", glusterVolume.getName());
+            addValidationMessageVariable("volumeType", glusterVolume.getVolumeType().value());
+            return EngineMessage.ACTION_TYPE_FAILED_GLUSTER_STORAGE_CONNECTION_UNSUPPORTED_STORAGE_TYPE;
+        }
+        return null;
     }
 
     private ValidationResult canVDSConnectToGlusterfs(VDS vds) {

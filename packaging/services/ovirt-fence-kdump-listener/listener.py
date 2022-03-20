@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import codecs
 import datetime
 import gettext
 import socket
@@ -34,7 +35,7 @@ class FenceKdumpListener(base.Base):
     # fence_kdump message version 1
     _MSG_V1_SIZE = 8
     # message contains magic 0x1B302A40 and version 0x1 in BE byte order
-    _MSG_V1_PREFIX = '402a301b01000000'.decode('hex')
+    _MSG_V1_PREFIX = codecs.decode('402a301b01000000', 'hex')
 
     def __init__(
             self,
@@ -161,7 +162,7 @@ class FenceKdumpListener(base.Base):
                 entry['status'] = self.SESSION_STATE_CLOSED
 
     def _house_keeping_sessions(self):
-        for session in self._sessions.values():
+        for session in list(self._sessions.values()):
 
             if (
                 session['status'] == self.SESSION_STATE_DUMPING and
@@ -183,7 +184,7 @@ class FenceKdumpListener(base.Base):
         # remove finished sessions (engine will remove them from db)
         for address in (
             session['address']
-            for session in self._sessions.values()
+            for session in list(self._sessions.values())
             if session['status'] == self.SESSION_STATE_CLOSED
         ):
             del self._sessions[address]
@@ -202,7 +203,7 @@ class FenceKdumpListener(base.Base):
                 last=self._lastSessionSync
         ):
             # update db state for all updated sessions
-            for session in self._sessions.values():
+            for session in list(self._sessions.values()):
                 if (
                     session['dirty'] and
                     session['status'] != self.SESSION_STATE_CLOSED

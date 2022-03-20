@@ -21,7 +21,6 @@ import org.ovirt.engine.core.common.action.ClusterOperationParameters;
 import org.ovirt.engine.core.common.action.CpuProfileParameters;
 import org.ovirt.engine.core.common.businessentities.ActionGroup;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
-import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.SupportedAdditionalClusterFeature;
 import org.ovirt.engine.core.common.businessentities.network.NetworkCluster;
@@ -29,12 +28,12 @@ import org.ovirt.engine.core.common.businessentities.profiles.CpuProfile;
 import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.common.validation.group.CreateEntity;
 import org.ovirt.engine.core.compat.Guid;
-import org.ovirt.engine.core.compat.Version;
 import org.ovirt.engine.core.dao.ClusterDao;
 import org.ovirt.engine.core.dao.ClusterFeatureDao;
 import org.ovirt.engine.core.dao.MacPoolDao;
 import org.ovirt.engine.core.dao.network.NetworkClusterDao;
 
+@ValidateSupportsTransaction
 public class AddClusterCommand<T extends ClusterOperationParameters>
         extends ClusterOperationCommandBase<T> {
 
@@ -66,7 +65,12 @@ public class AddClusterCommand<T extends ClusterOperationParameters>
         Cluster cluster = getCluster();
         cluster.setArchitecture(getArchitecture());
         setCpuFlags();
-        setDefaultBiosType();
+        // If the Bios Type has not been set, but the Architecture has
+        // update the Bios Type with the correct default
+        if (cluster.getBiosType() == null &&
+                cluster.getArchitecture() != ArchitectureType.undefined) {
+            setDefaultBiosType();
+        }
         setDefaultSwitchTypeIfNeeded();
         setDefaultFirewallTypeIfNeeded();
         setDefaultLogMaxMemoryUsedThresholdIfNeeded();
@@ -75,6 +79,11 @@ public class AddClusterCommand<T extends ClusterOperationParameters>
         cluster.setDetectEmulatedMachine(true);
         cluster.setMacPoolId(calculateMacPoolIdToUse());
         clusterDao.save(cluster);
+
+        if (getParameters().isCompensationEnabled()) {
+            getContext().getCompensationContext().snapshotNewEntity(cluster);
+            getContext().getCompensationContext().stateChanged();
+        }
 
         alertIfFencingDisabled();
 
@@ -103,21 +112,6 @@ public class AddClusterCommand<T extends ClusterOperationParameters>
         }
     }
 
-    private void setDefaultBiosType() {
-        Cluster cluster = getCluster();
-        if (cluster.getBiosType() != null) {
-            return;
-        }
-        if (cluster.getCompatibilityVersion() != null
-                && cluster.getCompatibilityVersion().greaterOrEquals(Version.v4_4)
-                && cluster.getArchitecture() != null
-                && cluster.getArchitecture().getFamily() == ArchitectureType.x86) {
-            cluster.setBiosType(BiosType.Q35_SEA_BIOS);
-        } else {
-            cluster.setBiosType(BiosType.I440FX_SEA_BIOS);
-        }
-    }
-
     private void addDefaultCpuProfile() {
         CpuProfile cpuProfile = CpuProfileHelper.createCpuProfile(getParameters().getCluster().getId(),
                 getParameters().getCluster().getName());
@@ -127,8 +121,9 @@ public class AddClusterCommand<T extends ClusterOperationParameters>
         cpuProfileAddParameters.setParametersCurrentUser(getCurrentUser());
         cpuProfileAddParameters.setSessionId(getContext().getEngineContext().getSessionId());
 
-        ActionReturnValue addCpuProfileReturnValue = backend.runAction(ActionType.AddCpuProfile,
-                cpuProfileAddParameters);
+        ActionReturnValue addCpuProfileReturnValue = backend.runInternalAction(ActionType.AddCpuProfile,
+                cpuProfileAddParameters,
+                cloneContext().withoutExecutionContext().withoutLock());
         cpuProfile.setId(addCpuProfileReturnValue.getActionReturnValue());
     }
 
@@ -175,7 +170,6 @@ public class AddClusterCommand<T extends ClusterOperationParameters>
                 && validateClusterPolicy(null)
                 && validateManagementNetwork()
                 && validate(validator.memoryOptimizationConfiguration())
-                && validate(validator.invalidBiosType())
                 && validate(validator.nonDefaultBiosType())
                 && validateDefaultNetworkProvider();
     }

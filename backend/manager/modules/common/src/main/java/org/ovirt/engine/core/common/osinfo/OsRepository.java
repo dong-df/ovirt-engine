@@ -9,6 +9,7 @@ import org.ovirt.engine.core.common.businessentities.ChipsetType;
 import org.ovirt.engine.core.common.businessentities.ConsoleTargetType;
 import org.ovirt.engine.core.common.businessentities.DisplayType;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
+import org.ovirt.engine.core.common.businessentities.TpmSupport;
 import org.ovirt.engine.core.common.businessentities.UsbControllerModel;
 import org.ovirt.engine.core.common.businessentities.VmWatchdogType;
 import org.ovirt.engine.core.common.utils.Pair;
@@ -35,6 +36,11 @@ public interface OsRepository {
     List<Integer> getOsIds();
 
     /**
+     * @return all unsupported os ids
+     */
+    Set<Integer> getUnsupportedOsIds();
+
+    /**
      * Every configured OS a both a unique id and a name. The unique name
      * is not intended for presentation but for logic. The reason for having 2 different IDs
      * is for compatibility with the old numeric ID.
@@ -56,9 +62,20 @@ public interface OsRepository {
     String getOsFamily(int osId);
 
     /**
+     * VM init type, cloudinit(linux), sysprep(windows) and ignition(coreos)
+     */
+    String getVmInitType(int osId);
+
+    /**
      * @return a list of OSs who's {@link OsRepository#getOsFamily(int)} returns "linux"
      */
     List<Integer> getLinuxOss();
+
+    /**
+     * @return map of osId to the vmInitType
+     */
+    Map<Integer, String> getVmInitMap();
+
 
     List<Integer> get64bitOss();
 
@@ -104,17 +121,10 @@ public interface OsRepository {
      */
     int getVramMultiplier(int osId);
 
-    /**
-     * @return map (osId -> compatibility version -> Boolean) that indicates balloon disabled for all OSs and
-     * compatibility versions
+     /**
+      * @return Multiplier to apply in `vgamem' video RAM parameter computation.  Defaults to 1 if unspecified.
      */
-    Map<Integer, Map<Version, Boolean>> getBalloonSupportMap();
-
-    /**
-     * Checks if is recommended enable the OS balloon.
-     * @return an boolean
-     */
-    boolean isBalloonEnabled(int osId, Version version);
+    int getVgamemMultiplier(int osId);
 
     /**
      * Checks if that OS network devices support hotplug.
@@ -157,6 +167,21 @@ public interface OsRepository {
      * a convenience method the for  family type "windows"
      */
     boolean isWindows(int osId);
+
+    /**
+     * a convenience method the for vmInit type "cloud init"
+     */
+    boolean isCloudInit(int osId);
+
+    /**
+     * a convenience method the for vmInit type "sys-prep"
+     */
+    boolean isSysprep(int osId);
+
+    /**
+     * a convenience method the for vmInit type "ignition"
+     */
+    boolean isIgnition(int osId);
 
     /**
      * @return list of supported disk interface devices
@@ -220,8 +245,6 @@ public interface OsRepository {
      */
     Map<ArchitectureType, Integer> getDefaultOSes();
 
-    boolean isSingleQxlDeviceEnabled(int osId);
-
     /**
      * Checks if is recommended enable the HyperV optimizations
      * @return an boolean
@@ -253,6 +276,11 @@ public interface OsRepository {
     boolean isCpuHotunplugSupported(int osId);
 
     /**
+     * @return minimal number of CPUs required by OS
+     */
+    int getMinimumCpus(int osId);
+
+    /**
      * @return a map that contain an pair (OS id and version) with the sound device support.
      */
     Map<Integer, Map<Version, Boolean>> getSoundDeviceSupportMap();
@@ -281,4 +309,52 @@ public interface OsRepository {
      * Checks if the operating system requires special memory block when hot-plugging memory
      */
     boolean requiresHotPlugSpecialBlock(int osId, Version version);
+
+    /**
+     * Checks if the operation system requires legacy virtio support
+     * @param osId operation system id
+     * @param chipset the VM's chipset
+     */
+    boolean requiresLegacyVirtio(int osId, ChipsetType chipset);
+
+    /**
+     * Checks if the operation system requires TPM
+     * @param osId operation system id
+     */
+    boolean requiresTpm(int osId);
+
+    /**
+     * Checks if the operation system requires a channel for ovirt guest agent support.
+     * @param osId operation system id
+     */
+    boolean requiresOvirtGuestAgentChannel(int osId);
+
+    /**
+     * @return a map from OS id to TPM support flags
+     */
+    Map<Integer, TpmSupport> getTpmSupportMap();
+
+    /**
+     * Returns the operating system TPM support flag.
+     * @param osId operation system id
+     */
+    TpmSupport getTpmSupport(int osId);
+
+    /**
+     * Checks if the operating system supports virtual TPM.
+     * @param osId operation system id
+     */
+    boolean isTpmAllowed(int osId);
+
+    /**
+     * Checks if the operating system supports Q35 chipset
+     * @param osId operation system id
+     */
+    boolean isQ35Supported(int osId);
+
+    /**
+     * Checks if the operating system supports SecureBoot
+     * @param osId operation system id
+     */
+    boolean isSecureBootSupported(int osId);
 }

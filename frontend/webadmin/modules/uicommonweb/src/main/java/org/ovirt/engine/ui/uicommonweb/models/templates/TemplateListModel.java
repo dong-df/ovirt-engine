@@ -45,6 +45,7 @@ import org.ovirt.engine.ui.uicommonweb.builders.vm.UnitToGraphicsDeviceParamsBui
 import org.ovirt.engine.ui.uicommonweb.dataprovider.AsyncDataProvider;
 import org.ovirt.engine.ui.uicommonweb.help.HelpTag;
 import org.ovirt.engine.ui.uicommonweb.models.ConfirmationModel;
+import org.ovirt.engine.ui.uicommonweb.models.ConfirmationModelChain;
 import org.ovirt.engine.ui.uicommonweb.models.EntityModel;
 import org.ovirt.engine.ui.uicommonweb.models.HasEntity;
 import org.ovirt.engine.ui.uicommonweb.models.SearchStringMapping;
@@ -68,7 +69,6 @@ import org.ovirt.engine.ui.uicommonweb.validation.NotEmptyValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.NotInCollectionValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.ValidationResult;
 import org.ovirt.engine.ui.uicompat.ConstantsManager;
-import org.ovirt.engine.ui.uicompat.PropertyChangedEventArgs;
 import org.ovirt.engine.ui.uicompat.UIConstants;
 import org.ovirt.engine.ui.uicompat.UIMessages;
 
@@ -302,7 +302,7 @@ public class TemplateListModel extends VmBaseListModel<Void, VmTemplate> {
             }
         }
 
-        return t.size() > 1 ? true : false;
+        return t.size() > 1;
     }
 
     @Override
@@ -548,7 +548,6 @@ public class TemplateListModel extends VmBaseListModel<Void, VmTemplate> {
         model.setTitle(ConstantsManager.getInstance().getConstants().editTemplateTitle());
         model.setHelpTag(HelpTag.edit_template);
         model.setHashName("edit_template"); //$NON-NLS-1$
-        model.getVmType().setSelectedItem(template.getVmType());
         model.setCustomPropertiesKeysList(AsyncDataProvider.getInstance().getCustomPropertiesList());
 
         model.initialize();
@@ -558,7 +557,7 @@ public class TemplateListModel extends VmBaseListModel<Void, VmTemplate> {
         model.getCommands().add(switchModeCommand);
 
 
-        UICommand onSaveCommand = UICommand.createDefaultOkUiCommand("OnSave", this); //$NON-NLS-1$
+        UICommand onSaveCommand = UICommand.createDefaultOkUiCommand("OnSaveConfirm", this); //$NON-NLS-1$
         model.getCommands().add(onSaveCommand);
 
         UICommand cancelCommand = UICommand.createCancelUiCommand("Cancel", this); //$NON-NLS-1$
@@ -655,12 +654,29 @@ public class TemplateListModel extends VmBaseListModel<Void, VmTemplate> {
                 template.getTemplateVersionNumber());
     };
 
-    private void onSave() {
-        final UnitVmModel model = (UnitVmModel) getWindow();
+    private void onSaveConfirm() {
+        UnitVmModel model = (UnitVmModel) getWindow();
 
         if (!model.validate()) {
             return;
         }
+
+        Guid templateId;
+
+        if (model.getBehavior().isBlankTemplateBehavior()) {
+            templateId = ((ExistingBlankTemplateModelBehavior) model.getBehavior()).getVmTemplate().getId();
+        } else {
+            templateId = ((TemplateVmModelBehavior) model.getBehavior()).getVmTemplate().getId();
+        }
+
+        ConfirmationModelChain chain = new ConfirmationModelChain();
+        chain.addConfirmation(new TpmDataRemovalConfirmation(model, templateId));
+        chain.addConfirmation(new NvramDataRemovalConfirmation(model, templateId));
+        chain.execute(this, () -> onSave());
+    }
+
+    private void onSave() {
+        UnitVmModel model = (UnitVmModel) getWindow();
 
         final String name = model.getName().getEntity();
 
@@ -774,8 +790,8 @@ public class TemplateListModel extends VmBaseListModel<Void, VmTemplate> {
         setVmWatchdogToParams(model, parameters);
         BuilderExecutor.build(model, parameters, new UnitToGraphicsDeviceParamsBuilder());
         parameters.setSoundDeviceEnabled(model.getIsSoundcardEnabled().getEntity());
+        parameters.setTpmEnabled(model.getTpmEnabled().getEntity());
         setVmRngDeviceToParams(model, parameters);
-        parameters.setBalloonEnabled(balloonEnabled(model));
         parameters.setVirtioScsiEnabled(model.getIsVirtioScsiEnabled().getEntity());
 
         if (model.getIsHeadlessModeEnabled().getEntity()) {
@@ -795,6 +811,7 @@ public class TemplateListModel extends VmBaseListModel<Void, VmTemplate> {
         BuilderExecutor.build(model, template,
                 new FullUnitToVmBaseBuilder<VmTemplate>(),
                 new VersionNameUnitToVmBaseBuilder());
+        template.setSealed(model.getIsSealed().getEntity());
     }
 
     private void setVmWatchdogToParams(final UnitVmModel model, UpdateVmTemplateParameters updateVmParams) {
@@ -829,28 +846,7 @@ public class TemplateListModel extends VmBaseListModel<Void, VmTemplate> {
 
         setWindow(null);
 
-        updateActionsAvailability();
-    }
-
-    @Override
-    protected void onSelectedItemChanged() {
-        super.onSelectedItemChanged();
-        updateActionsAvailability();
-    }
-
-    @Override
-    protected void selectedItemsChanged() {
-        super.selectedItemsChanged();
-        updateActionsAvailability();
-    }
-
-    @Override
-    protected void selectedItemPropertyChanged(Object sender, PropertyChangedEventArgs e) {
-        super.selectedItemPropertyChanged(sender, e);
-
-        if (e.propertyName.equals("status")) { //$NON-NLS-1$
-            updateActionsAvailability();
-        }
+        fireModelChangeRelevantForActionsEvent();
     }
 
     private boolean selectedItemsContainBlankTemplate() {
@@ -867,7 +863,12 @@ public class TemplateListModel extends VmBaseListModel<Void, VmTemplate> {
     }
 
     @Override
-    protected void updateActionsAvailability() {
+    protected void onModelChangeRelevantForActions() {
+        super.onModelChangeRelevantForActions();
+        updateActionsAvailability();
+    }
+
+    private void updateActionsAvailability() {
         VmTemplate item = getSelectedItem();
         ArrayList items =
                 (getSelectedItems() != null) ? (ArrayList) getSelectedItems()
@@ -876,7 +877,7 @@ public class TemplateListModel extends VmBaseListModel<Void, VmTemplate> {
         boolean blankSelected = isBlankTemplateSelected();
 
         getEditCommand().setIsExecutionAllowed(items.size() == 1 && item != null
-                && item.getStatus() != VmTemplateStatus.Locked);
+                && ActionUtils.canExecute(items, VmTemplate.class, ActionType.UpdateVmTemplate));
 
         getRemoveCommand().setIsExecutionAllowed(items.size() > 0
                 && ActionUtils.canExecute(items, VmTemplate.class, ActionType.RemoveVmTemplate));
@@ -960,6 +961,8 @@ public class TemplateListModel extends VmBaseListModel<Void, VmTemplate> {
             onExport();
         } else if ("OnExportOva".equals(command.getName())) { //$NON-NLS-1$
             onExportOva();
+        } else if ("OnSaveConfirm".equals(command.getName())) { //$NON-NLS-1$
+            onSaveConfirm();
         } else if ("OnSave".equals(command.getName())) { //$NON-NLS-1$
             onSave();
         } else if ("OnSaveVm".equals(command.getName())) { //$NON-NLS-1$
@@ -973,25 +976,12 @@ public class TemplateListModel extends VmBaseListModel<Void, VmTemplate> {
             doExport();
         } else if ("CancelConfirmation".equals(command.getName())) { //$NON-NLS-1$
             cancelConfirmation();
-        } else if ("SaveOrUpdateVM".equals(command.getName())) { // $NON-NLS-1$
-            UnitVmModel model = (UnitVmModel) getWindow();
-            if (!model.validate()) {
-                return;
-            }
-            saveOrUpdateVM(model);
         } else if (CMD_CONFIGURE_TEMPLATES_TO_IMPORT.equals(command.getName())) { // $NON-NLS-1$
             onConfigureTemplatesToImport();
-        } else {
-            switch(command.getName()) {
-            case "onClone": //$NON-NLS-1$
-                onClone();
-                break;
-            case "closeClone": //$NON-NLS-1$
-                closeClone();
-                break;
-            default:
-                super.executeCommand(command);
-            }
+        } else if ("onClone".equals(command.getName())){ //$NON-NLS-1$
+            onClone();
+        } else if ("closeClone".equals(command.getName())) { //$NON-NLS-1$
+            closeClone();
         }
     }
 

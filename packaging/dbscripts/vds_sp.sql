@@ -13,7 +13,6 @@ CREATE OR REPLACE FUNCTION InsertVdsStatistics (
     v_usage_mem_percent INT,
     v_usage_network_percent INT,
     v_vds_id UUID,
-    v_mem_available BIGINT,
     v_mem_free BIGINT,
     v_mem_shared BIGINT,
     v_swap_free BIGINT,
@@ -43,7 +42,6 @@ BEGIN
             usage_mem_percent,
             usage_network_percent,
             vds_id,
-            mem_available,
             mem_free,
             mem_shared,
             swap_free,
@@ -70,7 +68,6 @@ BEGIN
             v_usage_mem_percent,
             v_usage_network_percent,
             v_vds_id,
-            v_mem_available,
             v_mem_free,
             v_mem_shared,
             v_swap_free,
@@ -103,7 +100,6 @@ CREATE OR REPLACE FUNCTION UpdateVdsStatistics (
     v_usage_mem_percent INT,
     v_usage_network_percent INT,
     v_vds_id UUID,
-    v_mem_available BIGINT,
     v_mem_free BIGINT,
     v_mem_shared BIGINT,
     v_swap_free BIGINT,
@@ -134,7 +130,6 @@ BEGIN
             usage_cpu_percent = v_usage_cpu_percent,
             usage_mem_percent = v_usage_mem_percent,
             usage_network_percent = v_usage_network_percent,
-            mem_available = v_mem_available,
             mem_free = v_mem_free,
             mem_shared = v_mem_shared,
             swap_free = v_swap_free,
@@ -271,11 +266,18 @@ CREATE OR REPLACE FUNCTION InsertVdsDynamic (
     v_vnc_encryption_enabled BOOLEAN,
     v_connector_info JSONB,
     v_backup_enabled BOOLEAN,
+    v_cold_backup_enabled BOOLEAN,
+    v_clear_bitmaps_enabled BOOLEAN,
     v_supported_domain_versions VARCHAR(256),
     v_supported_block_size JSONB,
     v_tsc_frequency VARCHAR(10),
     v_tsc_scaling BOOLEAN,
-    v_fips_enabled BOOLEAN
+    v_fips_enabled BOOLEAN,
+    v_boot_uuid VARCHAR(64),
+    v_cd_change_pdiv BOOLEAN,
+    v_ovn_configured BOOLEAN,
+    v_cpu_topology JSONB,
+    v_vdsm_cpus_affinity VARCHAR(256)
     )
 RETURNS VOID AS $PROCEDURE$
 BEGIN
@@ -347,11 +349,18 @@ BEGIN
             vnc_encryption_enabled,
             connector_info,
             backup_enabled,
+            cold_backup_enabled,
+            clear_bitmaps_enabled,
             supported_domain_versions,
             supported_block_size,
             tsc_frequency,
             tsc_scaling,
-            fips_enabled
+            fips_enabled,
+            boot_uuid,
+            cd_change_pdiv,
+            ovn_configured,
+            cpu_topology,
+            vdsm_cpus_affinity
             )
         VALUES (
             v_cpu_cores,
@@ -420,11 +429,18 @@ BEGIN
             v_vnc_encryption_enabled,
             v_connector_info,
             v_backup_enabled,
+            v_cold_backup_enabled,
+            v_clear_bitmaps_enabled,
             v_supported_domain_versions,
             v_supported_block_size,
             v_tsc_frequency,
             v_tsc_scaling,
-            v_fips_enabled
+            v_fips_enabled,
+            v_boot_uuid,
+            v_cd_change_pdiv,
+            v_ovn_configured,
+            v_cpu_topology,
+            v_vdsm_cpus_affinity
             );
     END;
 
@@ -488,6 +504,7 @@ CREATE OR REPLACE FUNCTION UpdateVdsDynamic (
     v_glusterfs_cli_version VARCHAR(4000),
     v_openvswitch_version VARCHAR(40000),
     v_kernel_version VARCHAR(4000),
+    v_nmstate_version VARCHAR(4000),
     v_iscsi_initiator_name VARCHAR(4000),
     v_transparent_hugepages_state INT,
     v_hooks TEXT,
@@ -517,11 +534,18 @@ CREATE OR REPLACE FUNCTION UpdateVdsDynamic (
     v_vnc_encryption_enabled BOOLEAN,
     v_connector_info JSONB,
     v_backup_enabled BOOLEAN,
+    v_cold_backup_enabled BOOLEAN,
+    v_clear_bitmaps_enabled BOOLEAN,
     v_supported_domain_versions VARCHAR(256),
     v_supported_block_size JSONB,
     v_tsc_frequency VARCHAR(10),
     v_tsc_scaling BOOLEAN,
-    v_fips_enabled BOOLEAN
+    v_fips_enabled BOOLEAN,
+    v_boot_uuid VARCHAR(64),
+    v_cd_change_pdiv BOOLEAN,
+    v_ovn_configured BOOLEAN,
+    v_cpu_topology JSONB,
+    v_vdsm_cpus_affinity VARCHAR(256)
     )
 RETURNS VOID
     --The [vds_dynamic] table doesn't have a timestamp column. Optimistic concurrency logic cannot be generated
@@ -567,6 +591,7 @@ BEGIN
             glusterfs_cli_version = v_glusterfs_cli_version,
             openvswitch_version = v_openvswitch_version,
             kernel_version = v_kernel_version,
+            nmstate_version = v_nmstate_version,
             iscsi_initiator_name = v_iscsi_initiator_name,
             transparent_hugepages_state = v_transparent_hugepages_state,
             hooks = v_hooks,
@@ -597,11 +622,18 @@ BEGIN
             vnc_encryption_enabled = v_vnc_encryption_enabled,
             connector_info = v_connector_info,
             backup_enabled = v_backup_enabled,
+            cold_backup_enabled = v_cold_backup_enabled,
+            clear_bitmaps_enabled = v_clear_bitmaps_enabled,
             supported_domain_versions = v_supported_domain_versions,
             supported_block_size = v_supported_block_size,
             tsc_frequency = v_tsc_frequency,
             tsc_scaling = v_tsc_scaling,
-            fips_enabled = v_fips_enabled
+            fips_enabled = v_fips_enabled,
+            boot_uuid = v_boot_uuid,
+            cd_change_pdiv = v_cd_change_pdiv,
+            ovn_configured = v_ovn_configured,
+            cpu_topology = v_cpu_topology,
+            vdsm_cpus_affinity = v_vdsm_cpus_affinity
         WHERE vds_id = v_vds_id;
     END;
 
@@ -669,12 +701,12 @@ CREATE OR REPLACE FUNCTION InsertVdsStatic (
     v_pm_detect_kdump BOOLEAN,
     v_vds_spm_priority INT,
     v_sshKeyFingerprint VARCHAR(128),
+    v_ssh_public_key VARCHAR(8192),
     v_console_address VARCHAR(255),
     v_ssh_port INT,
     v_ssh_username VARCHAR(255),
     v_disable_auto_pm BOOLEAN,
     v_host_provider_id UUID,
-    v_openstack_network_provider_id UUID,
     v_kernel_cmdline TEXT,
     v_last_stored_kernel_cmdline TEXT,
     v_vgpu_placement INT
@@ -703,12 +735,12 @@ BEGIN
             pm_detect_kdump,
             vds_spm_priority,
             sshKeyFingerprint,
+            ssh_public_key,
             console_address,
             ssh_port,
             ssh_username,
             disable_auto_pm,
             host_provider_id,
-            openstack_network_provider_id,
             kernel_cmdline,
             last_stored_kernel_cmdline,
             vgpu_placement
@@ -728,12 +760,12 @@ BEGIN
             v_pm_detect_kdump,
             v_vds_spm_priority,
             v_sshKeyFingerprint,
+            v_ssh_public_key,
             v_console_address,
             v_ssh_port,
             v_ssh_username,
             v_disable_auto_pm,
             v_host_provider_id,
-            v_openstack_network_provider_id,
             v_kernel_cmdline,
             v_last_stored_kernel_cmdline,
             v_vgpu_placement
@@ -815,12 +847,12 @@ CREATE OR REPLACE FUNCTION UpdateVdsStatic (
     v_otp_validity BIGINT,
     v_vds_spm_priority INT,
     v_sshKeyFingerprint VARCHAR(128),
+    v_ssh_public_key VARCHAR(8192),
     v_console_address VARCHAR(255),
     v_ssh_port INT,
     v_ssh_username VARCHAR(255),
     v_disable_auto_pm BOOLEAN,
     v_host_provider_id UUID,
-    v_openstack_network_provider_id UUID,
     v_kernel_cmdline TEXT,
     v_reinstall_required BOOLEAN,
     v_vgpu_placement INTEGER
@@ -846,8 +878,8 @@ BEGIN
             otp_validity = v_otp_validity,
             vds_spm_priority = v_vds_spm_priority,
             sshKeyFingerprint = v_sshKeyFingerprint,
+            ssh_public_key = v_ssh_public_key,
             host_provider_id = v_host_provider_id,
-            openstack_network_provider_id = v_openstack_network_provider_id,
             console_address = v_console_address,
             ssh_port = v_ssh_port,
             ssh_username = v_ssh_username,
@@ -1173,6 +1205,38 @@ BEGIN
 END;$PROCEDURE$
 LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION GetVdsByNameAndClusterId (v_vds_name VARCHAR(255), v_cluster_id UUID)
+RETURNS SETOF vds STABLE AS $PROCEDURE$
+BEGIN
+    BEGIN
+        RETURN QUERY
+
+        SELECT DISTINCT vds.*
+        FROM vds
+        WHERE vds_name = v_vds_name
+        AND   cluster_id = v_cluster_id;
+    END;
+
+    RETURN;
+END;$PROCEDURE$
+LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION GetVdsByHostNameAndClusterId (v_host_name VARCHAR(255), v_cluster_id UUID)
+RETURNS SETOF vds STABLE AS $PROCEDURE$
+BEGIN
+    BEGIN
+        RETURN QUERY
+
+        SELECT DISTINCT vds.*
+        FROM vds
+        WHERE host_name = v_host_name
+        AND   cluster_id = v_cluster_id;
+    END;
+
+    RETURN;
+END;$PROCEDURE$
+LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION GetVdsByHostName (v_host_name VARCHAR(255))
 RETURNS SETOF vds STABLE AS $PROCEDURE$
 BEGIN
@@ -1347,7 +1411,8 @@ BEGIN
             AND (
                 v_storage_pool_id IS NOT NULL
                 OR vds.status = 3
-                );-- if DC is unspecified return only hosts with status = UP
+                )-- if DC is unspecified return only hosts with status = UP
+       ORDER BY vds.vds_name;
     END;
 
     RETURN;

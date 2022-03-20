@@ -21,6 +21,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.ovirt.engine.core.common.AuditLogType;
+import org.ovirt.engine.core.common.action.SaveVmExternalDataParameters;
 import org.ovirt.engine.core.common.businessentities.OriginType;
 import org.ovirt.engine.core.common.businessentities.UnchangeableByVdsm;
 import org.ovirt.engine.core.common.businessentities.VDSStatus;
@@ -35,6 +36,7 @@ import org.ovirt.engine.core.common.businessentities.VmPauseStatus;
 import org.ovirt.engine.core.common.businessentities.VmStatistics;
 import org.ovirt.engine.core.common.businessentities.network.VmNetworkInterface;
 import org.ovirt.engine.core.common.businessentities.network.VmNetworkStatistics;
+import org.ovirt.engine.core.common.businessentities.network.VmNic;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImageDynamic;
 import org.ovirt.engine.core.common.businessentities.storage.LUNs;
 import org.ovirt.engine.core.common.config.Config;
@@ -200,7 +202,7 @@ public class VmAnalyzer {
     private void processUnmanagedVm() {
         VmDynamic vmDynamic = vdsmVm.getVmDynamic();
         if (vmDynamic.getStatus() == VMStatus.Down ||
-                (vmDynamic.getStatus() == VMStatus.Paused && vmDynamic.getPauseStatus() == VmPauseStatus.EIO)) {
+                vmDynamic.getStatus() == VMStatus.Paused && vmDynamic.getPauseStatus() == VmPauseStatus.EIO) {
             destroyVm();
             return;
         }
@@ -215,8 +217,7 @@ public class VmAnalyzer {
             if (dbVm.getRunOnVds() == null) {
                 log.info("VM '{}' is found as migrating on VDS '{}'({}) ",
                         vdsmVm.getVmDynamic().getId(), vdsManager.getVdsId(), vdsManager.getVdsName());
-                dbVm.updateRuntimeData(vdsmVm.getVmDynamic(), vdsManager.getVdsId());
-                saveDynamic(dbVm);
+                updateRuntimeData();
                 if (!vdsManager.isInitialized()) {
                     resourceManager.removeVmFromDownVms(vdsManager.getVdsId(), vdsmVm.getVmDynamic().getId());
                 }
@@ -268,9 +269,7 @@ public class VmAnalyzer {
             succeededToRun = true;
         }
 
-        dbVm.updateRuntimeData(vdsmVm.getVmDynamic(), vdsManager.getVdsId());
-        saveDynamic(dbVm);
-
+        updateRuntimeData();
         updateStatistics();
 
         if (!vdsManager.isInitialized()) {
@@ -279,7 +278,15 @@ public class VmAnalyzer {
     }
 
     void proceedDownVm() {
-        // destroy the VM as soon as possible
+        // destroy the VM as soon as possible, but save VM data first
+        if (isVmRunningInDatabaseOnMonitoredHost() &&
+            // not a successful migration on a source host
+            (vdsmVm.getVmDynamic().getExitStatus() != VmExitStatus.Normal ||
+             vdsmVm.getVmDynamic().getExitReason() != VmExitReason.MigrationSucceeded)) {
+            if (!saveVmExternalData()) {
+                return;
+            }
+        }
         destroyVm();
 
         // VM is running on another host - must be during migration
@@ -356,6 +363,12 @@ public class VmAnalyzer {
         }
     }
 
+    boolean saveVmExternalData() {
+        SaveVmExternalDataParameters parameters = new SaveVmExternalDataParameters(dbVm.getId(),
+                getVmManager().getExternalDataStatus(), true);
+        return resourceManager.getEventListener().saveExternalData(parameters).getSucceeded();
+    }
+
     private String getPowerOffExitMessage() {
         return String.format("VM %s power off complete", getVmManager().getName());
     }
@@ -386,6 +399,12 @@ public class VmAnalyzer {
                         "Exit message: " + vdsmVm.getVmDynamic().getExitMessage()
                         : " ");
         auditLog(logable, AuditLogType.VM_DOWN_ERROR);
+    }
+
+    private void auditVmOnRebooting() {
+        AuditLogableBase logable = Injector.injectMembers(new AuditLogableBase(vdsManager.getVdsId(), getVmId()));
+        logable.addCustomValue("UserName", "Guest OS");
+        auditLog(logable, AuditLogType.USER_REBOOT_VM);
     }
 
     private void auditVmSuspended() {
@@ -568,7 +587,7 @@ public class VmAnalyzer {
 
         VmDynamic vdsmVmDynamic = vdsmVm.getVmDynamic();
 
-        if (!Objects.equals(vdsmVmDynamic.getClientIp(), dbVm.getClientIp())) {
+        if (dbVm.getClientIp() != null && !Objects.equals(vdsmVmDynamic.getClientIp(), dbVm.getClientIp())) {
             auditClientIpChange();
         }
 
@@ -597,6 +616,15 @@ public class VmAnalyzer {
                 && dbVm.getPauseStatus().isError()
                 && vdsmVmDynamic.getStatus() == VMStatus.Up) {
             auditVmRecoveredFromError();
+        }
+
+        // Generates an event for those machines that are transitioning to
+        // "RebootInProgress". This means that reboot has started/been triggered from the guest OS.
+        // Engine-initialed reboots shall set the state directly within the RebootVmCommand.
+        if (vdsmVmDynamic.getStatus() == VMStatus.RebootInProgress &&
+                dbVm.getStatus() != VMStatus.RebootInProgress) {
+            getVmManager().rebootCleanup();
+            auditVmOnRebooting();
         }
 
         if (isRunSucceeded() || isMigrationSucceeded()) {
@@ -697,19 +725,38 @@ public class VmAnalyzer {
     }
 
     private void updateVmDynamicData() {
-        if (vdsmVm.getVmDynamic().getGuestAgentNicsHash() != dbVm.getGuestAgentNicsHash()) {
-            vmGuestAgentNics = filterGuestAgentInterfaces(nullToEmptyList(vdsmVm.getVmGuestAgentInterfaces()));
-            dbVm.setIp(extractVmIps(vmGuestAgentNics));
-        }
-
+        // do not consider changes to app list before the status is UP (since the guest agent is not loaded yet)
         if (vdsmVm.getVmDynamic().getStatus() != VMStatus.Up) {
             vdsmVm.getVmDynamic().setAppList(dbVm.getAppList());
         }
 
         // if something relevant changed
-        if (isAnyFieldChanged(dbVm, vdsmVm.getVmDynamic(), CHANGEABLE_FIELDS_BY_VDSM)) {
-            dbVm.updateRuntimeData(vdsmVm.getVmDynamic(), vdsManager.getVdsId());
-            saveDynamic(dbVm);
+        if (isAnyRuntimeFieldChanged()) {
+            updateRuntimeData();
+        }
+    }
+
+    private void updateRuntimeData() {
+        if (vdsmVm.getVmDynamic().getGuestAgentNicsHash() != dbVm.getGuestAgentNicsHash()) {
+            vmGuestAgentNics = filterGuestAgentInterfaces(nullToEmptyList(vdsmVm.getVmGuestAgentInterfaces()));
+            dbVm.setIp(extractVmIps(vmGuestAgentNics));
+        }
+
+        dbVm.updateRuntimeData(vdsmVm.getVmDynamic(), vdsManager.getVdsId());
+        saveDynamic(dbVm);
+    }
+
+    private boolean isAnyRuntimeFieldChanged() {
+        switch (getVmManager().getOrigin()) {
+        case KUBEVIRT:
+            // that is a workaround for kubevirt since we place the IP we get from kubevirt in VmDynamic
+            // rather than setting vmGuestAgentInterfaces
+            if (!Objects.equals(dbVm.getIp(), vdsmVm.getVmDynamic().getIp())) {
+                dbVm.setIp(vdsmVm.getVmDynamic().getIp());
+                return true;
+            }
+        default:
+            return isAnyFieldChanged(dbVm, vdsmVm.getVmDynamic(), CHANGEABLE_FIELDS_BY_VDSM);
         }
     }
 
@@ -949,12 +996,14 @@ public class VmAnalyzer {
             } else {
                 vmIface.getStatistics().setReceiveRate(max(vmIface.getStatistics().getReceiveRate(),
                         ifStats.getStatistics().getReceiveRate()));
-                vmIface.getStatistics().setReceiveDropRate(max(vmIface.getStatistics().getReceiveDropRate(),
-                        ifStats.getStatistics().getReceiveDropRate()));
+                vmIface.getStatistics().setReceiveDrops(
+                        vmIface.getStatistics().getReceiveDrops().max(ifStats.getStatistics().getReceiveDrops())
+                );
                 vmIface.getStatistics().setTransmitRate(max(vmIface.getStatistics().getTransmitRate(),
                         ifStats.getStatistics().getTransmitRate()));
-                vmIface.getStatistics().setTransmitDropRate(max(vmIface.getStatistics().getTransmitDropRate(),
-                        ifStats.getStatistics().getTransmitDropRate()));
+                vmIface.getStatistics().setTransmitDrops(
+                        vmIface.getStatistics().getTransmitDrops().max(ifStats.getStatistics().getTransmitDrops())
+                );
             }
             vmIface.setVmId(dbVm.getId());
 
@@ -986,7 +1035,15 @@ public class VmAnalyzer {
 
     private List<VmGuestAgentInterface> filterGuestAgentInterfaces(List<VmGuestAgentInterface> nics) {
         if (!nics.isEmpty()) {
-            nics = nics.stream().filter(this::isNotBlacklisted).collect(Collectors.toList());
+            loadVmNetworkInterfaces();
+            Map<String, VmNetworkInterface> ifacesByMac = ifaces.stream()
+                    .collect(Collectors.toMap(VmNic::getMacAddress, iface -> iface));
+            nics = nics.stream()
+                    .filter(this::isNotBlacklisted)
+                    .filter(nic -> ifacesByMac.get(nic.getMacAddress()) != null)
+                    .filter(nic -> ifacesByMac.get(nic.getMacAddress()).getVnicProfileId() != null)
+                    .collect(Collectors.toList());
+
             nics.forEach(this::filterIpv4Addresses);
             nics.forEach(this::filterIpv6Addresses);
         }
@@ -1076,7 +1133,9 @@ public class VmAnalyzer {
     }
 
     protected void loadVmNetworkInterfaces() {
-        ifaces = vmNetworkInterfaceDao.getAllForMonitoredVm(getVmId());
+        if (ifaces == null) {
+            ifaces = vmNetworkInterfaceDao.getAllForMonitoredVm(getVmId());
+        }
     }
 
     public boolean isColdRebootVmToRun() {

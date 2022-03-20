@@ -16,6 +16,9 @@ import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.SetVmTicketParameters;
 import org.ovirt.engine.core.common.businessentities.GraphicsInfo;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
+import org.ovirt.engine.core.common.businessentities.KubevirtProviderProperties;
+import org.ovirt.engine.core.common.businessentities.OriginType;
+import org.ovirt.engine.core.common.businessentities.Provider;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VdsDynamic;
@@ -24,15 +27,17 @@ import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.console.ConsoleOptions;
 import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.common.queries.ConfigureConsoleOptionsParams;
+import org.ovirt.engine.core.common.queries.IdAndNameQueryParameters;
 import org.ovirt.engine.core.common.queries.IdQueryParameters;
-import org.ovirt.engine.core.common.queries.NameQueryParameters;
 import org.ovirt.engine.core.common.queries.QueryParametersBase;
 import org.ovirt.engine.core.common.queries.QueryReturnValue;
 import org.ovirt.engine.core.common.queries.QueryType;
 import org.ovirt.engine.core.dao.ClusterDao;
 import org.ovirt.engine.core.dao.VdsDynamicDao;
 import org.ovirt.engine.core.dao.VdsStaticDao;
+import org.ovirt.engine.core.dao.provider.ProviderDao;
 import org.ovirt.engine.core.utils.EngineLocalConfig;
+import org.ovirt.engine.core.vdsbroker.kubevirt.KubevirtUtils;
 
 /**
  * Query for filling required backend data to given ConsoleOptions.
@@ -62,6 +67,9 @@ public class ConfigureConsoleOptionsQuery<P extends ConfigureConsoleOptionsParam
 
     @Inject
     private ClusterDao clusterDao;
+
+    @Inject
+    private ProviderDao providerDao;
 
     @Override
     protected boolean validateInputs() {
@@ -139,8 +147,12 @@ public class ConfigureConsoleOptionsQuery<P extends ConfigureConsoleOptionsParam
     private void fillCommonPart(ConsoleOptions options) {
         GraphicsInfo graphicsInfo = getCachedVm().getGraphicsInfos().get(options.getGraphicsType());
 
-        options.setHost(determineHost());
-        options.setPort(graphicsInfo.getPort());
+        if (getCachedVm().getOrigin() == OriginType.KUBEVIRT) {
+            KubevirtUtils.updateConsoleOptions(options, getCachedVm(), getProvider());
+        } else {
+            options.setHost(determineHost());
+            options.setPort(graphicsInfo.getPort());
+        }
         options.setSmartcardEnabled(getCachedVm().isSmartcardEnabled());
         if (getParameters().isSetTicket()) {
             options.setTicket(generateTicket());
@@ -369,6 +381,11 @@ public class ConfigureConsoleOptionsQuery<P extends ConfigureConsoleOptionsParam
         return backend.runInternalQuery(QueryType.GetCACertificate, new QueryParametersBase());
     }
 
+    @SuppressWarnings("unchecked")
+    private Provider<KubevirtProviderProperties> getProvider() {
+        return (Provider<KubevirtProviderProperties>) providerDao.get(getCachedVm().getClusterId());
+    }
+
     private String determineHost() {
         GraphicsInfo graphicsInfo = getCachedVm().getGraphicsInfos().get(getParameters().getOptions().getGraphicsType());
         String result = graphicsInfo.getIp();
@@ -386,7 +403,7 @@ public class ConfigureConsoleOptionsQuery<P extends ConfigureConsoleOptionsParam
             // to match TLS certificate for connection
             String hostName = getCachedVm().getRunOnVdsName();
             QueryReturnValue queryReturnValue = backend.runInternalQuery(QueryType.GetVdsByName,
-                    new NameQueryParameters(hostName));
+                    new IdAndNameQueryParameters(getCachedVm().getClusterId(), hostName));
             VDS vds = queryReturnValue.getReturnValue();
             if (vds != null) {
                 result = vds.getHostName();

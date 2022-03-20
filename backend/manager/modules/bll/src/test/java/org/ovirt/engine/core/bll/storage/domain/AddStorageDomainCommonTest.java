@@ -44,7 +44,7 @@ public class AddStorageDomainCommonTest extends BaseCommandTest {
 
     @InjectMocks
     private AddStorageDomainCommon<StorageDomainManagementParameter> cmd =
-            new AddStorageDomainCommon<>(new StorageDomainManagementParameter(), null);
+            new AddStorageDomainCommon<>(new StorageDomainManagementParameter(), null){};
 
     public static Stream<MockConfigDescriptor<?>> mockConfiguration() {
         return Stream.of(MockConfigDescriptor.of(ConfigValues.StorageDomainNameSizeLimit, 10));
@@ -62,14 +62,13 @@ public class AddStorageDomainCommonTest extends BaseCommandTest {
     private StorageServerConnectionDao sscDao;
 
     private StorageDomainStatic sd;
-    private Guid spId;
     private StoragePool sp;
     private Guid connId;
 
     @BeforeEach
     public void setUp() {
         Guid vdsId = Guid.newGuid();
-        spId = Guid.newGuid();
+        Guid spId = Guid.newGuid();
         connId = Guid.newGuid();
 
         sd = new StorageDomainStatic();

@@ -10,7 +10,6 @@ import java.util.Map;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.exception.ExceptionUtils;
-import org.codehaus.jackson.annotate.JsonIgnoreProperties;
 import org.ovirt.engine.core.bll.provider.BaseProviderProxy;
 import org.ovirt.engine.core.bll.provider.network.NetworkProviderProxy;
 import org.ovirt.engine.core.common.businessentities.OpenstackNetworkProviderProperties;
@@ -24,10 +23,10 @@ import org.ovirt.engine.core.common.businessentities.network.VmNic;
 import org.ovirt.engine.core.common.businessentities.network.VnicProfile;
 import org.ovirt.engine.core.common.errors.EngineError;
 import org.ovirt.engine.core.common.errors.EngineException;
-import org.ovirt.engine.core.utils.NetworkUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.woorea.openstack.base.client.HttpMethod;
 import com.woorea.openstack.base.client.OpenStackRequest;
 import com.woorea.openstack.base.client.OpenStackResponseException;
@@ -228,7 +227,7 @@ public abstract class BaseNetworkProviderProxy<P extends OpenstackNetworkProvide
         boolean ignoreSecurityGroupsOnUpdate, String hostBindingId) {
 
         if (hostBindingId==null) {
-            hostBindingId = getHostId(host);
+            hostBindingId = host.getHostName();
             log.warn("Host binding id for external network {} on host {} is null, using host id {} to allocate vNIC " +
                     " {} instead. Please provide an after_get_caps hook for the plugin type {} on host {}",
                 network.getName(), host.getName(), hostBindingId, nic.getName(),
@@ -265,14 +264,6 @@ public abstract class BaseNetworkProviderProxy<P extends OpenstackNetworkProvide
             return execute(getClient().ports().update(portForUpdate));
         }
         return port;
-    }
-
-    private String getHostId(VDS host) {
-        if (host.getStaticData().getOpenstackNetworkProviderId() == null) {
-            return host.getHostName();
-        } else {
-            return NetworkUtils.getUniqueHostName(host);
-        }
     }
 
     protected Port modifyPortForAllocate(Port port, String hostBindingId, boolean hostChanged,
@@ -334,10 +325,10 @@ public abstract class BaseNetworkProviderProxy<P extends OpenstackNetworkProvide
 
     private boolean securityGroupsChanged(List<String> existingSecurityGroups, List<String> desiredSecurityGroups) {
         existingSecurityGroups = existingSecurityGroups == null ? NO_SECURITY_GROUPS : existingSecurityGroups;
-        return (desiredSecurityGroups == DEFAULT_SECURITY_GROUP
-                && existingSecurityGroups.isEmpty())
-                || (desiredSecurityGroups != DEFAULT_SECURITY_GROUP
-                && !CollectionUtils.isEqualCollection(existingSecurityGroups, desiredSecurityGroups));
+        return desiredSecurityGroups == DEFAULT_SECURITY_GROUP
+                && existingSecurityGroups.isEmpty()
+                || desiredSecurityGroups != DEFAULT_SECURITY_GROUP
+                && !CollectionUtils.isEqualCollection(existingSecurityGroups, desiredSecurityGroups);
     }
 
     private List<String> getSecurityGroups(VnicProfile vnicProfile) {

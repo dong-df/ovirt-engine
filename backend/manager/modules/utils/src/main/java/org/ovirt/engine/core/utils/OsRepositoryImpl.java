@@ -10,13 +10,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.prefs.BackingStoreException;
 import java.util.prefs.Preferences;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang.StringUtils;
+import org.ovirt.engine.core.common.FeatureSupported;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
 import org.ovirt.engine.core.common.businessentities.ChipsetType;
 import org.ovirt.engine.core.common.businessentities.ConsoleTargetType;
 import org.ovirt.engine.core.common.businessentities.DisplayType;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
+import org.ovirt.engine.core.common.businessentities.TpmSupport;
 import org.ovirt.engine.core.common.businessentities.UsbControllerModel;
 import org.ovirt.engine.core.common.businessentities.VmWatchdogType;
 import org.ovirt.engine.core.common.config.Config;
@@ -127,6 +130,13 @@ public enum OsRepositoryImpl implements OsRepository {
         return new ArrayList<>(idToUnameLookup.keySet());
     }
 
+    public Set<Integer> getUnsupportedOsIds() {
+        return idToUnameLookup.keySet()
+                .stream()
+                .filter(osId -> getBoolean(getValueByVersion(idToUnameLookup.get(osId), "deprecated", null), false))
+                .collect(Collectors.toSet());
+    }
+
     @Override
     public Map<Integer, String> getUniqueOsNames() {
         // return a defensive copy to avoid modification of this map.
@@ -189,6 +199,11 @@ public enum OsRepositoryImpl implements OsRepository {
     }
 
     @Override
+    public String getVmInitType(int osId) {
+        return getValueByVersion(idToUnameLookup.get(osId), "vmInitType", null);
+    }
+
+    @Override
     public List<Integer> getLinuxOss() {
         List<Integer> oss = new ArrayList<>();
         for (int osId : getOsIds()) {
@@ -197,6 +212,18 @@ public enum OsRepositoryImpl implements OsRepository {
             }
         }
         return oss;
+    }
+
+    @Override
+    public Map<Integer, String> getVmInitMap() {
+        Map<Integer, String> osNames = new HashMap<>();
+        for (int osId : getOsIds()) {
+            String vmInitType = getValueByVersion(idToUnameLookup.get(osId), "vmInitType", null);
+            if (vmInitType != null) {
+                osNames.put(osId, vmInitType);
+            }
+        }
+        return osNames;
     }
 
     @Override
@@ -253,6 +280,26 @@ public enum OsRepositoryImpl implements OsRepository {
     }
 
     @Override
+    public boolean requiresLegacyVirtio(int osId, ChipsetType chipset) {
+        return ChipsetType.Q35 == chipset &&
+                getBoolean(getValueByVersion(idToUnameLookup.get(osId),
+                "devices.legacyVirtio",
+                null), false);
+    }
+
+    @Override
+    public boolean requiresTpm(int osId) {
+        return getTpmSupport(osId) == TpmSupport.REQUIRED;
+    }
+
+    @Override
+    public boolean requiresOvirtGuestAgentChannel(int osId) {
+        return getBoolean(getValueByVersion(idToUnameLookup.get(osId),
+                        "devices.ovirtGuestAgentChannel",
+                        null), true);
+    }
+
+    @Override
     public List<String> getNetworkDevices(int osId, Version version) {
         String devices =
                 getValueByVersion(idToUnameLookup.get(osId), "devices.network", version);
@@ -289,6 +336,21 @@ public enum OsRepositoryImpl implements OsRepository {
     @Override
     public boolean isLinux(int osId) {
         return getOsFamily(osId).equalsIgnoreCase("linux");
+    }
+
+    @Override
+    public boolean isCloudInit(int osId) {
+        return getVmInitType(osId).equalsIgnoreCase("cloudinit");
+    }
+
+    @Override
+    public boolean isSysprep(int osId) {
+        return getVmInitType(osId).equalsIgnoreCase("sysprep");
+    }
+
+    @Override
+    public boolean isIgnition(int osId) {
+        return getVmInitType(osId).startsWith("ignition");
     }
 
     @Override
@@ -334,7 +396,10 @@ public enum OsRepositoryImpl implements OsRepository {
                 GraphicsType graphics = GraphicsType.fromString(pair.getFirst());
                 DisplayType display = DisplayType.valueOf(pair.getSecond());
 
-                graphicsAndDisplays.add(new Pair<>(graphics, display));
+                if (display != DisplayType.bochs ||
+                        version != null && !version.isNotValid() && FeatureSupported.isBochsDisplayEnabled(version)) {
+                    graphicsAndDisplays.add(new Pair<>(graphics, display));
+                }
             }
         }
 
@@ -392,26 +457,8 @@ public enum OsRepositoryImpl implements OsRepository {
     }
 
     @Override
-    public Map<Integer, Map<Version, Boolean>> getBalloonSupportMap() {
-        Map<Integer, Map<Version, Boolean>> balloonSupportMap = new HashMap<>();
-        Set<Version> versionsWithNull = new HashSet<>(Version.ALL);
-        versionsWithNull.add(null);
-
-        Set<Integer> osIds = new HashSet<>(getOsIds());
-        for (Integer osId : osIds) {
-            balloonSupportMap.put(osId, new HashMap<>());
-
-            for (Version ver : versionsWithNull) {
-                balloonSupportMap.get(osId).put(ver, isBalloonEnabled(osId, ver));
-            }
-        }
-
-        return balloonSupportMap;
-    }
-
-    @Override
-    public boolean isBalloonEnabled(int osId, Version version) {
-        return getBoolean(getValueByVersion(idToUnameLookup.get(osId), "devices.balloon.enabled", version), false);
+    public int getVgamemMultiplier(int osId) {
+        return getInt(getValueByVersion(idToUnameLookup.get(osId), "devices.display.vgamemMultiplier", null), 1);
     }
 
     @Override
@@ -500,6 +547,11 @@ public enum OsRepositoryImpl implements OsRepository {
     }
 
     @Override
+    public int getMinimumCpus(int osId) {
+        return getInt(getValueByVersion(idToUnameLookup.get(osId), "resources.minimum.numberOfCpus", null), 1);
+    }
+
+    @Override
     public Map<Integer, Map<Version, Boolean>> getSoundDeviceSupportMap() {
         Map<Integer, Map<Version, Boolean>> soundDeviceSupportMap = new HashMap<>();
         Set<Version> versionsWithNull = new HashSet<>(Version.ALL);
@@ -564,6 +616,44 @@ public enum OsRepositoryImpl implements OsRepository {
                         "cpu.unsupported",
                         version)
                         .toLowerCase().split(",")));
+    }
+
+    private TpmSupport getTpmSupport(String value) {
+        TpmSupport tpmSupport = value != null ? TpmSupport.forValue(value) : null;
+        return tpmSupport != null ? tpmSupport : TpmSupport.UNSUPPORTED;
+    }
+
+    @Override
+    public TpmSupport getTpmSupport(int osId) {
+        return getTpmSupport(getValueByVersion(idToUnameLookup.get(osId), "devices.tpm", null));
+    }
+
+    @Override
+    public boolean isTpmAllowed(int osId) {
+        return getTpmSupport(osId) != TpmSupport.UNSUPPORTED;
+    }
+
+    @Override
+    public boolean isQ35Supported(int osId) {
+        String supported = getValueByVersion(idToUnameLookup.get(osId), "q35Support", null);
+        // possible values: "false", "insecure", "true"
+        return !supported.equalsIgnoreCase("false");
+    }
+
+    @Override
+    public boolean isSecureBootSupported(int osId) {
+        String supported = getValueByVersion(idToUnameLookup.get(osId), "q35Support", null);
+        // possible values: "false", "insecure", "true"
+        return supported.equalsIgnoreCase("true");
+    }
+
+    @Override
+    public Map<Integer, TpmSupport> getTpmSupportMap() {
+        Map<Integer, TpmSupport> tpmSupportMap = new HashMap<>();
+        for (Integer osId : getOsIds()) {
+            tpmSupportMap.put(osId, getTpmSupport(osId));
+        }
+        return tpmSupportMap;
     }
 
     private boolean getBoolean(String value, boolean defaultValue) {
@@ -669,11 +759,6 @@ public enum OsRepositoryImpl implements OsRepository {
      */
     private String versionedValuePath(Version version) {
         return version == null ? "value" : "value." + version.toString();
-    }
-
-    @Override
-    public boolean isSingleQxlDeviceEnabled(int osId) {
-        return isLinux(osId);
     }
 
     public Map<String, Integer> getBackwardCompatibleNamesToIds() {

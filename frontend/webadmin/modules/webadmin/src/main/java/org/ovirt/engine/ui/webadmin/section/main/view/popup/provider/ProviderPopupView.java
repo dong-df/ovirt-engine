@@ -28,6 +28,7 @@ import org.ovirt.engine.ui.webadmin.ApplicationConstants;
 import org.ovirt.engine.ui.webadmin.gin.AssetProvider;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.popup.provider.ProviderPopupPresenterWidget;
 import org.ovirt.engine.ui.webadmin.widget.provider.KVMPropertiesWidget;
+import org.ovirt.engine.ui.webadmin.widget.provider.KubevirtPropertiesWidget;
 import org.ovirt.engine.ui.webadmin.widget.provider.VmwarePropertiesWidget;
 import org.ovirt.engine.ui.webadmin.widget.provider.XENPropertiesWidget;
 
@@ -129,7 +130,7 @@ public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel
     @WithElementId
     StringEntityModelTextBoxEditor authHostnameEditor;
 
-    @UiField
+    @UiField(provided = true)
     @Path(value = "authPort.entity")
     @WithElementId
     StringEntityModelTextBoxEditor authPortEditor;
@@ -185,6 +186,10 @@ public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel
     @Ignore
     XENPropertiesWidget xenPropertiesWidget;
 
+    @UiField
+    @Ignore
+    KubevirtPropertiesWidget kubevirtPropertiesWidget;
+
     @UiField(provided = true)
     @Path(value = "readOnly.entity")
     @WithElementId
@@ -200,6 +205,7 @@ public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel
     public ProviderPopupView(EventBus eventBus) {
         super(eventBus);
 
+        authPortEditor = StringEntityModelTextBoxEditor.newTrimmingEditor();
         typeEditor = new ListModelListBoxEditor<>(new EnumRenderer());
         authApiVersionEditor = new ListModelListBoxEditor<>(new NameRenderer());
         autoSyncEditor = new EntityModelCheckBoxEditor(Align.RIGHT);
@@ -227,10 +233,13 @@ public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel
         vmwarePropertiesWidget.edit(model.getVmwarePropertiesModel());
         kvmPropertiesWidget.edit(model.getKvmPropertiesModel());
         xenPropertiesWidget.edit(model.getXenPropertiesModel());
+        kubevirtPropertiesWidget.edit(model.getKubevirtPropertiesModel());
 
         if (model.isEditProviderMode()) {
             setCurrentActiveProviderWidget();
         }
+
+        updatePasswordTitle();
     }
 
     @Override
@@ -238,6 +247,7 @@ public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel
         vmwarePropertiesWidget.flush();
         kvmPropertiesWidget.flush();
         xenPropertiesWidget.flush();
+        kubevirtPropertiesWidget.flush();
         return driver.flush();
     }
 
@@ -289,7 +299,25 @@ public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel
             kvmPropertiesWidget.setVisible(providerModel.getKvmPropertiesModel().getIsAvailable());
             vmwarePropertiesWidget.setVisible(providerModel.getVmwarePropertiesModel().getIsAvailable());
             xenPropertiesWidget.setVisible(providerModel.getXenPropertiesModel().getIsAvailable());
+            kubevirtPropertiesWidget.setVisible(providerModel.getKubevirtPropertiesModel().getIsAvailable());
         }
+    }
+
+    @Override public void updatePasswordTitle() {
+        if (providerModel.getType() == null || providerModel.getType().getSelectedItem() == null) {
+            return;
+        }
+
+        String passwordLabel;
+        switch (providerModel.getType().getSelectedItem()) {
+        case KUBEVIRT:
+            passwordLabel = constants.kubevirtToken();
+            break;
+        default:
+            passwordLabel = constants.passwordProvider();
+            break;
+        }
+        passwordEditor.setLabel(passwordLabel);
     }
 
     @Override
@@ -317,6 +345,7 @@ public class ProviderPopupView extends AbstractModelBoundPopupView<ProviderModel
         projectNameEditor.setTabIndexes(nextTabIndex++);
         projectDomainNameEditor.setTabIndexes(nextTabIndex++);
         tenantNameEditor.setTabIndex(nextTabIndex++);
+        nextTabIndex = kubevirtPropertiesWidget.setTabIndexes(nextTabIndex++);
         testButton.setTabIndex(nextTabIndex++);
         return nextTabIndex;
     }

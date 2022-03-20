@@ -30,6 +30,7 @@ import org.ovirt.engine.core.common.action.AddVmTemplateParameters;
 import org.ovirt.engine.core.common.businessentities.AsyncTaskStatus;
 import org.ovirt.engine.core.common.businessentities.AsyncTaskStatusEnum;
 import org.ovirt.engine.core.common.businessentities.Cluster;
+import org.ovirt.engine.core.common.businessentities.CpuPinningPolicy;
 import org.ovirt.engine.core.common.businessentities.VmIcon;
 import org.ovirt.engine.core.common.businessentities.VmInit;
 import org.ovirt.engine.core.common.businessentities.VmStatic;
@@ -83,7 +84,7 @@ public class BackendTemplatesResourceTest
         setUpGetVirtioScsiExpectations(0, 0);
         setUpGetSoundcardExpectations(0, 0, 1);
         setUpGetRngDeviceExpectations(0, 0);
-        setUpGetBallooningExpectations(0, 0);
+        setUpGetTpmExpectations(0, 0);
 
         setUpCreationExpectations(ActionType.AddVmTemplate,
                 AddVmTemplateParameters.class,
@@ -134,7 +135,7 @@ public class BackendTemplatesResourceTest
         setUpGetVirtioScsiExpectations(0);
         setUpGetSoundcardExpectations(0, 1);
         setUpGetRngDeviceExpectations(0);
-        setUpGetBallooningExpectations(new Integer[] {0});
+        setUpGetTpmExpectations(0);
         setUpGetEntityExpectations(QueryType.GetVmByVmId,
                                    IdQueryParameters.class,
                                    new String[] { "Id" },
@@ -169,7 +170,7 @@ public class BackendTemplatesResourceTest
         setUpGetGraphicsExpectations(1);
         setUpGetConsoleExpectations(0, 0, 1);
         setUpGetSoundcardExpectations(1);
-        setUpGetBallooningExpectations(0, 0);
+        setUpGetTpmExpectations(0, 0);
 
         setUpGetEntityExpectations(QueryType.GetVmByVmId,
                 IdQueryParameters.class,
@@ -222,7 +223,7 @@ public class BackendTemplatesResourceTest
         setUpGetVirtioScsiExpectations(2, 2);
         setUpGetSoundcardExpectations(2, 2, 1);
         setUpGetRngDeviceExpectations(2, 2);
-        setUpGetBallooningExpectations(2, 2);
+        setUpGetTpmExpectations(2);
 
             setUpGetEntityExpectations(QueryType.GetVmByVmId,
                                        IdQueryParameters.class,
@@ -272,7 +273,7 @@ public class BackendTemplatesResourceTest
         setUpGetVirtioScsiExpectations(0, 0);
         setUpGetSoundcardExpectations(0, 0, 1);
         setUpGetRngDeviceExpectations(0, 0);
-        setUpGetBallooningExpectations(0, 0);
+        setUpGetTpmExpectations(0, 0);
 
         setUpCreationExpectations(ActionType.AddVmTemplate,
                                   AddVmTemplateParameters.class,
@@ -319,7 +320,7 @@ public class BackendTemplatesResourceTest
         setUpGetVirtioScsiExpectations(0, 0);
         setUpGetSoundcardExpectations(0, 0, 1);
         setUpGetRngDeviceExpectations(0, 0);
-        setUpGetBallooningExpectations(0, 0);
+        setUpGetTpmExpectations(0, 0);
 
         setUpCreationExpectations(ActionType.AddVmTemplate,
                                   AddVmTemplateParameters.class,
@@ -364,7 +365,7 @@ public class BackendTemplatesResourceTest
         setUpGetVirtioScsiExpectations(0, 0);
         setUpGetSoundcardExpectations(0, 0, 1);
         setUpGetRngDeviceExpectations(0, 0);
-        setUpGetBallooningExpectations(0, 0);
+        setUpGetTpmExpectations(0, 0);
 
         setUpCreationExpectations(ActionType.AddVmTemplate,
                 AddVmTemplateParameters.class,
@@ -414,7 +415,7 @@ public class BackendTemplatesResourceTest
         setUpGetVirtioScsiExpectations(0, 0);
         setUpGetSoundcardExpectations(0, 0, 1);
         setUpGetRngDeviceExpectations(0, 0);
-        setUpGetBallooningExpectations(0, 0);
+        setUpGetTpmExpectations(0, 0);
 
         setUpGetEntityExpectations(QueryType.GetClusterByName,
                 NameQueryParameters.class,
@@ -484,7 +485,7 @@ public class BackendTemplatesResourceTest
         setUpGetGraphicsExpectations(1);
         setUpGetConsoleExpectations(0, 0, 1);
         setUpGetSoundcardExpectations(1);
-        setUpGetBallooningExpectations(0, 0);
+        setUpGetTpmExpectations(0, 0);
 
         setUpGetEntityExpectations(QueryType.GetVmByVmId,
                 IdQueryParameters.class,
@@ -523,7 +524,7 @@ public class BackendTemplatesResourceTest
         setUpGetGraphicsExpectations(1);
         setUpGetConsoleExpectations(0, 0, 1);
         setUpGetSoundcardExpectations(1);
-        setUpGetBallooningExpectations(0, 0);
+        setUpGetTpmExpectations(0, 0);
 
         setUpGetEntityExpectations(QueryType.GetVmByVmId,
                 IdQueryParameters.class,
@@ -602,6 +603,7 @@ public class BackendTemplatesResourceTest
         }
         when(entity.getSmallIconId()).thenReturn(GUIDS[2]);
         when(entity.getLargeIconId()).thenReturn(GUIDS[3]);
+        when(entity.getCpuPinningPolicy()).thenReturn(CpuPinningPolicy.NONE);
         return entity;
     }
 
@@ -699,5 +701,4 @@ public class BackendTemplatesResourceTest
         }
         return vmInits;
     }
-
 }

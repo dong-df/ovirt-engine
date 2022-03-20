@@ -19,6 +19,7 @@ public interface OvfProperties {
     String VMD_ALIAS = "Alias";
     String VMD_CUSTOM_PROP = "CustomProperties";
     String VMD_SNAPSHOT_PROP = "SnapshotId";
+    String VMD_ID = "rasd:InstanceId";
 
     String AUTO_STARTUP = "AutoStartup";
     String PRIORITY = "Priority";
@@ -68,6 +69,7 @@ public interface OvfProperties {
     String BASE_TEMPLATE_ID = "BaseTemplateId";
     String TEMPLATE_VERSION_NUMBER = "TemplateVersionNumber";
     String TEMPLATE_VERSION_NAME = "TemplateVersionName";
+    String TEMPLATE_IS_SEALED = "TemplateSealed";
     String SERIAL_NUMBER_POLICY = "SerialNumberPolicy";
     String CUSTOM_SERIAL_NUMBER = "CustomSerialNumber";
     String IS_BOOT_MENU_ENABLED = "IsBootMenuEnabled";
@@ -80,6 +82,7 @@ public interface OvfProperties {
     String IS_MIGRATE_COMPRESSED = "IsMigrateCompressed";
     String IS_MIGRATE_ENCRYPTED = "IsMigrateEncrypted";
     String MIGRATION_POLICY_ID = "MigrationPolicyId";
+    String PARALLEL_MIGRATIONS = "ParallelMigrations";
     String CUSTOM_EMULATED_MACHINE = "CustomEmulatedMachine";
     String BIOS_TYPE = "BiosType";
     String CUSTOM_CPU_NAME = "CustomCpuName";
@@ -96,6 +99,10 @@ public interface OvfProperties {
     String ENGINE_XML = "EngineXml";
     String CPU_PINNING = "CpuPinning";
     String MULTI_QUEUES_ENABLED = "MultiQueuesEnabled";
+    String VIRTIO_SCSI_MULTI_QUEUES_ENABLED = "VirtioScsiMultiQueuesEnabled";
+    String NUMA_TUNE_MODE = "NumaTuneMode";
+    String BALLOON_ENABLED = "BalloonEnabled";
+    String CPU_PINNING_POLICY = "CpuPinningPolicy";
 
     // Luns
     String LUN_ID = "lun_id";
@@ -115,4 +122,9 @@ public interface OvfProperties {
     String USER_DOMAIN = "UserDomain";
     String USER_ROLES = "UserRoles";
     String ROLE_NAME = "RoleName";
+
+    // External data
+    String VM_EXTERNAL_DATA_ITEM = "VmExternalDataItem";
+    String VM_EXTERNAL_DATA_KIND = "kind";
+    String VM_EXTERNAL_DATA_CONTENT = "VmExternalDataContent";
 }

@@ -24,7 +24,8 @@ CREATE OR REPLACE FUNCTION Insertnetwork (
     v_provider_physical_network_id UUID,
     v_qos_id UUID,
     v_label TEXT,
-    v_dns_resolver_configuration_id UUID
+    v_dns_resolver_configuration_id UUID,
+    v_port_isolation BOOLEAN
     )
 RETURNS VOID AS $PROCEDURE$
 BEGIN
@@ -48,7 +49,8 @@ BEGIN
         provider_physical_network_id,
         qos_id,
         label,
-        dns_resolver_configuration_id
+        dns_resolver_configuration_id,
+        port_isolation
         )
     VALUES (
         v_addr,
@@ -70,7 +72,8 @@ BEGIN
         v_provider_physical_network_id,
         v_qos_id,
         v_label,
-        v_dns_resolver_configuration_id
+        v_dns_resolver_configuration_id,
+        v_port_isolation
         );
 END;$PROCEDURE$
 LANGUAGE plpgsql;
@@ -95,7 +98,8 @@ CREATE OR REPLACE FUNCTION Updatenetwork (
     v_provider_physical_network_id UUID,
     v_qos_id UUID,
     v_label TEXT,
-    v_dns_resolver_configuration_id UUID
+    v_dns_resolver_configuration_id UUID,
+    v_port_isolation BOOLEAN
     )
 RETURNS VOID
     --The [network] table doesn't have a timestamp column. Optimistic concurrency logic cannot be generated
@@ -120,7 +124,8 @@ BEGIN
         provider_physical_network_id = v_provider_physical_network_id,
         qos_id = v_qos_id,
         label = v_label,
-        dns_resolver_configuration_id = v_dns_resolver_configuration_id
+        dns_resolver_configuration_id = v_dns_resolver_configuration_id,
+        port_isolation = v_port_isolation
     WHERE id = v_id;
 END;$PROCEDURE$
 LANGUAGE plpgsql;
@@ -314,6 +319,7 @@ CREATE TYPE networkViewClusterType AS (
         provider_physical_network_id UUID,
         qos_id UUID,
         dns_resolver_configuration_id UUID,
+        port_isolation BOOLEAN,
         network_id UUID,
         cluster_id UUID,
         status INT,
@@ -354,6 +360,7 @@ BEGIN
         network.provider_physical_network_id,
         network.qos_id,
         network.dns_resolver_configuration_id,
+        network.port_isolation,
         network_cluster.network_id,
         network_cluster.cluster_id,
         network_cluster.status,
@@ -628,27 +635,139 @@ BEGIN
 END;$PROCEDURE$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION Getinterface_viewByvds_id (
+DROP TYPE IF EXISTS vds_interface_view_qos_rs CASCADE;
+CREATE TYPE vds_interface_view_qos_rs AS (
+    rx_rate NUMERIC(24,4),
+    tx_rate NUMERIC(24,4),
+    rx_drop NUMERIC(20, 0),
+    tx_drop NUMERIC(20, 0),
+    rx_total NUMERIC(20, 0),
+    tx_total NUMERIC(20, 0),
+    rx_offset NUMERIC(20, 0),
+    tx_offset NUMERIC(20, 0),
+    iface_status INTEGER,
+    sample_time DOUBLE PRECISION,
+    type INTEGER,
+    gateway CHARACTER VARYING(20),
+    ipv4_default_route BOOLEAN,
+    ipv6_gateway CHARACTER VARYING(50),
+    subnet CHARACTER VARYING(20),
+    ipv6_prefix INTEGER,
+    addr CHARACTER VARYING(20),
+    ipv6_address CHARACTER VARYING(50),
+    speed INTEGER,
+    base_interface CHARACTER VARYING(50),
+    vlan_id INTEGER,
+    bond_type INTEGER,
+    bond_name CHARACTER VARYING(50),
+    is_bond BOOLEAN,
+    bond_opts CHARACTER VARYING(4000),
+    mac_addr CHARACTER VARYING(59),
+    network_name CHARACTER VARYING(256),
+    name CHARACTER VARYING(50),
+    vds_id UUID,
+    vds_name CHARACTER VARYING(255),
+    id UUID,
+    boot_protocol INTEGER,
+    ipv6_boot_protocol INTEGER,
+    mtu INTEGER,
+    bridged BOOLEAN,
+    reported_switch_type CHARACTER VARYING(6),
+    is_vds INTEGER,
+    qos_overridden BOOLEAN,
+    labels TEXT,
+    cluster_id UUID,
+    ad_partner_mac CHARACTER VARYING(59),
+    ad_aggregator_id INTEGER,
+    bond_active_slave CHARACTER VARYING(50),
+    qos_id UUID,
+    qos_name CHARACTER VARYING(50),
+    qos_type SMALLINT,
+    out_average_linkshare INTEGER,
+    out_average_upperlimit INTEGER,
+    out_average_realtime INTEGER
+);
+
+CREATE OR REPLACE FUNCTION GetInterfaceViewWithQosByVdsId (
     v_vds_id UUID,
     v_user_id UUID,
     v_is_filtered boolean
     )
-RETURNS SETOF vds_interface_view STABLE AS $PROCEDURE$
+RETURNS SETOF vds_interface_view_qos_rs STABLE AS $PROCEDURE$
 BEGIN
     RETURN QUERY
 
-    SELECT *
-    FROM vds_interface_view
-    WHERE vds_id = v_vds_id
-        AND (
-            NOT v_is_filtered
-            OR EXISTS (
-                SELECT 1
-                FROM user_vds_permissions_view
-                WHERE user_id = v_user_id
-                    AND entity_id = v_vds_id
+    SELECT
+        s1.rx_rate,
+        s1.tx_rate,
+        s1.rx_drop,
+        s1.tx_drop,
+        s1.rx_total,
+        s1.tx_total,
+        s1.rx_offset,
+        s1.tx_offset,
+        s1.iface_status,
+        s1.sample_time,
+        s1.type,
+        s1.gateway,
+        s1.ipv4_default_route,
+        s1.ipv6_gateway,
+        s1.subnet,
+        s1.ipv6_prefix,
+        s1.addr,
+        s1.ipv6_address,
+        s1.speed,
+        s1.base_interface,
+        s1.vlan_id,
+        s1.bond_type,
+        s1.bond_name,
+        s1.is_bond,
+        s1.bond_opts,
+        s1.mac_addr,
+        s1.network_name,
+        s1.name,
+        s1.vds_id,
+        s1.vds_name,
+        s1.id,
+        s1.boot_protocol,
+        s1.ipv6_boot_protocol,
+        s1.mtu,
+        s1.bridged,
+        s1.reported_switch_type,
+        s1.is_vds,
+        s1.qos_overridden,
+        s1.labels,
+        s1.cluster_id,
+        s1.ad_partner_mac,
+        s1.ad_aggregator_id,
+        s1.bond_active_slave,
+        s2.id AS qos_id,
+        s2.name AS qos_name,
+        s2.qos_type,
+        s2.out_average_linkshare,
+        s2.out_average_upperlimit,
+        s2.out_average_realtime
+    FROM (
+        SELECT *
+        FROM vds_interface_view
+        WHERE vds_id = v_vds_id
+            AND (
+                NOT v_is_filtered
+                OR EXISTS (
+                    SELECT 1
+                    FROM user_vds_permissions_view
+                    WHERE user_id = v_user_id
+                        AND entity_id = v_vds_id
+                    )
                 )
-            );
+        ) s1
+    LEFT JOIN (
+            SELECT *
+            FROM qos
+            WHERE qos.qos_type = 4
+        ) s2
+        ON s1.id = s2.id
+    ;
 END;$PROCEDURE$
 LANGUAGE plpgsql;
 
@@ -684,7 +803,8 @@ BEGIN
     FROM vds_interface_view
     INNER JOIN vds_static
         ON vds_interface_view.vds_id = vds_static.vds_id
-    WHERE vds_interface_view.addr = v_addr
+    WHERE (vds_interface_view.addr = v_addr
+        OR vds_interface_view.ipv6_address = v_addr)
         AND vds_static.cluster_id = v_cluster_id;
 END;$PROCEDURE$
 LANGUAGE plpgsql;
@@ -759,16 +879,77 @@ BEGIN
 END;$PROCEDURE$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION GetInterfacesByClusterId (v_cluster_id UUID)
-RETURNS SETOF vds_interface_view STABLE AS $PROCEDURE$
+CREATE OR REPLACE FUNCTION GetInterfacesWithQosByClusterId (
+    v_cluster_id UUID
+    )
+RETURNS SETOF vds_interface_view_qos_rs STABLE AS $PROCEDURE$
 BEGIN
     RETURN QUERY
 
-    SELECT vds_interface_view.*
-    FROM vds_interface_view
-    INNER JOIN vds_static
-        ON vds_interface_view.vds_id = vds_static.vds_id
-    WHERE vds_static.cluster_id = v_cluster_id;
+    SELECT
+        s1.rx_rate,
+        s1.tx_rate,
+        s1.rx_drop,
+        s1.tx_drop,
+        s1.rx_total,
+        s1.tx_total,
+        s1.rx_offset,
+        s1.tx_offset,
+        s1.iface_status,
+        s1.sample_time,
+        s1.type,
+        s1.gateway,
+        s1.ipv4_default_route,
+        s1.ipv6_gateway,
+        s1.subnet,
+        s1.ipv6_prefix,
+        s1.addr,
+        s1.ipv6_address,
+        s1.speed,
+        s1.base_interface,
+        s1.vlan_id,
+        s1.bond_type,
+        s1.bond_name,
+        s1.is_bond,
+        s1.bond_opts,
+        s1.mac_addr,
+        s1.network_name,
+        s1.name,
+        s1.vds_id,
+        s1.vds_name,
+        s1.id,
+        s1.boot_protocol,
+        s1.ipv6_boot_protocol,
+        s1.mtu,
+        s1.bridged,
+        s1.reported_switch_type,
+        s1.is_vds,
+        s1.qos_overridden,
+        s1.labels,
+        s1.cluster_id,
+        s1.ad_partner_mac,
+        s1.ad_aggregator_id,
+        s1.bond_active_slave,
+        s2.id AS qos_id,
+        s2.name AS qos_name,
+        s2.qos_type,
+        s2.out_average_linkshare,
+        s2.out_average_upperlimit,
+        s2.out_average_realtime
+    FROM (
+        SELECT vds_interface_view.*
+        FROM vds_interface_view
+        INNER JOIN vds_static
+            ON vds_interface_view.vds_id = vds_static.vds_id
+        WHERE vds_static.cluster_id = v_cluster_id
+        ) s1
+    LEFT JOIN (
+            SELECT *
+            FROM qos
+            WHERE qos.qos_type = 4
+        ) s2
+        ON s1.id = s2.id
+    ;
 END;$PROCEDURE$
 LANGUAGE plpgsql;
 
@@ -798,7 +979,8 @@ CREATE OR REPLACE FUNCTION InsertVmInterface (
     v_vnic_profile_id UUID,
     v_vm_guid UUID,
     v_type INT,
-    v_linked BOOLEAN
+    v_linked BOOLEAN,
+    v_synced BOOLEAN
     )
 RETURNS VOID AS $PROCEDURE$
 BEGIN
@@ -810,7 +992,8 @@ BEGIN
         vnic_profile_id,
         vm_guid,
         type,
-        linked
+        linked,
+        synced
         )
     VALUES (
         v_id,
@@ -820,7 +1003,8 @@ BEGIN
         v_vnic_profile_id,
         v_vm_guid,
         v_type,
-        v_linked
+        v_linked,
+        v_synced
         );
 END;$PROCEDURE$
 LANGUAGE plpgsql;
@@ -833,7 +1017,8 @@ CREATE OR REPLACE FUNCTION UpdateVmInterface (
     v_vnic_profile_id UUID,
     v_vm_guid UUID,
     v_type INT,
-    v_linked BOOLEAN
+    v_linked BOOLEAN,
+    v_synced BOOLEAN
     )
 RETURNS VOID AS $PROCEDURE$
 BEGIN
@@ -845,7 +1030,8 @@ BEGIN
         vm_guid = v_vm_guid,
         type = v_type,
         _update_date = LOCALTIMESTAMP,
-        linked = v_linked
+        linked = v_linked,
+        synced = v_synced
     WHERE id = v_id;
 END;$PROCEDURE$
 LANGUAGE plpgsql;
@@ -889,6 +1075,30 @@ BEGIN
 
     SELECT *
     FROM vm_interface;
+END;$PROCEDURE$
+LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION GetActiveVmInterfacesByNetworkId (v_network_id UUID)
+RETURNS SETOF vm_interface STABLE AS $PROCEDURE$
+BEGIN
+    RETURN QUERY
+
+    SELECT vm_interface.*
+    FROM vm_interfaces_plugged_on_vm_not_down_view as vm_interface
+    INNER JOIN vnic_profiles
+        ON vm_interface.vnic_profile_id = vnic_profiles.id
+    WHERE vnic_profiles.network_id = v_network_id;
+END;$PROCEDURE$
+LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION GetActiveVmInterfacesByProfileId (v_profile_id UUID)
+RETURNS SETOF vm_interface STABLE AS $PROCEDURE$
+BEGIN
+    RETURN QUERY
+
+    SELECT vm_interface.*
+    FROM vm_interfaces_plugged_on_vm_not_down_view as vm_interface
+    WHERE vm_interface.vnic_profile_id = v_profile_id;
 END;$PROCEDURE$
 LANGUAGE plpgsql;
 
@@ -976,6 +1186,7 @@ BEGIN
             FROM vm_static
             WHERE vm_static.cluster_id = v_cluster_id
               AND vm_static.vm_guid = vm_interface.vm_guid
+              AND vm_interface.mac_addr IS NOT NULL
             );
 END;$PROCEDURE$
 LANGUAGE plpgsql;
@@ -1119,14 +1330,14 @@ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION Insertvm_interface_statistics (
     v_id UUID,
-    v_rx_drop DECIMAL(18, 4),
-    v_rx_rate DECIMAL(18, 4),
-    v_rx_total BIGINT,
-    v_rx_offset BIGINT,
-    v_tx_drop DECIMAL(18, 4),
-    v_tx_rate DECIMAL(18, 4),
-    v_tx_total BIGINT,
-    v_tx_offset BIGINT,
+    v_rx_drop NUMERIC(20, 0),
+    v_rx_rate NUMERIC(24, 4),
+    v_rx_total NUMERIC(20, 0),
+    v_rx_offset NUMERIC(20, 0),
+    v_tx_drop NUMERIC(20, 0),
+    v_tx_rate NUMERIC(24, 4),
+    v_tx_total NUMERIC(20, 0),
+    v_tx_offset NUMERIC(20, 0),
     v_iface_status INT,
     v_sample_time FLOAT,
     v_vm_id UUID
@@ -1166,14 +1377,14 @@ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION Updatevm_interface_statistics (
     v_id UUID,
-    v_rx_drop DECIMAL(18, 4),
-    v_rx_rate DECIMAL(18, 4),
-    v_rx_total BIGINT,
-    v_rx_offset BIGINT,
-    v_tx_drop DECIMAL(18, 4),
-    v_tx_rate DECIMAL(18, 4),
-    v_tx_total BIGINT,
-    v_tx_offset BIGINT,
+    v_rx_drop NUMERIC(20, 0),
+    v_rx_rate NUMERIC(24, 4),
+    v_rx_total NUMERIC(20, 0),
+    v_rx_offset NUMERIC(20, 0),
+    v_tx_drop NUMERIC(20, 0),
+    v_tx_rate NUMERIC(24, 4),
+    v_tx_total NUMERIC(20, 0),
+    v_tx_offset NUMERIC(20, 0),
     v_iface_status INT,
     v_sample_time FLOAT,
     v_vm_id UUID
@@ -1287,14 +1498,14 @@ LANGUAGE plpgsql;
 --
 CREATE OR REPLACE FUNCTION Insertvds_interface_statistics (
     v_id UUID,
-    v_rx_drop DECIMAL(18, 4),
-    v_rx_rate DECIMAL(18, 4),
-    v_rx_total BIGINT,
-    v_rx_offset BIGINT,
-    v_tx_drop DECIMAL(18, 4),
-    v_tx_rate DECIMAL(18, 4),
-    v_tx_total BIGINT,
-    v_tx_offset BIGINT,
+    v_rx_drop NUMERIC(20, 0),
+    v_rx_rate NUMERIC(24, 4),
+    v_rx_total NUMERIC(20, 0),
+    v_rx_offset NUMERIC(20, 0),
+    v_tx_drop NUMERIC(20, 0),
+    v_tx_rate NUMERIC(24, 4),
+    v_tx_total NUMERIC(20, 0),
+    v_tx_offset NUMERIC(20, 0),
     v_iface_status INT,
     v_sample_time FLOAT,
     v_vds_id UUID
@@ -1334,14 +1545,14 @@ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION Updatevds_interface_statistics (
     v_id UUID,
-    v_rx_drop DECIMAL(18, 4),
-    v_rx_rate DECIMAL(18, 4),
-    v_rx_total BIGINT,
-    v_rx_offset BIGINT,
-    v_tx_drop DECIMAL(18, 4),
-    v_tx_rate DECIMAL(18, 4),
-    v_tx_total BIGINT,
-    v_tx_offset BIGINT,
+    v_rx_drop NUMERIC(20, 0),
+    v_rx_rate NUMERIC(24, 4),
+    v_rx_total NUMERIC(20, 0),
+    v_rx_offset NUMERIC(20, 0),
+    v_tx_drop NUMERIC(20, 0),
+    v_tx_rate NUMERIC(24, 4),
+    v_tx_total NUMERIC(20, 0),
+    v_tx_offset NUMERIC(20, 0),
     v_iface_status INT,
     v_sample_time FLOAT,
     v_vds_id UUID
@@ -1549,16 +1760,16 @@ CREATE OR REPLACE FUNCTION GetvmStaticByGroupIdAndNetwork (
     v_groupId UUID,
     v_networkName VARCHAR(50)
     )
-RETURNS SETOF vm_static STABLE AS $PROCEDURE$
+RETURNS SETOF vm_static_view STABLE AS $PROCEDURE$
 BEGIN
     RETURN QUERY
 
-    SELECT vm_static.*
-    FROM vm_static
+    SELECT vm_static_view.*
+    FROM vm_static_view
     INNER JOIN vm_interface_view
-        ON vm_static.vm_guid = vm_interface_view.vm_guid
+        ON vm_static_view.vm_guid = vm_interface_view.vm_guid
             AND network_name = v_networkName
-            AND vm_static.cluster_id = v_groupId;
+            AND vm_static_view.cluster_id = v_groupId;
 END;$PROCEDURE$
 LANGUAGE plpgsql;
 
@@ -1682,7 +1893,8 @@ CREATE OR REPLACE FUNCTION InsertVnicProfile (
     v_migratable BOOLEAN,
     v_custom_properties TEXT,
     v_description TEXT,
-    v_network_filter_id UUID
+    v_network_filter_id UUID,
+    v_failover_vnic_profile_id UUID
     )
 RETURNS VOID AS $PROCEDURE$
 BEGIN
@@ -1696,7 +1908,8 @@ BEGIN
         migratable,
         custom_properties,
         description,
-        network_filter_id
+        network_filter_id,
+        failover_vnic_profile_id
         )
     VALUES (
         v_id,
@@ -1708,7 +1921,8 @@ BEGIN
         v_migratable,
         v_custom_properties,
         v_description,
-        v_network_filter_id
+        v_network_filter_id,
+        v_failover_vnic_profile_id
         );
 END;$PROCEDURE$
 LANGUAGE plpgsql;
@@ -1723,7 +1937,8 @@ CREATE OR REPLACE FUNCTION UpdateVnicProfile (
     v_migratable BOOLEAN,
     v_custom_properties TEXT,
     v_description TEXT,
-    v_network_filter_id UUID
+    v_network_filter_id UUID,
+    v_failover_vnic_profile_id UUID
     )
 RETURNS VOID AS $PROCEDURE$
 BEGIN
@@ -1738,7 +1953,8 @@ BEGIN
         custom_properties = v_custom_properties,
         description = v_description,
         _update_date = LOCALTIMESTAMP,
-        network_filter_id = v_network_filter_id
+        network_filter_id = v_network_filter_id,
+        failover_vnic_profile_id = v_failover_vnic_profile_id
     WHERE id = v_id;
 END;$PROCEDURE$
 LANGUAGE plpgsql;
@@ -1775,6 +1991,17 @@ BEGIN
     SELECT *
     FROM vnic_profiles
     WHERE network_id = v_network_id;
+END;$PROCEDURE$
+LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION GetVnicProfilesByFailoverVnicProfileId (v_failover_vnic_profile_id UUID)
+RETURNS SETOF vnic_profiles STABLE AS $PROCEDURE$
+BEGIN
+RETURN QUERY
+
+SELECT *
+FROM vnic_profiles
+WHERE failover_vnic_profile_id = v_failover_vnic_profile_id;
 END;$PROCEDURE$
 LANGUAGE plpgsql;
 
@@ -2312,34 +2539,121 @@ BEGIN
 END;$PROCEDURE$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION GetNetworkAttachmentsByHostId (v_host_id UUID)
-RETURNS SETOF network_attachments STABLE AS $PROCEDURE$
+DROP TYPE IF EXISTS network_attachments_qos_rs CASCADE;
+CREATE TYPE network_attachments_qos_rs AS (
+    id UUID,
+    network_id UUID,
+    nic_id UUID,
+    boot_protocol CHARACTER VARYING(20),
+    address CHARACTER VARYING(20),
+    netmask CHARACTER VARYING(20),
+    gateway CHARACTER VARYING(20),
+    custom_properties TEXT,
+    _create_date TIMESTAMP WITH TIME ZONE,
+    _update_date TIMESTAMP WITH TIME ZONE,
+    ipv6_boot_protocol CHARACTER VARYING(20),
+    ipv6_address CHARACTER VARYING(50),
+    ipv6_prefix INTEGER,
+    ipv6_gateway CHARACTER VARYING(50),
+    dns_resolver_configuration_id UUID,
+    qos_id UUID,
+    qos_name CHARACTER VARYING(50),
+    qos_type SMALLINT,
+    out_average_linkshare INTEGER,
+    out_average_upperlimit INTEGER,
+    out_average_realtime INTEGER
+);
+
+CREATE OR REPLACE FUNCTION GetNetworkAttachmentsWithQosByHostId (v_host_id UUID)
+RETURNS SETOF network_attachments_qos_rs STABLE AS $PROCEDURE$
 BEGIN
     RETURN QUERY
 
-    SELECT *
-    FROM network_attachments
-    WHERE EXISTS (
+    SELECT
+        s1.id,
+        s1.network_id,
+        s1.nic_id,
+        s1.boot_protocol,
+        s1.address,
+        s1.netmask,
+        s1.gateway,
+        s1.custom_properties,
+        s1._create_date,
+        s1._update_date,
+        s1.ipv6_boot_protocol,
+        s1.ipv6_address,
+        s1.ipv6_prefix,
+        s1.ipv6_gateway,
+        s1.dns_resolver_configuration_id,
+        s2.id AS qos_id,
+        s2.name AS qos_name,
+        s2.qos_type,
+        s2.out_average_linkshare,
+        s2.out_average_upperlimit,
+        s2.out_average_realtime
+    FROM (
+        SELECT *
+        FROM network_attachments na
+        WHERE EXISTS (
             SELECT 1
             FROM vds_interface
-            WHERE network_attachments.nic_id = vds_interface.id
+            WHERE na.nic_id = vds_interface.id
                 AND vds_interface.vds_id = v_host_id
-            );
+            )
+        ) s1
+    LEFT JOIN (
+            SELECT *
+            FROM qos
+            WHERE qos.qos_type = 4
+        ) s2
+        ON s1.id = s2.id
+    ;
 END;$PROCEDURE$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION GetNetworkAttachmentByNicIdAndNetworkId (
+CREATE OR REPLACE FUNCTION GetNetworkAttachmentWithQosByNicIdAndNetworkId (
     v_nic_id UUID,
     v_network_id UUID
     )
-RETURNS SETOF network_attachments STABLE AS $PROCEDURE$
+RETURNS SETOF network_attachments_qos_rs STABLE AS $PROCEDURE$
 BEGIN
     RETURN QUERY
 
-    SELECT na.*
-    FROM network_attachments na
-    WHERE na.network_id = v_network_id
-        AND na.nic_id = v_nic_id;
+    SELECT
+        s1.id,
+        s1.network_id,
+        s1.nic_id,
+        s1.boot_protocol,
+        s1.address,
+        s1.netmask,
+        s1.gateway,
+        s1.custom_properties,
+        s1._create_date,
+        s1._update_date,
+        s1.ipv6_boot_protocol,
+        s1.ipv6_address,
+        s1.ipv6_prefix,
+        s1.ipv6_gateway,
+        s1.dns_resolver_configuration_id,
+        s2.id AS qos_id,
+        s2.name AS qos_name,
+        s2.qos_type,
+        s2.out_average_linkshare,
+        s2.out_average_upperlimit,
+        s2.out_average_realtime
+    FROM (
+        SELECT na.*
+        FROM network_attachments na
+        WHERE na.network_id = v_network_id
+            AND na.nic_id = v_nic_id
+        ) s1
+    LEFT JOIN (
+            SELECT *
+            FROM qos
+            WHERE qos.qos_type = 4
+        ) s2
+        ON s1.id = s2.id
+    ;
 END;$PROCEDURE$
 LANGUAGE plpgsql;
 
@@ -2537,5 +2851,27 @@ BEGIN
         binding_host_id
         )
     SELECT v_vds_id, unnest(v_plugin_types), unnest(v_provider_binding_host_ids);
+END;$PROCEDURE$
+LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION GetVmIdsForVnicsOutOfSync (v_ids UUID[])
+RETURNS SETOF UUID STABLE AS $PROCEDURE$
+BEGIN
+    RETURN QUERY
+
+    SELECT DISTINCT vm_guid
+    FROM vm_interface
+    WHERE NOT synced
+    AND vm_guid = ANY(v_ids);
+END;$PROCEDURE$
+LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION SetVmInterfacesSyncedForVm (v_vm_id UUID)
+RETURNS VOID AS $PROCEDURE$
+BEGIN
+    UPDATE vm_interface
+    SET synced = true
+    WHERE vm_interface.vm_guid = v_vm_id;
+
 END;$PROCEDURE$
 LANGUAGE plpgsql;

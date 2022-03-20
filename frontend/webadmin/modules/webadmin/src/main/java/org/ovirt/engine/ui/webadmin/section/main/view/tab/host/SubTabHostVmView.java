@@ -91,7 +91,7 @@ public class SubTabHostVmView extends AbstractSubTabTableView<VDS, VM, HostListM
 
         VmStatusIconColumn<VM> statusIconColumn = new VmStatusIconColumn<>();
         statusIconColumn.setContextMenuTitle(constants.statusIconVm());
-        getTable().addColumn(statusIconColumn, constants.empty(), "30px"); //$NON-NLS-1$
+        getTable().addColumn(statusIconColumn, constants.empty(), "35px"); //$NON-NLS-1$
 
         AbstractTextColumn<VM> nameColumn = new AbstractLinkColumn<VM>(new FieldUpdater<VM, String>() {
                 @Override
@@ -200,7 +200,10 @@ public class SubTabHostVmView extends AbstractSubTabTableView<VDS, VM, HostListM
             }
         }, constants.networkVm(), "120px"); //$NON-NLS-1$
 
-        VmStatusColumn statusColumn = new VmStatusColumn(() -> getDetailModel().getEntity().getId());
+        VmStatusColumn statusColumn = new VmStatusColumn(() ->  {
+            VDS host = getDetailModel().getEntity();
+            return host != null ? host.getId() : null;
+        });
         statusColumn.makeSortable(VmConditionFieldAutoCompleter.STATUS);
         getTable().addColumn(statusColumn, constants.statusVm(), "130px"); //$NON-NLS-1$
 

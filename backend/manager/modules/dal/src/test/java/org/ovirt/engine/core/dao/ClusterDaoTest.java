@@ -22,7 +22,6 @@ import javax.inject.Inject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
-import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.LogMaxMemoryUsedThresholdType;
 import org.ovirt.engine.core.common.businessentities.MigrationBandwidthLimitType;
@@ -71,7 +70,6 @@ public class ClusterDaoTest extends BaseDaoTestCase<ClusterDao> {
         newGroup.setClusterPolicyProperties(new LinkedHashMap<>());
         newGroup.setDetectEmulatedMachine(true);
         newGroup.setEmulatedMachine("rhel6.4.0");
-        newGroup.setBiosType(BiosType.CLUSTER_DEFAULT);
         newGroup.setArchitecture(ArchitectureType.x86_64);
         newGroup.setGlusterCliBasedSchedulingOn(true);
         newGroup.setMigrationBandwidthLimitType(MigrationBandwidthLimitType.CUSTOM);
@@ -559,7 +557,7 @@ public class ClusterDaoTest extends BaseDaoTestCase<ClusterDao> {
         clusters.add(dao.get(guid));
         List<Cluster> data = ((ClusterDaoImpl) dao).getHostsAndVmsForClusters(clusters);
         assertEquals(7, data.get(0).getClusterHostsAndVms().getVms(), "Incorrect number of VMs in cluster");
-        assertEquals(1, data.get(0).getClusterHostsAndVms().getHosts(), "Incorrect number of Hosts in cluster");
+        assertEquals(2, data.get(0).getClusterHostsAndVms().getHosts(), "Incorrect number of Hosts in cluster");
     }
 
     @Test

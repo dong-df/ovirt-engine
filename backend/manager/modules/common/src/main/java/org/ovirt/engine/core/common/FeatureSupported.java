@@ -4,6 +4,7 @@ import java.util.Map;
 
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
 import org.ovirt.engine.core.common.businessentities.VDS;
+import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.config.Config;
 import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.compat.Version;
@@ -23,7 +24,7 @@ public class FeatureSupported {
     }
 
     public static boolean supportedInConfig(ConfigValues feature, Version version, ArchitectureType arch) {
-        Map<String, String> archOptions = Config.<Map>getValue(feature, version.getValue());
+        Map<String, String> archOptions = Config.getValue(feature, version.getValue());
         String value = archOptions.get(arch.name());
         if (value == null) {
             value = archOptions.get(arch.getFamily().name());
@@ -62,10 +63,20 @@ public class FeatureSupported {
     /**
      * Check if the migrate encrypted is supported for the given version
      * @param version Compatibility version to check for.
-     * @return
      */
     public static boolean isMigrateEncryptedSupported(Version version) {
         return version.greaterOrEquals(Version.v4_4);
+    }
+
+    /**
+     * Check if the asynchronous live snapshot is supported for the given version
+     * @param version Compatibility version to check for.
+     * @param vds The VDS the snapshot is going to be performed on.
+     * @return {@code true} if asynchronous live snapshot is supported for this version.
+     */
+    public static boolean isAsyncLiveSnapshotSupported(Version version, VDS vds) {
+        final Version minVersion = Version.v4_4;
+        return version.greaterOrEquals(minVersion) || vds.getSupportedClusterVersionsSet().contains(minVersion);
     }
 
     /**
@@ -124,16 +135,6 @@ public class FeatureSupported {
     }
 
     /**
-     * Checks if deferring file-based volume pre-allocation supported is supported by cluster version
-     *
-     * @param version
-     *            Compatibility version to check for.
-     */
-    public static boolean isDeferringFileVolumePreallocationSupported(Version version) {
-        return supportedInConfig(ConfigValues.IsDeferringFileVolumePreallocationSupported, version);
-    }
-
-    /**
      * Firewalld is supported for host if it supports cluster version 4.2.
      *
      * @param vds the host we are insterested in
@@ -187,6 +188,25 @@ public class FeatureSupported {
     public static boolean isVgpuPlacementSupported(Version version) {
         return supportedInConfig(ConfigValues.VgpuPlacementSupported, version);
     }
+
+    /**
+     * Check if vGPU framebuffer is supported
+     *
+     * @param version Compatibility version to check for.
+     */
+    public static boolean isVgpuFramebufferSupported(Version version) {
+        return supportedInConfig(ConfigValues.VgpuFramebufferSupported, version);
+    }
+
+    /**
+     * Check if vGPU driver parameters are supported
+     *
+     * @param version Compatibility version to check for.
+     */
+    public static boolean isVgpuDriverParametersSupported(Version version) {
+        return Version.v4_7.lessOrEquals(version);
+    }
+
     /**
      * Skip commit network changes is supported for
      * - host supporting commitOnSuccess (>= 4.3)
@@ -197,5 +217,228 @@ public class FeatureSupported {
      */
     public static boolean isSkipCommitNetworkChangesSupported(VDS vds) {
         return vds != null && Version.v4_3.lessOrEquals(vds.getSupportedClusterVersionsSet());
+    }
+
+    /**
+     * Do not measure volume size with MeasureVolume if datacenter is < 4.4
+     * The API is exposed only in vdsm >= 4.4
+     * @param vds the host
+     * @return true if measure volume can be used
+     */
+    public static boolean isMeasureVolumeSupported(VDS vds) {
+        return vds != null && Version.v4_4.lessOrEquals(vds.getClusterCompatibilityVersion());
+    }
+
+    /**
+     * Check if incremental backup is supported.
+     *
+     * @param version Compatibility version to check for.
+     * @return true if incremental backup is supported.
+     */
+    public static boolean isIncrementalBackupSupported(Version version) {
+        return supportedInConfig(ConfigValues.IsIncrementalBackupSupported, version);
+    }
+
+    /**
+     * Check if isolated port is supported.
+     *
+     * @param version Compatibility version to check for.
+     * @return true if isolated port is supported.
+     */
+    public static boolean isPortIsolationSupported(Version version) {
+        return supportedInConfig(ConfigValues.IsPortIsolationSupported, version);
+    }
+
+    /**
+     * Check if using backup mode and bitmaps operations are supported.
+     *
+     * @param version Compatibility version to check for.
+     * @return true if backup mode supported and bitmaps operations are supported.
+     */
+    public static boolean isBackupModeAndBitmapsOperationsSupported(Version version) {
+        return Version.v4_5.lessOrEquals(version);
+    }
+
+    /**
+     * Check if backup using a single checkpoint is supported.
+     *
+     * @param version Compatibility version to check for.
+     * @return true if backup using a single checkpoint is supported.
+     */
+    public static boolean isBackupSingleCheckpointSupported(Version version) {
+        return Version.v4_6.lessOrEquals(version);
+    }
+
+    /**
+     * Check if v2 of OpenStack Image Service API is supported.
+     * The API v2 is supported only in vdsm of oVirt >= 4.4
+     *
+     * @param version Compatibility version to check for.
+     * @return true if Image Service API v2 is supported.
+     */
+    public static boolean isOpenStackImageServiceApiV2Supported(Version version) {
+        return Version.v4_4.lessOrEquals(version);
+    }
+
+    /**
+     * Check if the implicit affinity group is supported
+     *
+     * @param version Compatibility version to check for.
+     * @return true if the implicit affinity group is supported.
+     */
+    public static boolean isImplicitAffinityGroupSupported(Version version) {
+        return Version.v4_4.greater(version);
+    }
+
+    /**
+     * Check if TSC frequency is supported
+     *
+     * @param version Compatibility version to check for.
+     * @return true if TSC frequency is supported.
+     */
+    public static boolean isTscFrequencySupported(Version version) {
+        return Version.v4_4.lessOrEquals(version);
+    }
+
+    /**
+     * Check if Windows Guest Tools ISO is supported.
+     * The RPM is fully supported only until oVirt < 4.4
+     *
+     * @param version Compatibility version to check for.
+     * @return true if WGT is supported.
+     */
+    public static boolean isWindowsGuestToolsSupported(Version version) {
+        return version.less(Version.v4_4);
+    }
+
+    /**
+     * Check if switching the master storage domain operation is supported.
+     *
+     * @param version Compatibility version to check for.
+     * @return true if switching the master storage domain operation is supported.
+     */
+    public static boolean isSwitchMasterStorageDomainOperationSupported(Version version) {
+        return Version.v4_5.lessOrEquals(version);
+    }
+
+    /**
+     * Check if cluster FIPS mode is supported
+     *
+     * @param version Compatibility version to check for.
+     * @return true if cluster FIPS mode is supported.
+     */
+    public static boolean isFipsModeSupported(Version version) {
+        return Version.v4_4.lessOrEquals(version);
+    }
+
+    /**
+     * Check if TPM device is supported.
+     *
+     * @param version Compatibility version to check for.
+     * @return true if TPM device is supported.
+     */
+    public static boolean isTpmDeviceSupported(Version version, ArchitectureType arch) {
+        return supportedInConfig(ConfigValues.TpmDeviceSupported, version, arch);
+    }
+
+    /**
+     * Check if NVRAM data persistence is supported.
+     *
+     * @param version Compatibility version to check for.
+     * @return true if TPM device is supported.
+     */
+    public static boolean isNvramPersistenceSupported(Version version) {
+        return supportedInConfig(ConfigValues.NvramPersistenceSupported, version);
+    }
+
+    /**
+     * Checks if bochs display support enabled for the cluster version
+     *
+     * @param version
+     *            Compatibility version to check for.
+     */
+    public static boolean isBochsDisplayEnabled(Version version) {
+        return supportedInConfig(ConfigValues.EnableBochsDisplay, version);
+    }
+
+    /**
+     * Checks if freeze in engine for live snapshot support enabled for the cluster version
+     *
+     * @param version
+     *            Compatibility version to check for.
+     */
+    public static boolean isFreezeInEngineEnabled(Version version) {
+        return supportedInConfig(ConfigValues.LiveSnapshotPerformFreezeInEngine, version);
+    }
+
+    /**
+     * Checks if Reset-VM is supported
+     *
+     * @param version Compatibility version to check for.
+     * @return true if Reset-VM is supported.
+     */
+    public static boolean isVMResetSupported(Version version) {
+        return Version.v4_6.lessOrEquals(version);
+    }
+
+    /**
+     * Checks if host can perform copy on Managed Block Storage disks
+     *
+     * @param vds the host
+     * @return true if the host can perform the copy
+     */
+    public static boolean isHostSupportsMBSCopy(VDS vds) {
+        return vds != null && vds.getConnectorInfo() != null
+                && Version.v4_6.lessOrEquals(vds.getClusterCompatibilityVersion());
+    }
+
+    /**
+     * Checks if Screenshot-VM is supported
+     *
+     * @param version Compatibility version to check for.
+     * @return true if Screenshot-VM is supported.
+     */
+    public static boolean isVMScreenshotSupported(Version version) {
+        return Version.v4_7.lessOrEquals(version);
+    }
+
+    /**
+     * Checks if parallel migrations are supported.
+     *
+     * @param version Compatibility version to check for.
+     * @return true if parallel migrations are supported.
+     */
+    public static boolean isParallelMigrationsSupported(Version version) {
+        return supportedInConfig(ConfigValues.ParallelMigrationsSupported, version);
+    }
+
+    /**
+     * Checks if the host can perform disk conversion
+     *
+     * @param vds The host
+     * @return true if the host can convert a disk
+     */
+    public static boolean isConvertDiskSupported(VDS vds) {
+        return vds != null && Version.v4_6.less(vds.getClusterCompatibilityVersion());
+    }
+
+    /**
+     * Checks if the hybrid backup can be performed on VM
+     *
+     * @param vm The VM
+     * @return true if VM can be backed up using hybrid backup
+     */
+    public static boolean isHybridBackupSupported(VM vm) {
+        return vm != null && supportedInConfig(ConfigValues.UseHybridBackup, vm.getCompatibilityVersion());
+    }
+
+    /**
+     * Checks if the dedicated CpuPinningPolicy is supported.
+     *
+     * @param version Compatibility version to check for.
+     * @return true if the VM is capable to be set with dedicated policy.
+     */
+    public static boolean isDedicatePolicySupported(Version version) {
+        return supportedInConfig(ConfigValues.IsDedicatedSupported, version);
     }
 }

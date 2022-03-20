@@ -20,6 +20,15 @@ public interface VmCheckpointDao extends GenericDao<VmCheckpoint, Guid> {
     List<VmCheckpoint> getAllForVm(Guid id);
 
     /**
+     * Retrieves the child of the given checkpoint ID.
+     *
+     * @param checkpointId
+     *            the checkpoint id
+     * @return child of the given checkpoint
+     */
+    VmCheckpoint getChildCheckpoint(Guid checkpointId);
+
+    /**
      * Adds the specified disk to checkpoint.
      *
      * @param checkpointId the checkpoint id
@@ -35,9 +44,23 @@ public interface VmCheckpointDao extends GenericDao<VmCheckpoint, Guid> {
     List<DiskImage> getDisksByCheckpointId(Guid checkpointId);
 
     /**
-     * Remove all disks from checkpoint
+     * Remove all checkpoints of a VM
      *
-     * @param checkpointId the checkpoint id
+     * @param vmId the VM id
      */
-    void removeAllDisksFromCheckpoint(Guid checkpointId);
+    void removeAllCheckpointsByVmId(Guid vmId);
+
+    /**
+     * Invalidate all checkpoints of a VM
+     *
+     * @param vmId the VM id
+     */
+    void invalidateAllCheckpointsByVmId(Guid vmId);
+
+    /**
+     * Return true if the disk is included in a VM checkpoint
+     *
+     * @param diskId the disk id
+     */
+    boolean isDiskIncludedInCheckpoint(Guid diskId);
 }

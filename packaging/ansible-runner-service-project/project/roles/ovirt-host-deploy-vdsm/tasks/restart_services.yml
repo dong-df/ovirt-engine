@@ -10,8 +10,7 @@
   - vdsmd.service
   - supervdsmd.service
   - libvirtd.service
-  - virt-imageio-daemon.service
-  - NetworkManager.service
+  - ovirt-imageio.service
   when: "item in ansible_facts.services"
 
 - name: Start and enable services
@@ -20,11 +19,22 @@
     state: started
     enabled: yes
   loop:
-  # libvirtd may not be started automatically on hosts >= 4.4, it will
-  # be started by vdsmd if needed.
+  # vdsmd will start all its dependent services stopped earlier, libvirtd, ovirt-imageio, supervdsmd
   - cgconfig.service
   - messagebus.service
-  - virt-imageio-daemon.service
-  - NetworkManager.service
   - vdsmd.service
   when: "item in ansible_facts.services"
+
+- name: Reload NetworkManager config
+  command: nmcli general reload conf
+  when:
+    - "'NetworkManager.service' in ansible_facts.services"
+    - el_ver|int >= 8
+
+- name: Restart NetworkManager service
+  service:
+    name: NetworkManager.service
+    state: restarted
+  when:
+    - "'NetworkManager.service' in ansible_facts.services"
+    - el_ver|int == 7

@@ -12,6 +12,7 @@ import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.profiles.CpuProfile;
 import org.ovirt.engine.core.common.businessentities.storage.Disk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
+import org.ovirt.engine.core.common.businessentities.storage.VolumeType;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.ui.frontend.Frontend;
 import org.ovirt.engine.ui.uicommonweb.dataprovider.AsyncDataProvider;
@@ -68,7 +69,6 @@ public class ImportVmFromOvaModel extends ImportVmFromExternalProviderModel {
         for (Object item : getItems()) {
             ImportVmData importVmData = (ImportVmData) item;
             VM vm = importVmData.getVm();
-
             ImportVmFromOvaParameters prm = new ImportVmFromOvaParameters(
                     vm,
                     getStorage().getSelectedItem().getId(),
@@ -97,11 +97,11 @@ public class ImportVmFromOvaModel extends ImportVmFromExternalProviderModel {
             for (Map.Entry<Guid, Disk> entry : vm.getDiskMap().entrySet()) {
                 DiskImage disk = (DiskImage) entry.getValue();
                 ImportDiskData importDiskData = getDiskImportData(disk.getDiskAlias());
-                disk.setVolumeType(getAllocation().getSelectedItem());
-                disk.setVolumeFormat(AsyncDataProvider.getInstance().getDiskVolumeFormat(
-                        disk.getVolumeType(),
-                        getStorage().getSelectedItem().getStorageType()));
-
+                disk.setVolumeType(getVolumeType(importDiskData));
+                disk.setVolumeFormat(AsyncDataProvider.getInstance()
+                        .getDiskVolumeFormat(
+                                disk.getVolumeType(),
+                                getStorage().getSelectedItem().getStorageType()));
                 if (getDiskImportData(disk.getDiskAlias()).getSelectedQuota() != null) {
                     disk.setQuotaId(importDiskData.getSelectedQuota().getId());
                 }
@@ -117,6 +117,11 @@ public class ImportVmFromOvaModel extends ImportVmFromExternalProviderModel {
             prms.add(prm);
         }
         return prms;
+    }
+
+    private VolumeType getVolumeType(ImportDiskData importDiskData) {
+        return getAllocation().getSelectedItem() == null ? importDiskData.volumeType
+                : getAllocation().getSelectedItem();
     }
 
 }

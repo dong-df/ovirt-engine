@@ -2,12 +2,10 @@ package org.ovirt.engine.core.bll.storage.disk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doNothing;
@@ -22,6 +20,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
 
+import javax.enterprise.inject.Instance;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -30,6 +30,7 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.ovirt.engine.core.bll.BaseCommandTest;
+import org.ovirt.engine.core.bll.SerialChildCommandsExecutionCallback;
 import org.ovirt.engine.core.bll.ValidateTestUtils;
 import org.ovirt.engine.core.bll.ValidationResult;
 import org.ovirt.engine.core.bll.context.CommandContext;
@@ -37,13 +38,14 @@ import org.ovirt.engine.core.bll.interfaces.BackendInternal;
 import org.ovirt.engine.core.bll.quota.QuotaManager;
 import org.ovirt.engine.core.bll.quota.QuotaStorageConsumptionParameter;
 import org.ovirt.engine.core.bll.snapshots.SnapshotsValidator;
+import org.ovirt.engine.core.bll.tasks.CommandCoordinatorUtil;
 import org.ovirt.engine.core.bll.validator.QuotaValidator;
 import org.ovirt.engine.core.bll.validator.storage.DiskValidator;
 import org.ovirt.engine.core.bll.validator.storage.DiskVmElementValidator;
 import org.ovirt.engine.core.bll.validator.storage.StorageDomainValidator;
 import org.ovirt.engine.core.common.action.ActionReturnValue;
 import org.ovirt.engine.core.common.action.ActionType;
-import org.ovirt.engine.core.common.action.VmDiskOperationParameterBase;
+import org.ovirt.engine.core.common.action.UpdateDiskParameters;
 import org.ovirt.engine.core.common.businessentities.StorageDomain;
 import org.ovirt.engine.core.common.businessentities.StorageDomainStatus;
 import org.ovirt.engine.core.common.businessentities.StoragePool;
@@ -53,6 +55,7 @@ import org.ovirt.engine.core.common.businessentities.VmDevice;
 import org.ovirt.engine.core.common.businessentities.VmDeviceGeneralType;
 import org.ovirt.engine.core.common.businessentities.VmDeviceId;
 import org.ovirt.engine.core.common.businessentities.storage.Disk;
+import org.ovirt.engine.core.common.businessentities.storage.DiskBackup;
 import org.ovirt.engine.core.common.businessentities.storage.DiskContentType;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskInterface;
@@ -81,6 +84,7 @@ import org.ovirt.engine.core.dao.VmDeviceDao;
 import org.ovirt.engine.core.dao.VmStaticDao;
 import org.ovirt.engine.core.utils.MockConfigDescriptor;
 import org.ovirt.engine.core.utils.MockConfigExtension;
+import org.ovirt.engine.core.utils.MockedConfig;
 import org.ovirt.engine.core.utils.RandomUtils;
 import org.ovirt.engine.core.utils.RandomUtilsSeedingExtension;
 
@@ -132,9 +136,16 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     @Mock
     private BackendInternal backend;
 
+    @Mock
+    private Instance<SerialChildCommandsExecutionCallback> callbackProvider;
+
+    @Mock
+    private CommandCoordinatorUtil commandCoordinatorUtil;
+
     public static Stream<MockConfigDescriptor<?>> mockConfiguration() {
         return Stream.of(
-                MockConfigDescriptor.of(ConfigValues.MaxBlockDiskSizeInGibiBytes, 8)
+                MockConfigDescriptor.of(ConfigValues.MaxBlockDiskSizeInGibiBytes, 8),
+                MockConfigDescriptor.of(ConfigValues.PropagateDiskErrors, false)
         );
     }
 
@@ -143,10 +154,11 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
      */
     @Spy
     @InjectMocks
-    private UpdateDiskCommand<VmDiskOperationParameterBase> command =
+    private UpdateDiskCommand<UpdateDiskParameters> command =
             new UpdateDiskCommand<>(createParameters(), CommandContext.createContext(""));
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateFailedVMHasNotDisk() {
         initializeCommand();
         createNullDisk();
@@ -156,6 +168,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateFailedShareableDiskVolumeFormatUnsupported() {
         DiskImage disk = createShareableDisk(VolumeFormat.COW);
         StorageDomain storage = addNewStorageDomainToDisk(disk, StorageType.NFS);
@@ -170,6 +183,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateFailedUpdateShareableForRunningVm() {
         updateShareable();
         initializeCommand(createVm(VMStatus.Up));
@@ -178,6 +192,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateUpdateShareableFloatingDisk() {
         updateShareable();
 
@@ -219,6 +234,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateFailedUpdatePassDiscardForFloatingDisk() {
         when(diskDao.get(diskImageGuid)).thenReturn(createDiskImage());
         command.getParameters().getDiskVmElement().setPassDiscard(true);
@@ -230,6 +246,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateFailedROVmAttachedToPool() {
         when(diskDao.get(diskImageGuid)).thenReturn(createDiskImage());
         command.getParameters().getDiskVmElement().setReadOnly(true);
@@ -247,6 +264,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateFailedWipeVmAttachedToPool() {
         Disk oldDisk = createDiskImage();
         oldDisk.setWipeAfterDelete(true);
@@ -267,6 +285,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateFailedShareableDiskOnGlusterDomain() {
         DiskImage disk = createShareableDisk(VolumeFormat.RAW);
         StorageDomain storage = addNewStorageDomainToDisk(disk, StorageType.GLUSTERFS);
@@ -281,6 +300,21 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
+    public void validateFailedBackupEnabledForRawDisk() {
+        DiskImage disk = createDiskImage();
+        disk.setBackup(DiskBackup.Incremental);
+        command.getParameters().setDiskInfo(disk);
+
+        when(diskDao.get(diskImageGuid)).thenReturn(createDiskImage());
+        initializeCommand();
+
+        ValidateTestUtils.runAndAssertValidateFailure(command,
+                EngineMessage.ACTION_TYPE_FAILED_INCREMENTAL_BACKUP_NOT_SUPPORTED_FOR_RAW_DISK);
+    }
+
+    @Test
+    @MockedConfig("mockConfiguration")
     public void nullifiedSnapshotOnUpdateDiskToShareable() {
         DiskImage disk = createShareableDisk(VolumeFormat.RAW);
         StorageDomain storage = addNewStorageDomainToDisk(disk, StorageType.NFS);
@@ -292,20 +326,26 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
         when(diskDao.get(diskImageGuid)).thenReturn(oldDisk);
         when(storageDomainStaticDao.get(storage.getId())).thenReturn(storage.getStorageStaticData());
 
+        doNothing().when(command).lockImageInDb();
+        doNothing().when(command).unlockImageInDb();
+
         initializeCommand();
         mockVdsCommandSetVolumeDescription();
 
         ValidateTestUtils.runAndAssertValidateSuccess(command);
         command.executeVmCommand();
+        command.performNextOperation(0);
         assertNull(oldDisk.getVmSnapshotId());
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateMakeDiskBootableSuccess() {
         validateMakeDiskBootable(false);
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateMakeDiskBootableFail() {
         validateMakeDiskBootable(true);
     }
@@ -327,6 +367,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateFailedUpdateBootableForFloatingDisk() {
         when(diskDao.get(diskImageGuid)).thenReturn(createDiskImage());
         command.getParameters().getDiskVmElement().setBoot(true);
@@ -338,16 +379,19 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateUpdateWipeAfterDeleteVmDown() {
         validateUpdateWipeAfterDelete(VMStatus.Down, false);
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateUpdateWipeAfterDeleteVmUp() {
         validateUpdateWipeAfterDelete(VMStatus.Up, false);
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateUpdateWipeAfterDeleteForFloatingDisk() {
         validateUpdateWipeAfterDelete(null, true);
     }
@@ -363,16 +407,19 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateUpdateDescriptionVmDown() {
         validateUpdateDescription(VMStatus.Down, false);
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateUpdateDescriptionVmUp() {
         validateUpdateDescription(VMStatus.Up, false);
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateUpdateDescriptionForFloatingDisk() {
         validateUpdateDescription(null, true);
     }
@@ -389,49 +436,12 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
         assertEquals(desc, disk.getDescription());
     }
 
-    @Test
-    public void clearAddressOnInterfaceChange() {
-        // update new disk interface so it will be different than the old one
-        command.getParameters().getDiskVmElement().setDiskInterface(DiskInterface.VirtIO);
-
-        DiskImage diskFromDb = createDiskImage();
-        doReturn(diskFromDb).when(diskDao).get(diskImageGuid);
-
-        initializeCommand();
-
-        DiskVmElement dve = new DiskVmElement(diskImageGuid, vmId);
-        dve.setDiskInterface(DiskInterface.IDE);
-        doReturn(dve).when(command).getOldDiskVmElement();
-
-        mockVdsCommandSetVolumeDescription();
-        assertNotSame(dve.getDiskInterface(), command.getParameters().getDiskVmElement().getDiskInterface());
-        command.executeVmCommand();
-
-        // verify that device address was cleared exactly once
-        verify(vmDeviceDao).clearDeviceAddress(diskImageGuid);
-    }
-
     private void mockVdsCommandSetVolumeDescription() {
         doNothing().when(command).setVolumeDescription(any(), any());
     }
 
     @Test
-    public void testUpdateReadOnlyPropertyOnChange() {
-        // Disk should be updated as Read Only
-        command.getParameters().getDiskVmElement().setReadOnly(true);
-
-        when(diskDao.get(diskImageGuid)).thenReturn(createDiskImage());
-        initializeCommand();
-        stubVmDevice(diskImageGuid, vmId);
-        mockVdsCommandSetVolumeDescription();
-        command.executeVmCommand();
-
-        verify(command, atLeast(1)).updateReadOnlyRequested();
-        assertTrue(command.updateReadOnlyRequested());
-        verify(vmDeviceDao).update(any());
-    }
-
-    @Test
+    @MockedConfig("mockConfiguration")
     public void testUpdateDiskInterfaceUnsupported() {
         command.getParameters().getDiskVmElement().setDiskInterface(DiskInterface.IDE);
 
@@ -450,20 +460,6 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
-    public void testDoNotUpdateDeviceWhenReadOnlyIsNotChanged() {
-        command.getParameters().getDiskVmElement().setReadOnly(false);
-
-        when(diskDao.get(diskImageGuid)).thenReturn(createDiskImage());
-        initializeCommand();
-        mockVdsCommandSetVolumeDescription();
-        command.executeVmCommand();
-
-        verify(command, atLeast(1)).updateReadOnlyRequested();
-        assertFalse(command.updateReadOnlyRequested());
-        verify(vmDeviceDao, never()).update(any());
-    }
-
-    @Test
     public void testFailInterfaceCanUpdateReadOnly() {
         initializeCommand();
         doReturn(true).when(command).updateReadOnlyRequested();
@@ -474,6 +470,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void testSucceedInterfaceCanUpdateReadOnly() {
         initializeCommand();
         doReturn(true).when(command).updateReadOnlyRequested();
@@ -482,6 +479,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void validateFailedUpdateInterfaceForFloatingDisk() {
         when(diskDao.get(diskImageGuid)).thenReturn(createDiskImage());
         command.getParameters().getDiskVmElement().setDiskInterface(DiskInterface.VirtIO_SCSI);
@@ -493,11 +491,13 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void testSucceedResizeDisk() {
         resizeDisk(false);
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void testSucceedResizeFloatingDisk() {
         resizeDisk(true);
     }
@@ -514,95 +514,59 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
-    public void testAmend() {
+    @MockedConfig("mockConfiguration")
+    public void testAmendAndUpdate() {
         DiskImage oldDisk = createDiskImage();
-        oldDisk.setVolumeFormat(VolumeFormat.COW);
-        oldDisk.setQcowCompat(QcowCompat.QCOW2_V2);
-        oldDisk.setDiskAlias("Test");
-        oldDisk.setDiskDescription("Test_Desc");
-        when(diskDao.get(diskImageGuid)).thenReturn(oldDisk);
         DiskImage newDisk = DiskImage.copyOf(oldDisk);
-        newDisk.setQcowCompat(QcowCompat.QCOW2_V3);
+        updateGeneralFields(oldDisk, newDisk);
+        updateAmendFields(oldDisk, newDisk);
+        when(diskDao.get(diskImageGuid)).thenReturn(oldDisk);
         command.getParameters().setDiskInfo(newDisk);
+        doNothing().when(command).lockImageInDb();
         initializeCommand();
-        mockVdsCommandSetVolumeDescription();
-        mockGetAllSnapshotsForDisk(Collections.singletonList(oldDisk));
         command.executeVmCommand();
-        verify(command, times(1)).amendDiskImage();
+        List<UpdateDiskParameters.Phase> phaseList = command.getParameters().getDiskUpdatePhases();
+        UpdateDiskParameters.Phase phase = phaseList.get(phaseList.size()-1);
+        assertEquals(UpdateDiskParameters.Phase.UPDATE_DISK, phase);
     }
 
     @Test
-    public void testAmendWithPropertyChange() {
+    @MockedConfig("mockConfiguration")
+    public void testAmendExtendAndUpdate() {
         DiskImage oldDisk = createDiskImage();
-        oldDisk.setVolumeFormat(VolumeFormat.COW);
-        oldDisk.setQcowCompat(QcowCompat.QCOW2_V2);
+        DiskImage newDisk = DiskImage.copyOf(oldDisk);
+        updateGeneralFields(oldDisk, newDisk);
+        updateAmendFields(oldDisk, newDisk);
+        updateExtendFields(oldDisk, newDisk);
+        when(diskDao.get(diskImageGuid)).thenReturn(oldDisk);
+        command.getParameters().setDiskInfo(newDisk);
+        doNothing().when(command).lockImageInDb();
+        initializeCommand();
+        command.executeVmCommand();
+        List<UpdateDiskParameters.Phase> phaseList = command.getParameters().getDiskUpdatePhases();
+        UpdateDiskParameters.Phase phase = phaseList.get(phaseList.size()-1);
+        assertEquals(UpdateDiskParameters.Phase.UPDATE_DISK, phase);
+    }
+
+    private void updateGeneralFields(DiskImage oldDisk, DiskImage newDisk) {
         oldDisk.setDiskAlias("Test");
         oldDisk.setDiskDescription("Test_Desc");
-        when(diskDao.get(diskImageGuid)).thenReturn(oldDisk);
-        DiskImage newDisk = DiskImage.copyOf(oldDisk);
-        newDisk.setQcowCompat(QcowCompat.QCOW2_V3);
         newDisk.setDiskAlias("New Disk Alias");
-        command.getParameters().setDiskInfo(newDisk);
-        mockGetAllSnapshotsForDisk(Collections.singletonList(oldDisk));
-        initializeCommand();
-        mockVdsCommandSetVolumeDescription();
-        command.executeVmCommand();
-        verify(command, times(1)).amendDiskImage();
-        verify(command, times(1)).setVolumeDescription(any(), any());
+        oldDisk.setDiskDescription("New Test_Desc");
     }
 
-    @Test
-    public void testAmendFailedWithPropertyChange() {
-        DiskImage oldDisk = createDiskImage();
+    private void updateAmendFields(DiskImage oldDisk, DiskImage newDisk) {
         oldDisk.setVolumeFormat(VolumeFormat.COW);
         oldDisk.setQcowCompat(QcowCompat.QCOW2_V2);
-        oldDisk.setDiskAlias("Test");
-        oldDisk.setDiskDescription("Test_Desc");
-        when(diskDao.get(diskImageGuid)).thenReturn(oldDisk);
-        DiskImage newDisk = DiskImage.copyOf(oldDisk);
+        newDisk.setVolumeFormat(VolumeFormat.COW);
         newDisk.setQcowCompat(QcowCompat.QCOW2_V3);
-        newDisk.setDiskAlias("New Disk Alias");
-        command.getParameters().setDiskInfo(newDisk);
-        initializeCommand();
-        ActionReturnValue ret = new ActionReturnValue();
-        ret.setSucceeded(false);
-        ArrayList<String> msgList = new ArrayList<>();
-        ret.setValidationMessages(msgList);
-        when(backend.runInternalAction(eq(ActionType.AmendImageGroupVolumes), any(), any())).thenReturn(ret);
-        mockVdsCommandSetVolumeDescription();
-        mockGetAllSnapshotsForDisk(Collections.singletonList(oldDisk));
-        command.executeVmCommand();
-        verify(command, times(1)).amendDiskImage();
-        verify(command, times(1)).setVolumeDescription(any(), any());
     }
 
-    @Test
-    public void testAmendNotRunningWithExtend() {
-        amendNotRunningWithExtend(false);
-    }
-
-    @Test
-    public void testAmendNotRunningWithExtendForFloatingDisk() {
-        amendNotRunningWithExtend(true);
-    }
-
-    private void amendNotRunningWithExtend(boolean isFloating) {
-        Guid quotaId = Guid.newGuid();
-        DiskImage oldDiskImage = setFormatAndSizeForDisk(quotaId, 3L, QcowCompat.QCOW2_V2);
-        DiskImage newDiskImage = setFormatAndSizeForDisk(quotaId, 5L, QcowCompat.QCOW2_V3);
-
-        command.getParameters().setDiskInfo(newDiskImage);
-        when(diskDao.get(diskImageGuid)).thenReturn(oldDiskImage);
-        mockGetAllSnapshotsForDisk(Collections.singletonList(oldDiskImage));
-
-        initCommandForDisk(VMStatus.Down, isFloating);
-
-        if (!isFloating) {
-            command.getParameters().setDiskVmElement(new DiskVmElement(newDiskImage.getId(), vmId));
-        }
-
-        ValidateTestUtils.runAndAssertValidateFailure(command,
-                EngineMessage.ACTION_TYPE_FAILED_AMEND_AND_EXTEND_IN_ONE_OPERATION);
+    private void updateExtendFields(DiskImage oldDisk, DiskImage newDisk) {
+        oldDisk.setSize(SizeConverter.convert(3L, SizeConverter.SizeUnit.GiB,
+                SizeConverter.SizeUnit.BYTES).longValue());
+        newDisk.setSize(SizeConverter.convert(5L, SizeConverter.SizeUnit.GiB,
+                SizeConverter.SizeUnit.BYTES).longValue());
     }
 
     private DiskImage setFormatAndSizeForDisk(Guid quotaId, long lsize, QcowCompat qcowFormat) {
@@ -617,6 +581,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void testFailedAmendWithNoQcowVolumes() {
         // Creating a RAW disk
         DiskImage oldDisk = createDiskImage();
@@ -636,6 +601,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void testFaultyResize() {
         when(diskDao.get(diskImageGuid)).thenReturn(createDiskImage());
 
@@ -648,6 +614,7 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     }
 
     @Test
+    @MockedConfig("mockConfiguration")
     public void testFailedRoDiskResize() {
         ((DiskImage) command.getParameters().getDiskInfo()).setSize(command.getParameters().getDiskInfo().getSize() * 2L);
         initializeCommand();
@@ -697,11 +664,14 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
         when(backend.runInternalAction(eq(ActionType.AmendImageGroupVolumes), any(), any())).thenReturn(ret);
         command.init();
         doReturn(ActionType.UpdateDisk).when(command).getActionType();
+
+        doReturn(new SerialChildCommandsExecutionCallback()).when(callbackProvider).get();
     }
 
     @Test
     public void testDiskAliasAdnDescriptionMetaDataShouldNotBeUpdated() {
         when(diskDao.get(diskImageGuid)).thenReturn(createDiskImage());
+        doNothing().when(command).lockImageInDb();
 
         initializeCommand();
         mockVdsCommandSetVolumeDescription();
@@ -731,40 +701,6 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
         }
 
         ValidateTestUtils.runAndAssertValidateFailure(command, EngineMessage.ACTION_TYPE_FAILED_DISKS_LOCKED);
-    }
-
-    @Test
-    public void testDiskAliasAndDescriptionMetaDataShouldBeUpdated() {
-        when(diskDao.get(diskImageGuid)).thenReturn(createDiskImage());
-
-        command.getParameters().getDiskInfo().setDiskAlias("New Disk Alias");
-        command.getParameters().getDiskInfo().setDiskDescription("New Disk Description");
-        initializeCommand();
-        mockVdsCommandSetVolumeDescription();
-        command.executeVmCommand();
-        verify(command, times(1)).setVolumeDescription(any(), any());
-    }
-
-    @Test
-    public void testOnlyDiskAliasChangedMetaDataShouldBeUpdated() {
-        when(diskDao.get(diskImageGuid)).thenReturn(createDiskImage());
-
-        command.getParameters().getDiskInfo().setDiskAlias("New Disk Alias");
-        initializeCommand();
-        mockVdsCommandSetVolumeDescription();
-        command.executeVmCommand();
-        verify(command, times(1)).setVolumeDescription(any(), any());
-    }
-
-    @Test
-    public void testOnlyDescriptionsChangedMetaDataShouldBeUpdated() {
-        when(diskDao.get(diskImageGuid)).thenReturn(createDiskImage());
-
-        command.getParameters().getDiskInfo().setDiskDescription("New Disk Description");
-        initializeCommand();
-        mockVdsCommandSetVolumeDescription();
-        command.executeVmCommand();
-        verify(command, times(1)).setVolumeDescription(any(), any());
     }
 
     @Test
@@ -933,9 +869,9 @@ public class UpdateDiskCommandTest extends BaseCommandTest {
     /**
      * @return Valid parameters for the command.
      */
-    protected VmDiskOperationParameterBase createParameters() {
+    protected UpdateDiskParameters createParameters() {
         DiskImage diskInfo = createDiskImage();
-        return new VmDiskOperationParameterBase(new DiskVmElement(diskInfo.getId(), vmId), diskInfo);
+        return new UpdateDiskParameters(new DiskVmElement(diskInfo.getId(), vmId), diskInfo);
     }
 
     /**

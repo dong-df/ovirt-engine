@@ -3,14 +3,15 @@ package org.ovirt.engine.core.common.businessentities;
 import java.util.Objects;
 import java.util.Set;
 
-import org.codehaus.jackson.annotate.JsonIgnore;
 import org.ovirt.engine.core.common.businessentities.storage.StorageType;
 import org.ovirt.engine.core.common.errors.EngineError;
 import org.ovirt.engine.core.common.utils.SizeConverter;
 import org.ovirt.engine.core.common.utils.ToStringBuilder;
 import org.ovirt.engine.core.compat.Guid;
 
-public class StorageDomain implements Queryable, BusinessEntityWithStatus<Guid, StorageDomainStatus>, Nameable, Commented {
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
+public class StorageDomain implements Queryable, BusinessEntityWithStatus<Guid, StorageDomainStatus>, Nameable, Commented, Managed {
     private static final long serialVersionUID = 1043048758366348870L;
 
     private Boolean supportsDiscard;
@@ -430,6 +431,11 @@ public class StorageDomain implements Queryable, BusinessEntityWithStatus<Guid, 
 
     public void setHostedEngineStorage(boolean hostedEngineStorage) {
         this.hostedEngineStorage = hostedEngineStorage;
+    }
+
+    @Override
+    public boolean isManaged() {
+        return getStorageDomainType() != StorageDomainType.Unmanaged;
     }
 
     @Override

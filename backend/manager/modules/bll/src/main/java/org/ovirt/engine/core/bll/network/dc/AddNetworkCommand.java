@@ -97,9 +97,15 @@ public class AddNetworkCommand<T extends AddNetworkStoragePoolParameters> extend
         });
 
         // Run cluster attachment, AddVnicProfile and  auto-define in separated thread
-        ExecutionHandler.setAsyncJob(getExecutionContext(), true);
-        CompletableFuture.runAsync(this::runClusterAttachment, ThreadPoolUtil.getExecutorService())
-                .thenRunAsync(this::runAddVnicProfile).thenRunAsync(this::runAutodefine);
+        if (getParameters().isAsync()) {
+            ExecutionHandler.setAsyncJob(getExecutionContext(), true);
+            CompletableFuture.runAsync(this::runClusterAttachment, ThreadPoolUtil.getExecutorService())
+                    .thenRunAsync(this::runAddVnicProfile).thenRunAsync(this::runAutodefine);
+        } else {
+            runClusterAttachment();
+            runAddVnicProfile();
+            runAutodefine();
+        }
 
         getReturnValue().setActionReturnValue(getNetwork().getId());
         setSucceeded(true);
@@ -117,6 +123,8 @@ public class AddNetworkCommand<T extends AddNetworkStoragePoolParameters> extend
         AddNetworkValidator validator = getNetworkValidator();
         return validate(hasStoragePoolValidator.storagePoolExists())
                 && validate(validator.stpForVmNetworkOnly())
+                && validate(validator.portIsolationForVmNetworkOnly())
+                && validate(validator.portIsolationNoExternalNetwork())
                 && validate(validator.networkPrefixValid())
                 && validate(validator.networkNameNotUsed())
                 && validate(validator.networkNameNotUsedAsVdsmName())

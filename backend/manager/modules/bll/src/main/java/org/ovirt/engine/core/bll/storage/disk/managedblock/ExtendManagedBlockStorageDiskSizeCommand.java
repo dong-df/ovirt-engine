@@ -6,11 +6,15 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import javax.enterprise.inject.Instance;
+import javax.enterprise.inject.Typed;
 import javax.inject.Inject;
 
+import org.ovirt.engine.core.bll.ConcurrentChildCommandsExecutionCallback;
 import org.ovirt.engine.core.bll.InternalCommandAttribute;
 import org.ovirt.engine.core.bll.context.CommandContext;
 import org.ovirt.engine.core.bll.storage.disk.UpdateDiskCommand;
+import org.ovirt.engine.core.bll.tasks.interfaces.CommandCallback;
 import org.ovirt.engine.core.common.VdcObjectType;
 import org.ovirt.engine.core.common.action.ExtendManagedBlockStorageDiskSizeParameters;
 import org.ovirt.engine.core.common.businessentities.SubjectEntity;
@@ -37,6 +41,10 @@ public class ExtendManagedBlockStorageDiskSizeCommand<T extends ExtendManagedBlo
 
     @Inject
     private ImageDao imageDao;
+
+    @Inject
+    @Typed(ConcurrentChildCommandsExecutionCallback.class)
+    private Instance<ConcurrentChildCommandsExecutionCallback> callbackProvider;
 
     public ExtendManagedBlockStorageDiskSizeCommand(T parameters, CommandContext commandContext) {
         super(parameters, commandContext);
@@ -85,7 +93,7 @@ public class ExtendManagedBlockStorageDiskSizeCommand<T extends ExtendManagedBlo
             imageDao.updateImageSize(managedBlockStorageDisk.getImageId(), managedBlockStorageDisk.getSize());
             return null;
         });
-        performDiskUpdate(true);
+        performDiskUpdate();
     }
 
     @Override
@@ -105,6 +113,11 @@ public class ExtendManagedBlockStorageDiskSizeCommand<T extends ExtendManagedBlo
 
     @Override
     protected Collection<SubjectEntity> getSubjectEntities() {
-        return Collections.singleton(new SubjectEntity(VdcObjectType.Storage, getStorageDomainId()));
+        return Collections.singleton(new SubjectEntity(VdcObjectType.Storage, getParameters().getStorageDomainId()));
+    }
+
+    @Override
+    public CommandCallback getCallback() {
+        return callbackProvider.get();
     }
 }

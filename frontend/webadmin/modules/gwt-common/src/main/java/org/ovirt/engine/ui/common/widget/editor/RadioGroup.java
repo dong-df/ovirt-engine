@@ -7,6 +7,7 @@ import java.util.Objects;
 
 import com.google.gwt.dom.client.Element;
 import com.google.gwt.dom.client.LabelElement;
+import com.google.gwt.dom.client.Style.Display;
 import com.google.gwt.dom.client.Style.Position;
 import com.google.gwt.dom.client.Style.Unit;
 import com.google.gwt.dom.client.Style.VerticalAlign;
@@ -88,7 +89,7 @@ public class RadioGroup<K> extends Composite implements TakesValue<K>, HasConstr
     @Override
     public void setValue(K value, boolean fireEvents) {
         if (value == selectedValue
-                || (selectedValue != null && selectedValue.equals(value))) {
+                || selectedValue != null && selectedValue.equals(value)) {
             return;
         }
 
@@ -145,6 +146,7 @@ public class RadioGroup<K> extends Composite implements TakesValue<K>, HasConstr
                 getRadioButtonWidgetLabel(radioButton).getStyle().setPaddingLeft(10, Unit.PX);
                 getRadioButtonWidgetLabel(radioButton).getStyle().setPosition(Position.RELATIVE);
                 getRadioButtonWidgetLabel(radioButton).getStyle().setProperty(MAX_WIDTH, "94%"); //$NON-NLS-1$
+                getRadioButtonWidgetLabel(radioButton).getStyle().setDisplay(Display.INLINE);
         }
             if (entry.getKey().equals(selectedValue)) {
                 radioButton.setValue(true);

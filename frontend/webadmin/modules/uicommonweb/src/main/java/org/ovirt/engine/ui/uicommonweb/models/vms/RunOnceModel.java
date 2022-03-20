@@ -46,11 +46,13 @@ import org.ovirt.engine.ui.uicommonweb.validation.I18NExtraNameOrNoneValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.IValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.LengthValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.MatchFieldsValidator;
+import org.ovirt.engine.ui.uicommonweb.validation.NoTrimmingWhitespacesValidation;
 import org.ovirt.engine.ui.uicommonweb.validation.NotEmptyValidation;
 import org.ovirt.engine.ui.uicompat.ConstantsManager;
 import org.ovirt.engine.ui.uicompat.Event;
 import org.ovirt.engine.ui.uicompat.EventArgs;
 import org.ovirt.engine.ui.uicompat.PropertyChangedEventArgs;
+import org.ovirt.engine.ui.uicompat.UIConstants;
 
 public abstract class RunOnceModel extends Model {
 
@@ -97,6 +99,16 @@ public abstract class RunOnceModel extends Model {
         privateAttachIso = value;
     }
 
+    private EntityModel<Boolean> privateAttachWgt;
+
+    public EntityModel<Boolean> getAttachWgt() {
+        return privateAttachWgt;
+    }
+
+    private void setAttachWgt(EntityModel<Boolean> value) {
+        privateAttachWgt = value;
+    }
+
     private SortedListModel<RepoImage> privateIsoImage;
 
     public ListModel<RepoImage> getIsoImage() {
@@ -117,6 +129,26 @@ public abstract class RunOnceModel extends Model {
         attachSysprep = value;
     }
 
+    private ListModel<String> kernelImage;
+
+    public ListModel<String> getKernelImage() {
+        return kernelImage;
+    }
+
+    public void setKernelImage(ListModel<String> kernelImage) {
+        this.kernelImage = kernelImage;
+    }
+
+    private ListModel<String> initrdImage;
+
+    public ListModel<String> getInitrdImage() {
+        return initrdImage;
+    }
+
+    public void setInitrdImage(ListModel<String> initrdImage) {
+        this.initrdImage = initrdImage;
+    }
+
     private ListModel<EntityModel<DisplayType>> privateDisplayProtocol;
 
     public ListModel<EntityModel<DisplayType>> getDisplayProtocol() {
@@ -125,6 +157,18 @@ public abstract class RunOnceModel extends Model {
 
     private void setDisplayProtocol(ListModel<EntityModel<DisplayType>> value) {
         privateDisplayProtocol = value;
+    }
+
+    // Linux Boot Options tab
+
+    private EntityModel<String> privateKernelParameters;
+
+    public EntityModel<String> getKernelParameters() {
+        return privateKernelParameters;
+    }
+
+    private void setKernel_parameters(EntityModel<String> value) {
+        privateKernelParameters = value;
     }
 
     // Initial Boot tab - Sysprep
@@ -219,6 +263,16 @@ public abstract class RunOnceModel extends Model {
 
     private void setIsVmFirstRun(EntityModel<Boolean> value) {
         privateIsVmFirstRun = value;
+    }
+
+    private EntityModel<Boolean> privateIsLinuxOptionsAvailable;
+
+    public EntityModel<Boolean> getIsLinuxOptionsAvailable() {
+        return privateIsLinuxOptionsAvailable;
+    }
+
+    private void setIsLinuxOptionsAvailable(EntityModel<Boolean> value) {
+        privateIsLinuxOptionsAvailable = value;
     }
 
     // Initial Boot tab - Cloud-Init
@@ -358,6 +412,17 @@ public abstract class RunOnceModel extends Model {
     }
 
     // Misc
+
+    private boolean privateIsLinuxOS;
+
+    public boolean getIsLinuxOS() {
+        return privateIsLinuxOS;
+    }
+
+    public void setIsLinuxOS(boolean value) {
+        privateIsLinuxOS = value;
+    }
+
     private boolean privateIsWindowsOS;
 
     public boolean getIsWindowsOS() {
@@ -368,6 +433,19 @@ public abstract class RunOnceModel extends Model {
         privateIsWindowsOS = value;
     }
 
+    private boolean privateIsIgnition;
+
+    public boolean getIsIgnition() {
+        return privateIsIgnition;
+    }
+
+    public void setIsIgnition(boolean value) {
+        privateIsIgnition = value;
+    }
+
+    public String getIgnitionVersion() {
+        return AsyncDataProvider.getInstance().getIgnitionVersion(vm.getVmOsId());
+    }
 
     private BootSequenceModel bootSequence;
 
@@ -418,6 +496,16 @@ public abstract class RunOnceModel extends Model {
 
     private void setEmulatedMachine(ListModel<String> emulatedMachine) {
         this.emulatedMachine = emulatedMachine;
+    }
+
+    private EntityModel<String> clusterEmulatedMachine;
+
+    public EntityModel<String> getClusterEmulatedMachine() {
+        return clusterEmulatedMachine;
+    }
+
+    public void setClusterEmulatedMachine(EntityModel<String> clusterEmulatedMachine) {
+        this.clusterEmulatedMachine = clusterEmulatedMachine;
     }
 
     private ListModel<String> customCpu;
@@ -480,7 +568,7 @@ public abstract class RunOnceModel extends Model {
             return InitializationType.Sysprep;
         } else if (getIsCloudInitEnabled().getEntity() != null
                 && getIsCloudInitEnabled().getEntity()) {
-            return InitializationType.CloudInit;
+            return getIsIgnition() ? InitializationType.Ignition : InitializationType.CloudInit;
         } else {
             return InitializationType.None;
         }
@@ -526,10 +614,16 @@ public abstract class RunOnceModel extends Model {
         getAttachIso().getEntityChangedEvent().addListener(this);
         setIsoImage(new SortedListModel(new LexoNumericNameableComparator<Nameable>()));
         getIsoImage().getSelectedItemChangedEvent().addListener(this);
+        setAttachWgt(new EntityModel<Boolean>());
         setAttachSysprep(new EntityModel<Boolean>());
         getAttachSysprep().getEntityChangedEvent().addListener(this);
         setDisplayProtocol(new ListModel<EntityModel<DisplayType>>());
         setBootSequence(new BootSequenceModel());
+
+        // Linux Boot Options tab
+        setKernel_parameters(new EntityModel<String>());
+        setKernelImage(new ListModel<String>());
+        setInitrdImage(new ListModel<String>());
 
         // Initial Boot tab - Sysprep
         setIsCloudInitEnabled(new EntityModel<>(false));
@@ -588,6 +682,7 @@ public abstract class RunOnceModel extends Model {
         // System tab
         setEmulatedMachine(new ListModel<String>());
         getEmulatedMachine().setSelectedItem(vm.getCustomEmulatedMachine());
+        setClusterEmulatedMachine(new EntityModel<>());
         setCustomCpu(new ListModel<String>());
         getCustomCpu().setSelectedItem(vm.getCustomCpuName());
 
@@ -599,11 +694,15 @@ public abstract class RunOnceModel extends Model {
         getIsAutoAssign().getEntityChangedEvent().addListener(this);
 
         // availability/visibility
+        setIsLinuxOptionsAvailable(new EntityModel<>(false));
+
         setIsHostTabVisible(true);
 
         setIsCustomPropertiesSheetVisible(true);
 
+        setIsLinuxOS(false);
         setIsWindowsOS(false);
+        setIsIgnition(false);
 
         setVolatileRun(new EntityModel<>(false));
         getVolatileRun().setIsChangeable(true);
@@ -618,6 +717,11 @@ public abstract class RunOnceModel extends Model {
         getCommands().addAll(Arrays.asList(runOnceCommand, cancelCommand));
     }
 
+    public void updateOSs(){
+        setIsWindowsOS(AsyncDataProvider.getInstance().isWindowsOsType(vm.getVmOsId()));
+        setIsIgnition(AsyncDataProvider.getInstance().isIgnition(vm.getVmOsId()));
+    }
+
     public void init() {
         setTitle(ConstantsManager.getInstance().getConstants().runVirtualMachinesTitle());
         setHelpTag(HelpTag.run_once_virtual_machine);
@@ -625,10 +729,17 @@ public abstract class RunOnceModel extends Model {
         setIsoImagePath(vm.getIsoPath()); // needs to be called before iso list is updated
         getAttachFloppy().setEntity(false);
         getAttachSysprep().setEntity(false);
+        getAttachWgt().setEntity(false);
         getBootMenuEnabled().setEntity(true);
         getRunAsStateless().setEntity(vm.isStateless());
         getRunAndPause().setEntity(vm.isRunAndPause());
 
+        updateOSs();
+        // passing Kernel parameters
+        getKernelParameters().setEntity(vm.getKernelParams());
+
+        setIsLinuxOS(AsyncDataProvider.getInstance().isLinuxOsType(vm.getVmOsId()));
+        getIsLinuxOptionsAvailable().setEntity(getIsLinuxOS());
         setIsWindowsOS(AsyncDataProvider.getInstance().isWindowsOsType(vm.getVmOsId()));
         getIsVmFirstRun().setEntity(!vm.isInitialized());
 
@@ -639,6 +750,7 @@ public abstract class RunOnceModel extends Model {
         updateDomainList();
         updateSystemTabLists();
         updateIsoList();
+        updateUnknownTypeImagesList();
         updateFloppyImages();
         updateSysprep();
         updateInitialRunFields();
@@ -710,11 +822,27 @@ public abstract class RunOnceModel extends Model {
         params.setBootSequence(getBootSequence().getSequence());
         params.setDiskPath(getIsoImagePath());
         params.setFloppyPath(getFloppyImagePath());
+        params.setAttachWgt(getAttachWgt().getEntity());
         params.setBootMenuEnabled(getBootMenuEnabled().getEntity());
         params.setRunAndPause(getRunAndPause().getEntity());
         params.setRunAsStateless(getRunAsStateless().getEntity());
         params.setInitializationType(getInitializationType());
         params.setCustomProperties(getCustomPropertySheet().serialize());
+
+        // kernel params
+        String selectedKernelImage = getKernelImage().getSelectedItem();
+        if (StringHelper.isNotNullOrEmpty(selectedKernelImage)) {
+            params.setKernelUrl(selectedKernelImage);
+        }
+
+        if (getKernelParameters().getEntity() != null) {
+            params.setKernelParams(getKernelParameters().getEntity());
+        }
+
+        String selectedInitrdImage = getInitrdImage().getSelectedItem();
+        if (StringHelper.isNotNullOrEmpty(selectedInitrdImage)) {
+            params.setInitrdUrl(selectedInitrdImage);
+        }
 
         // Sysprep params
         if (getSysPrepUserName().getEntity() != null) {
@@ -878,6 +1006,20 @@ public abstract class RunOnceModel extends Model {
         updateIsoList(false);
     }
 
+    public void updateUnknownTypeImagesList() {
+        updateUnknownTypeImagesList(false);
+    }
+
+    public void updateUnknownTypeImagesList(boolean forceRefresh) {
+        ImagesDataProvider.getUnknownImageList(new AsyncQuery<>(images -> {
+            getKernelImage().setItems(images);
+            getInitrdImage().setItems(images);
+
+            getKernelImage().setSelectedItem(null);
+            getInitrdImage().setSelectedItem(null);
+        }), vm.getStoragePoolId(), forceRefresh);
+    }
+
     public void updateIsoList(boolean forceRefresh) {
         ImagesDataProvider.getISOImagesList(new AsyncQuery<>(
                         images -> {
@@ -917,17 +1059,7 @@ public abstract class RunOnceModel extends Model {
         Guid clusterId = vm.getClusterId();
 
         if (clusterId != null) {
-
-            // update emulated machine list
-            AsyncDataProvider.getInstance().getEmulatedMachinesByClusterID(new AsyncQuery<>(
-                    emulatedSet -> {
-                        if (emulatedSet != null) {
-                            String oldVal = getEmulatedMachine().getSelectedItem();
-                            getEmulatedMachine().setItems(new TreeSet<>(emulatedSet));
-                            getEmulatedMachine().setSelectedItem(oldVal);// even if converted - needed as fallback
-                            convertEmulatedMachineField();
-                        }
-                    }), clusterId);
+            initEmulatedMachineFields(clusterId);
 
             AsyncDataProvider.getInstance().getClusterById(new AsyncQuery<>(
                     cluster -> {
@@ -953,28 +1085,10 @@ public abstract class RunOnceModel extends Model {
                                                     getCustomCpu().setSelectedItem(oldVal);
                                                 }
                                             }
-                                        }), cluster.getCpuName());
+                                        }), cluster.getCpuName(), cluster.getCompatibilityVersion());
                             }
                         }
                     }), clusterId);
-        }
-    }
-
-    // replace 'cluster emulated machine' with the explicit run-time value
-    private void convertEmulatedMachineField() {
-        if (StringHelper.isNullOrEmpty(getEmulatedMachine().getSelectedItem())) {
-            Guid clusterId = vm.getClusterId();
-            if (clusterId != null) {
-                AsyncDataProvider.getInstance().getClusterById(new AsyncQuery<>(
-                        cluster -> {
-                            if (cluster != null) {
-                                if (cluster.getEmulatedMachine() != null) {
-                                    getEmulatedMachine().setSelectedItem(cluster.getEmulatedMachine());
-                                }
-
-                            }
-                        }), clusterId);
-            }
         }
     }
 
@@ -998,7 +1112,7 @@ public abstract class RunOnceModel extends Model {
             } else if (sender == getAttachIso()) {
                 attachIso_EntityChanged();
             } else if (sender == getAttachSysprep()) {
-                    attachSysprep_EntityChanged();
+                attachSysprep_EntityChanged();
             } else if (sender == getIsVmFirstRun()) {
                 isVmFirstRun_EntityChanged();
             } else if (sender == getUseAlternateCredentials()) {
@@ -1077,16 +1191,18 @@ public abstract class RunOnceModel extends Model {
         }
     }
 
-    // Sysprep/cloud-init sections displayed only with proper OS type (Windows
-    // or Linux, respectively) and when proper floppy or CD is attached.
+    // Sysprep/cloud-init/ignition sections displayed only with proper OS type (Windows
+    // /Linux or core os, respectively) and when proper floppy or CD is attached.
     // Currently vm.isFirstRun() status is not considered.
     public void updateInitialRunFields() {
         getIsSysprepPossible().setEntity(getIsWindowsOS());
         getIsSysprepEnabled().setEntity(getInitializationType() == InitializationType.Sysprep);
         // also other can be cloud inited
         getIsCloudInitPossible().setEntity(!getIsWindowsOS());
-        getIsCloudInitEnabled().setEntity(getInitializationType() == InitializationType.CloudInit);
+        getIsCloudInitEnabled().setEntity(getInitializationType() == InitializationType.CloudInit
+                || getInitializationType() == InitializationType.Ignition);
         getIsCloudInitEnabled().setIsAvailable(!getIsWindowsOS());
+        getAttachWgt().setIsChangeable(getIsWindowsOS() && getAttachIso().getEntity());
 
         if (getIsSysprepPossible().getEntity() && getIsSysprepEnabled().getEntity()) {
             getVmInitModel().updateSysprepDomain(getVmInitModel().getSysprepDomain().getSelectedItem());
@@ -1105,6 +1221,31 @@ public abstract class RunOnceModel extends Model {
         }
 
         boolean customPropertyValidation = getCustomPropertySheet().validate();
+
+        if (getIsLinuxOS()) {
+            getKernelImage().validateSelectedItem(new IValidation[] { new NoTrimmingWhitespacesValidation() });
+            getInitrdImage().validateSelectedItem(new IValidation[] { new NoTrimmingWhitespacesValidation() });
+            getKernelParameters().validateEntity(new IValidation[] { new NoTrimmingWhitespacesValidation() });
+
+            // initrd path and kernel params require kernel path to be filled
+            if (StringHelper.isNullOrEmpty(getKernelImage().getSelectedItem())) {
+                final UIConstants constants = ConstantsManager.getInstance().getConstants();
+
+                if (!StringHelper.isNullOrEmpty(getInitrdImage().getSelectedItem())) {
+                    getInitrdImage().getInvalidityReasons().add(constants.initrdPathInvalid());
+                    getInitrdImage().setIsValid(false);
+                    getKernelImage().getInvalidityReasons().add(constants.initrdPathInvalid());
+                    getKernelImage().setIsValid(false);
+                }
+
+                if (!StringHelper.isNullOrEmpty(getKernelParameters().getEntity())) {
+                    getKernelParameters().getInvalidityReasons().add(constants.kernelParamsInvalid());
+                    getKernelParameters().setIsValid(false);
+                    getKernelImage().getInvalidityReasons().add(constants.kernelParamsInvalid());
+                    getKernelImage().setIsValid(false);
+                }
+            }
+        }
 
         if (getIsAutoAssign().getEntity() != null && !getIsAutoAssign().getEntity()) {
             getDefaultHost().validateSelectedItem(new IValidation[] { new NotEmptyValidation() });
@@ -1130,6 +1271,9 @@ public abstract class RunOnceModel extends Model {
 
         return getIsoImage().getIsValid()
                 && getFloppyImage().getIsValid()
+                && getKernelImage().getIsValid()
+                && getInitrdImage().getIsValid()
+                && getKernelParameters().getIsValid()
                 && getDefaultHost().getIsValid()
                 && customPropertyValidation
                 && cloudInitIsValid
@@ -1164,6 +1308,30 @@ public abstract class RunOnceModel extends Model {
         getVncKeyboardLayout().setIsChangeable(false);
     }
 
+    private void initEmulatedMachineFields(Guid clusterId) {
+        AsyncDataProvider.getInstance().getClusterById(new AsyncQuery<>(
+                cluster -> {
+                    if (cluster != null) {
+                        getClusterEmulatedMachine().setEntity(cluster.getEmulatedMachine());
+                    }
+                    loadEmulatedMachineList(clusterId);
+                }), clusterId);
+    }
+
+    private void loadEmulatedMachineList(Guid clusterId) {
+        // update emulated machine list
+        AsyncDataProvider.getInstance().getEmulatedMachinesByClusterID(new AsyncQuery<>(
+                emulatedSet -> {
+                    if (emulatedSet != null) {
+                        String oldVal = getEmulatedMachine().getSelectedItem();
+                        List<String> items = new ArrayList<>(new TreeSet<>(emulatedSet));
+                        items.add(0, "");//$NON-NLS-1$
+                        getEmulatedMachine().setItems(items);
+                        getEmulatedMachine().setSelectedItem(oldVal);
+                    }
+                }), clusterId);
+    }
+
     public void autoSetVmHostname() {
         getVmInitModel().autoSetHostname(vm.getName());
     }
@@ -1174,5 +1342,6 @@ public abstract class RunOnceModel extends Model {
             getVmInitModel().disableAutoSetHostname();
         }
     }
+
 
 }

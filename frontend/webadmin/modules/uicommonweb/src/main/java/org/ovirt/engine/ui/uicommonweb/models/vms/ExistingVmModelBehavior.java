@@ -23,6 +23,7 @@ import org.ovirt.engine.core.common.queries.IdQueryParameters;
 import org.ovirt.engine.core.common.queries.QueryReturnValue;
 import org.ovirt.engine.core.common.queries.QueryType;
 import org.ovirt.engine.core.common.utils.CompatibilityVersionUtils;
+import org.ovirt.engine.core.common.utils.VmCommonUtils;
 import org.ovirt.engine.core.common.validation.VmActionByVmOriginTypeValidator;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.compat.StringHelper;
@@ -77,6 +78,14 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
         getModel().getVmId().setIsAvailable(true);
         getModel().getVmId().setIsChangeable(false);
 
+        getModel().getIsStateless().setIsAvailable(vm.getVmPoolId() == null);
+        getModel().getIsRunAndPause().setIsAvailable(vm.getVmPoolId() == null);
+
+        // Storage domain and provisioning are not available for an existing VM.
+        getModel().getStorageDomain().setIsChangeable(false);
+        getModel().getProvisioning().setIsAvailable(false);
+        getModel().getProvisioning().setEntity(Guid.Empty.equals(vm.getVmtGuid()));
+
         loadDataCenter();
         instanceTypeManager = new ExistingVmInstanceTypeManager(getModel(), vm);
 
@@ -84,19 +93,30 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
             instanceTypeManager.setAlwaysEnabledFieldUpdate(true);
         }
 
-        Frontend.getInstance().runQuery(QueryType.GetVmNumaNodesByVmId,
-                new IdQueryParameters(vm.getId()),
-                new AsyncQuery<QueryReturnValue>(returnValue -> {
-                    List<VmNumaNode> nodes = returnValue.getReturnValue();
-                    getModel().setVmNumaNodes(nodes);
-                    getModel().updateNodeCount(nodes.size());
-                }));
+        if (vm.isNextRunConfigurationExists()) {
+            getModel().setVmNumaNodes(vm.getvNumaNodeList());
+            getModel().updateNodeCount(vm.getvNumaNodeList().size());
+        } else {
+            Frontend.getInstance().runQuery(QueryType.GetVmNumaNodesByVmId,
+                    new IdQueryParameters(vm.getId()),
+                    new AsyncQuery<QueryReturnValue>(returnValue -> {
+                        List<VmNumaNode> nodes = returnValue.getReturnValue();
+                        getModel().setVmNumaNodes(nodes);
+                        getModel().updateNodeCount(nodes.size());
+                    }));
+        }
         // load dedicated host names into host names list
         if (getVm().getDedicatedVmForVdsList().size() > 0) {
             Frontend.getInstance().runQuery(QueryType.GetAllHostNamesPinnedToVmById,
                     new IdQueryParameters(vm.getId()),
                     asyncQuery((QueryReturnValue returnValue) ->
                             setDedicatedHostsNames((List<String>) returnValue.getReturnValue())));
+        }
+
+        if (getVm().isHostedEngine()) {
+            getModel().getIsHighlyAvailable().setEntity(false);
+            getModel().getIsHighlyAvailable().setIsChangeable(false);
+            getModel().getIsHighlyAvailable().setChangeProhibitionReason(constants.noHaWhenHostedEngineUsed());
         }
     }
 
@@ -159,29 +179,7 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
 
         // Update model state according to VM properties.
         buildModel(vm.getStaticData(), (source, destination) -> {
-            getModel().getIsStateless().setIsAvailable(vm.getVmPoolId() == null);
-
-            getModel().getIsRunAndPause().setIsAvailable(vm.getVmPoolId() == null);
-
-            getModel().getCpuSharesAmount().setEntity(vm.getCpuShares());
-            updateCpuSharesSelection();
-
-            updateRngDevice(getVm().getId());
-            updateTimeZone(vm.getTimeZone());
-
-            updateGraphics(vm.getId());
-
-            getModel().getHostCpu().setEntity(isHostCpuValueStillBasedOnTemp() ? vm.isUseHostCpuFlags() : false);
-
-            // Storage domain and provisioning are not available for an existing VM.
-            getModel().getStorageDomain().setIsChangeable(false);
-            getModel().getProvisioning().setIsAvailable(false);
-            getModel().getProvisioning().setEntity(Guid.Empty.equals(vm.getVmtGuid()));
-
-            getModel().getCpuPinning().setEntity(vm.getCpuPinning());
-
-            getModel().getCustomPropertySheet().deserialize(vm.getCustomProperties());
-
+            // System
             if (isHotSetCpuSupported()) {
                 // cancel related events while fetching data
                 getModel().getTotalCPUCores().getEntityChangedEvent().removeListener(getModel());
@@ -195,13 +193,22 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
                     updateNumOfSockets();
                 }), vm.getRunOnVds());
             }
+            updateTimeZone(vm.getTimeZone());
 
-            updateCpuProfile(vm.getClusterId(), vm.getCpuProfileId());
+            // Console
+            updateGraphics(vm.getId());
+            // Host
+            getModel().getHostCpu().setEntity(isHostCpuValueStillBasedOnTemp() ? vm.isUseHostCpuFlags() : false);
+            // High availability
             getModel().updateResumeBehavior();
+            // Resource allocation
+            updateCpuProfile(vm.getClusterId(), vm.getCpuProfileId());
+            updateCpuSharesSelection();
+            // Random Generator
+            updateRngDevice(getVm().getId());
 
-            getModel().getMigrationMode().setSelectedItem(vm.getMigrationSupport());
 
-            getModel().getTscFrequency().setEntity(vm.getUseTscFrequency());
+            getInstanceTypeManager().updateInstanceTypeFieldsFromSource();
         });
     }
 
@@ -251,15 +258,10 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
 
     @Override
     public void postDataCenterWithClusterSelectedItemChanged() {
-        updateDefaultHost();
-        updateCustomPropertySheet();
-        updateNumOfSockets();
+        super.postDataCenterWithClusterSelectedItemChanged();
+
         updateQuotaByCluster(vm.getQuotaId(), vm.getQuotaName());
         updateCpuPinningVisibility();
-        updateMemoryBalloon();
-        updateCpuSharesAvailability();
-        updateVirtioScsiAvailability();
-        updateOSValues();
         updateInstanceImages();
         updateLeaseStorageDomains(vm.getLeaseStorageDomainId());
 
@@ -308,7 +310,7 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
     @Override
     protected void changeDefaultHost() {
         super.changeDefaultHost();
-        doChangeDefaultHost(vm.getDedicatedVmForVdsList());
+        updateDefaultHost(vm.getDedicatedVmForVdsList());
 
         if (isHostCpuValueStillBasedOnTemp()) {
             getModel().getHostCpu().setEntity(vm.isUseHostCpuFlags());
@@ -346,9 +348,9 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
             return;
         }
 
-        double overCommitFactor = 100.0 / cluster.getMaxVdsMemoryOverCommit();
-        getModel().getMinAllocatedMemory()
-                .setEntity((int) (getModel().getMemSize().getEntity() * overCommitFactor));
+        int minMemory = VmCommonUtils.calcMinMemory(
+                getModel().getMemSize().getEntity(), cluster.getMaxVdsMemoryOverCommit());
+        getModel().getMinAllocatedMemory().setEntity(minMemory);
     }
 
     protected void initTemplate() {
@@ -475,14 +477,6 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
     }
 
     @Override
-    public void enableSinglePCI(boolean enabled) {
-        super.enableSinglePCI(enabled);
-        if (getInstanceTypeManager() != null) {
-            getInstanceTypeManager().maybeSetSingleQxlPci(vm.getStaticData());
-        }
-    }
-
-    @Override
     public ExistingVmInstanceTypeManager getInstanceTypeManager() {
         return (ExistingVmInstanceTypeManager) instanceTypeManager;
     }
@@ -505,17 +499,6 @@ public class ExistingVmModelBehavior extends VmModelBehaviorBase<UnitVmModel> {
         updateNumaEnabledHelper();
         if (Boolean.TRUE.equals(getModel().getNumaEnabled().getEntity()) && getModel().getVmNumaNodes() != null) {
             getModel().getNumaNodeCount().setEntity(getModel().getVmNumaNodes().size());
-        }
-    }
-
-    @Override
-    public void updateHaAvailability() {
-        super.updateHaAvailability();
-
-        if (getVm() != null && getVm().isHostedEngine()) {
-            getModel().getIsHighlyAvailable().setEntity(false);
-            getModel().getIsHighlyAvailable().setIsChangeable(false);
-            getModel().getIsHighlyAvailable().setChangeProhibitionReason(constants.noHaWhenHostedEngineUsed());
         }
     }
 

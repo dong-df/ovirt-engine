@@ -1,7 +1,9 @@
 package org.ovirt.engine.ui.uicommonweb.models.providers;
 
+import static org.ovirt.engine.core.common.businessentities.BusinessEntitiesDefinitions.GENERAL_MAX_SIZE;
 import static org.ovirt.engine.core.common.businessentities.BusinessEntitiesDefinitions.NETWORK_MAX_LEGAL_PORT;
 import static org.ovirt.engine.core.common.businessentities.BusinessEntitiesDefinitions.NETWORK_MIN_LEGAL_PORT;
+import static org.ovirt.engine.core.common.businessentities.CertificateInfo.SHA256_NAME;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -25,7 +27,6 @@ import org.ovirt.engine.core.common.businessentities.StoragePool;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.comparators.LexoNumericComparator;
 import org.ovirt.engine.core.common.businessentities.comparators.NameableComparator;
-import org.ovirt.engine.core.common.businessentities.storage.OpenStackVolumeProviderProperties;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.ui.frontend.AsyncCallback;
 import org.ovirt.engine.ui.frontend.Frontend;
@@ -90,6 +91,7 @@ public class ProviderModel extends Model {
     private VmwarePropertiesModel vmwarePropertiesModel = new VmwarePropertiesModel();
     private KVMPropertiesModel kvmPropertiesModel = new KVMPropertiesModel();
     private XENPropertiesModel xenPropertiesModel = new XENPropertiesModel();
+    private KubevirtPropertiesModel kubevirtPropertiesModel = new KubevirtPropertiesModel();
     private String certificate;
     private EntityModel<Boolean> readOnly = new EntityModel<>();
 
@@ -230,6 +232,10 @@ public class ProviderModel extends Model {
         return xenPropertiesModel;
     }
 
+    public KubevirtPropertiesModel getKubevirtPropertiesModel() {
+        return kubevirtPropertiesModel;
+    }
+
     protected boolean isTypeNetwork() {
         ProviderType type = getType().getSelectedItem();
         return type == ProviderType.EXTERNAL_NETWORK || type == ProviderType.OPENSTACK_NETWORK;
@@ -240,11 +246,11 @@ public class ProviderModel extends Model {
     }
 
     private boolean supportsAuthApiV3() {
-        return isTypeOpenStackNetwork();
+        return isTypeOpenStack();
     }
 
     private boolean isTypeOpenStack() {
-        return isTypeOpenStackImage() || isTypeOpenStackVolume() || isTypeOpenStackNetwork();
+        return isTypeOpenStackImage() || isTypeOpenStackNetwork();
     }
 
     private boolean isTypeOpenStackNetwork() {
@@ -253,10 +259,6 @@ public class ProviderModel extends Model {
 
     private boolean isTypeOpenStackImage() {
         return getType().getSelectedItem() == ProviderType.OPENSTACK_IMAGE;
-    }
-
-    private boolean isTypeOpenStackVolume() {
-        return getType().getSelectedItem() == ProviderType.OPENSTACK_VOLUME;
     }
 
     private boolean isTypeExternalNetwork() {
@@ -273,6 +275,10 @@ public class ProviderModel extends Model {
 
     protected boolean isTypeXEN() {
         return getType().getSelectedItem() == ProviderType.XEN;
+    }
+
+    protected boolean isTypeKubevirt() {
+        return getType().getSelectedItem() == ProviderType.KUBEVIRT;
     }
 
     public ListModel<StoragePool> getDataCenter() {
@@ -300,22 +306,22 @@ public class ProviderModel extends Model {
             return ""; //$NON-NLS-1$
         }
         switch (type) {
-            case EXTERNAL_NETWORK:
-            case OPENSTACK_NETWORK:
-                return "http://localhost:9696"; //$NON-NLS-1$
-            case OPENSTACK_IMAGE:
-                return "http://localhost:9292"; //$NON-NLS-1$
-            case OPENSTACK_VOLUME:
-                return "http://localhost:8776"; //$NON-NLS-1$
-            case VMWARE:
-                return ""; //$NON-NLS-1$
-            case KVM:
-                return ""; //$NON-NLS-1$
-            case XEN:
-                return ""; //$NON-NLS-1$
-            case FOREMAN:
-            default:
-                return "http://localhost"; //$NON-NLS-1$
+        case EXTERNAL_NETWORK:
+        case OPENSTACK_NETWORK:
+            return "http://localhost:9696"; //$NON-NLS-1$
+        case OPENSTACK_IMAGE:
+            return "http://localhost:9292"; //$NON-NLS-1$
+        case VMWARE:
+            return ""; //$NON-NLS-1$
+        case KVM:
+            return ""; //$NON-NLS-1$
+        case XEN:
+            return ""; //$NON-NLS-1$
+        case KUBEVIRT:
+            return ""; //$NON-NLS-1$
+        case FOREMAN:
+        default:
+            return "http://localhost"; //$NON-NLS-1$
         }
     }
 
@@ -418,22 +424,20 @@ public class ProviderModel extends Model {
             boolean isVmware = isTypeVmware();
             boolean isKvm = isTypeKVM();
             boolean isXen = isTypeXEN();
+            boolean isKubevirt = isTypeKubevirt();
             boolean requiresAuth = isTypeRequiresAuthentication();
-            getRequiresAuthentication().setEntity(isVmware || Boolean.valueOf(requiresAuth));
+            getRequiresAuthentication().setEntity(isVmware || isKubevirt || Boolean.valueOf(requiresAuth));
             getRequiresAuthentication().setIsChangeable(!requiresAuth);
 
-            boolean isCinder = isTypeOpenStackVolume();
-            getDataCenter().setIsAvailable(isCinder || isVmware || isKvm || isXen);
-            if (isCinder) {
-                updateDatacentersForVolumeProvider();
-            }
+            getDataCenter().setIsAvailable(isVmware || isKvm || isXen);
 
             getVmwarePropertiesModel().setIsAvailable(isVmware);
             getKvmPropertiesModel().setIsAvailable(isKvm);
             getXenPropertiesModel().setIsAvailable(isXen);
+            getKubevirtPropertiesModel().setIsAvailable(isKubevirt);
 
-            getRequiresAuthentication().setIsAvailable(!isVmware && !isXen);
-            getUsername().setIsAvailable(!isXen);
+            getRequiresAuthentication().setIsAvailable(!isVmware && !isXen && !isKubevirt);
+            getUsername().setIsAvailable(!isXen && !isKubevirt);
             getPassword().setIsAvailable(!isXen);
             getUrl().setIsAvailable(!isVmware && !isKvm && !isXen);
             if (isVmware || isKvm || isXen) {
@@ -446,6 +450,10 @@ public class ProviderModel extends Model {
         getTenantName().setIsAvailable(false);
 
         List<ProviderType> providerTypes = new ArrayList<>(Arrays.asList(ProviderType.values()));
+        // Filtering out the old cinder integration from the providers type list on UI.
+        // The OPENSTACK_VOLUME provider type should be removed from the ProviderType enum (bug 1950731).
+        providerTypes.remove(ProviderType.OPENSTACK_VOLUME);
+
         Collections.sort(providerTypes,
                 Comparator.comparing(t -> EnumTranslator.getInstance().translate(t), new LexoNumericComparator()));
         getType().setItems(providerTypes);
@@ -475,7 +483,7 @@ public class ProviderModel extends Model {
                         proxyHostPropertiesModel.getProxyHost().setItems(hosts);
                         proxyHostPropertiesModel.getProxyHost().setSelectedItem(prevHost);
                     }),
-                    getDataCenter().getSelectedItem().getId());
+                            getDataCenter().getSelectedItem().getId());
                 }
             }
 
@@ -559,10 +567,6 @@ public class ProviderModel extends Model {
         }));
     }
 
-    protected void updateDatacentersForVolumeProvider() {
-        // implemented on sub-classes
-    }
-
     private boolean validate() {
         getName().validateEntity(new IValidation[] { new NotEmptyValidation(), new AsciiNameValidation() });
         getType().validateSelectedItem(new IValidation[] { new NotEmptyValidation() });
@@ -584,8 +588,8 @@ public class ProviderModel extends Model {
     private boolean validateConnectionSettings() {
         getUsername().validateEntity(new IValidation[] { new NotEmptyValidation() });
         getPassword().validateEntity(new IValidation[] {
-            new NotEmptyValidation(),
-            new LengthValidation(200)
+                new NotEmptyValidation(),
+                new LengthValidation(GENERAL_MAX_SIZE)
         });
         if (isTypeOpenStack()) {
             getTenantName().validateEntity(new IValidation[] { new NotEmptyValidation()} );
@@ -624,8 +628,6 @@ public class ProviderModel extends Model {
             properties.setAutoSync(autoSync.getEntity());
         } else if (isTypeOpenStackImage()) {
             provider.setAdditionalProperties(new OpenStackImageProviderProperties());
-        } else if (isTypeOpenStackVolume()) {
-            provider.setAdditionalProperties(new OpenStackVolumeProviderProperties(getDataCenter().getSelectedItem().getId()));
         } else if (isTypeVmware()) {
             provider.setAdditionalProperties(getVmwarePropertiesModel().getVmwareVmProviderProperties(
                     dataCenter.getSelectedItem() != null ? dataCenter.getSelectedItem().getId() : null));
@@ -638,6 +640,8 @@ public class ProviderModel extends Model {
             provider.setUrl(getXenPropertiesModel().getUrl().getEntity());
             provider.setAdditionalProperties(getXenPropertiesModel().getXENVmProviderProperties(
                     dataCenter.getSelectedItem() != null ? dataCenter.getSelectedItem().getId() : null));
+        } else if (isTypeKubevirt()) {
+            provider.setAdditionalProperties(getKubevirtPropertiesModel().getKubevirtProviderProperties());
         }
 
         boolean authenticationRequired = requiresAuthentication.getEntity();
@@ -669,6 +673,10 @@ public class ProviderModel extends Model {
                 properties.setProjectName(null);
                 properties.setProjectDomainName(null);
             }
+            provider.setAuthUrl(null);
+        }
+
+        if (isTypeKubevirt()) {
             provider.setAuthUrl(null);
         }
     }
@@ -716,7 +724,7 @@ public class ProviderModel extends Model {
 
         flush();
         startProgress();
-        if (provider.getUrl().startsWith(Uri.SCHEME_HTTPS)) {
+        if (provider.getUrl().startsWith(Uri.SCHEME_HTTPS) && !isTypeKubevirt()) {
             AsyncDataProvider.getInstance().getProviderCertificateChain(new AsyncQuery<>(certs -> {
                 boolean ok = false;
                 certificate = null;
@@ -763,11 +771,11 @@ public class ProviderModel extends Model {
         if (certInfo.getSelfSigned()) {
             confirmationModel.setMessage(
                     ConstantsManager.getInstance().getMessages().approveRootCertificateTrust(
-                        certInfo.getSubject(), certInfo.getSHA1Fingerprint()));
+                            certInfo.getSubject(), certInfo.getSHA256Fingerprint(), SHA256_NAME));
         } else {
             confirmationModel.setMessage(
                     ConstantsManager.getInstance().getMessages().approveCertificateTrust(
-                        certInfo.getSubject(), certInfo.getIssuer(), certInfo.getSHA1Fingerprint()));
+                        certInfo.getSubject(), certInfo.getIssuer(), certInfo.getSHA256Fingerprint(), SHA256_NAME));
         }
         confirmationModel.setTitle(ConstantsManager.getInstance().getConstants().importProviderCertificateTitle());
         confirmationModel.setHelpTag(HelpTag.import_provider_certificate);
@@ -820,7 +828,7 @@ public class ProviderModel extends Model {
         } else if (!result.getSucceeded()) {
             errorMessage = result.isValid() ?
                     result.getFault().getMessage() :
-                    result.getValidationMessages().get(0);
+                        result.getValidationMessages().get(0);
         }
         getTestResult().setEntity(errorMessage);
     }

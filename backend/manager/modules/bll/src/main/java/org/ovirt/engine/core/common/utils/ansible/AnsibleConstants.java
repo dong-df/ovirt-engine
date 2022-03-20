@@ -30,6 +30,16 @@ public class AnsibleConstants {
     public static final String HOST_DEPLOY_PLAYBOOK = "ovirt-host-deploy.yml";
 
     /**
+     * This is name of file which executes fetches existing hosted engine configuration file via Ansible.
+     */
+    public static final String FETCH_HE_CONFIG_FILE_PLAYBOOK = "ovirt-fetch-he-config.yml";
+
+    /**
+     * This is name of file which executes the host-check-upgrade via Ansible.
+     */
+    public static final String HOST_CHECK_UPGRADE_PLAYBOOK = "ovirt-host-check-upgrade.yml";
+
+    /**
      * This is name of file which executes the host-upgrade via Ansible.
      */
     public static final String HOST_UPGRADE_PLAYBOOK = "ovirt-host-upgrade.yml";
@@ -65,12 +75,31 @@ public class AnsibleConstants {
     public static final String IMPORT_OVA_PLAYBOOK = "ovirt-ova-import.yml";
 
     /**
+     * This is name of file which executes the ova-external-data via Ansible.
+     */
+    public static final String OVA_EXTERNAL_DATA_PLAYBOOK = "ovirt-ova-external-data.yml";
+
+    /**
      * This is name of file which executes the lvmcache via Ansible.
      */
     public static final String CREATE_BRICK_PLAYBOOK = "create-brick.yml";
 
     /**
+     *  This is the name of file which executes Replace Gluster
+     */
+    public static final String REPLACE_GLUSTER_PLAYBOOK = "replace-gluster.yml";
+
+    /**
+     *  This is the name of file which executes host-fix-encrypted-migrations via Ansible
+     */
+    public static final String HOST_MIGRATION_CERTS = "ovirt-host-fix-encrypted-migrations.yml";
+
+    /**
      * Name of the task where VDSM_ID is loaded, so we can distinguish this task and parse it.
      */
     public static final String TASK_VDSM_ID = "Fetch vdsm id";
+
+    public static final String HOST_DEPLOY_LOG_DIRECTORY = "host-deploy";
+
+    public static final Path ANSIBLE_RUNNER_SERVICE_LOG = Paths.get("/var/log/ovirt-engine/ansible-runner-service.log");
 }

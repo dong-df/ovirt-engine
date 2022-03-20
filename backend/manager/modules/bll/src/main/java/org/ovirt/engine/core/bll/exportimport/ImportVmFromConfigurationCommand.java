@@ -27,17 +27,18 @@ import org.ovirt.engine.core.common.action.ActionReturnValue;
 import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.AttachDetachVmDiskParameters;
 import org.ovirt.engine.core.common.action.ImportVmFromConfParameters;
-import org.ovirt.engine.core.common.action.LockProperties;
-import org.ovirt.engine.core.common.action.LockProperties.Scope;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.Label;
+import org.ovirt.engine.core.common.businessentities.OriginType;
 import org.ovirt.engine.core.common.businessentities.OvfEntityData;
 import org.ovirt.engine.core.common.businessentities.VM;
+import org.ovirt.engine.core.common.businessentities.VmStatic;
 import org.ovirt.engine.core.common.businessentities.aaa.DbUser;
 import org.ovirt.engine.core.common.businessentities.storage.Disk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskVmElement;
 import org.ovirt.engine.core.common.businessentities.storage.FullEntityOvfData;
+import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.common.scheduling.AffinityGroup;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
@@ -56,6 +57,7 @@ public class ImportVmFromConfigurationCommand<T extends ImportVmFromConfParamete
     private static final Logger log = LoggerFactory.getLogger(ImportVmFromConfigurationCommand.class);
     private Collection<Disk> vmDisksToAttach;
     private OvfEntityData ovfEntityData;
+    private boolean ovfCanBeParsed = true;
 
     private List<String> missingAffinityGroups = new ArrayList<>();
     private List<String> missingAffinityLabels = new ArrayList<>();
@@ -97,6 +99,10 @@ public class ImportVmFromConfigurationCommand<T extends ImportVmFromConfParamete
 
     @Override
     protected boolean validate() {
+        if (!ovfCanBeParsed) {
+            return failValidation(EngineMessage.ACTION_TYPE_FAILED_OVF_CONFIGURATION_NOT_SUPPORTED);
+        }
+
         // We first must filter out all the invalid disks from imageToDestinationDomainMap in case we import using
         // allow_partial, so that when a VM will be imported the disks which do not exist on the storage domain will
         // be ignored.
@@ -171,11 +177,6 @@ public class ImportVmFromConfigurationCommand<T extends ImportVmFromConfParamete
     }
 
     @Override
-    protected LockProperties applyLockProperties(LockProperties lockProperties) {
-        return lockProperties.withScope(Scope.Execution);
-    }
-
-    @Override
     protected void init() {
         VM vmFromConfiguration = getParameters().getVm();
         if (vmFromConfiguration != null) {
@@ -217,8 +218,17 @@ public class ImportVmFromConfigurationCommand<T extends ImportVmFromConfParamete
                         getParameters().setClusterId(cluster.getId());
                     }
                 }
+
+                setClusterId(getParameters().getClusterId());
+                if (getCluster() != null && getCluster().getBiosType() != null) {
+                    vmFromConfiguration.setClusterBiosType(getCluster().getBiosType());
+                }
+
                 vmFromConfiguration.setClusterId(getParameters().getClusterId());
                 getParameters().setVm(vmFromConfiguration);
+                if (getParameters().getName() != null) {
+                    getParameters().getVm().setName(getParameters().getName());
+                }
                 getParameters().setDestDomainId(ovfEntityData.getStorageDomainId());
                 getParameters().setSourceDomainId(ovfEntityData.getStorageDomainId());
                 getParameters().setUserToRoles(fullEntityOvfData.getUserToRoles());
@@ -240,6 +250,8 @@ public class ImportVmFromConfigurationCommand<T extends ImportVmFromConfParamete
                         e.getMessage(),
                         ovfEntityData.getOvfData());
                 log.debug("Exception", e);
+                ovfEntityData = null;
+                ovfCanBeParsed = false;
             }
         }
     }
@@ -323,6 +335,7 @@ public class ImportVmFromConfigurationCommand<T extends ImportVmFromConfParamete
             } else if (!vmDisksToAttach.isEmpty()) {
                 auditLogDirector.log(this, attemptToAttachDisksToImportedVm(vmDisksToAttach));
             }
+            updateBiosType();
         }
         setActionReturnValue(getVm().getId());
     }
@@ -508,6 +521,20 @@ public class ImportVmFromConfigurationCommand<T extends ImportVmFromConfParamete
                 .collect(Collectors.toSet());
         missingRoles = importValidator.findMissingEntities(candidateRoles, val -> roleDao.getByName(val));
         getParameters().getUserToRoles().forEach((k, v) -> v.removeAll(missingRoles));
+    }
+
+    private void updateBiosType() {
+        if (getVm().getOrigin() != OriginType.VMWARE && getVm().getOrigin() != OriginType.XEN) {
+            return;
+        }
+
+        VmStatic oldVm = getVm().getStaticData();
+        VmStatic newVm = new VmStatic(oldVm);
+
+        vmHandler.updateToQ35(oldVm,
+                newVm,
+                getCluster(),
+                null);
     }
 
     @Override

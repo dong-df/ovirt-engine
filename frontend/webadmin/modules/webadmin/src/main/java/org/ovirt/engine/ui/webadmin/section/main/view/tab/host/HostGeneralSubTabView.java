@@ -76,6 +76,7 @@ public class HostGeneralSubTabView extends AbstractSubTabFormView<VDS, HostListM
     NullableNumberValueLabel<Integer> activeVms = new NullableNumberValueLabel<>();
     NullableNumberValueLabel<Integer> logicalCores = new NullableNumberValueLabel<>();
     StringValueLabel onlineCores = new StringValueLabel();
+    StringValueLabel hostName = new StringValueLabel();
     StringValueLabel spmPriority = new StringValueLabel();
     StringValueLabel hostedEngineHa = new StringValueLabel();
     FullDateTimeLabel bootTime = new FullDateTimeLabel();
@@ -85,6 +86,7 @@ public class HostGeneralSubTabView extends AbstractSubTabFormView<VDS, HostListM
     StringValueLabel hugePages = new StringValueLabel();
     BooleanTextBoxLabel vncEncryptionEnabled = new BooleanTextBoxLabel(constants.enabled(), constants.disabled());
     BooleanTextBoxLabel fipsEnabled = new BooleanTextBoxLabel(constants.enabled(), constants.disabled());
+    BooleanTextBoxLabel ovnConfigured = new BooleanTextBoxLabel(constants.yes(), constants.no());
 
     MemorySizeTextBoxLabel<Integer> physicalMemory = new MemorySizeTextBoxLabel<>();
     MemorySizeTextBoxLabel<Integer> usedMemory = new MemorySizeTextBoxLabel<>();
@@ -135,6 +137,7 @@ public class HostGeneralSubTabView extends AbstractSubTabFormView<VDS, HostListM
     VersionValueLabel librbdVersion = new VersionValueLabel();
     StringValueLabel kernelFeatures = new StringValueLabel();
     VersionValueLabel ovsVersion = new VersionValueLabel();
+    VersionValueLabel nmstateVersion = new VersionValueLabel();
 
     @Ignore
     DetailsTextBoxLabel<ArrayList<ValueLabel<Integer>>, Integer> physicalMemoryDetails =
@@ -209,7 +212,7 @@ public class HostGeneralSubTabView extends AbstractSubTabFormView<VDS, HostListM
         boolean glusterSupported = ApplicationModeHelper.isModeSupported(ApplicationMode.GlusterOnly);
 
         // Build a form using the FormBuilder
-        softwareFormBuilder = new FormBuilder(softwareFormPanel, 1, 13);
+        softwareFormBuilder = new FormBuilder(softwareFormPanel, 1, 15);
         softwareFormBuilder.setRelativeColumnWidth(0, 12);
         softwareFormBuilder.addFormItem(new FormItem(constants.osVersionHostGeneral(), oS, 0).withAutoPlacement(), 2, 10);
         softwareFormBuilder.addFormItem(new FormItem(constants.osPrettyName(), osPrettyName, 0).withAutoPlacement(), 2, 10);
@@ -230,10 +233,14 @@ public class HostGeneralSubTabView extends AbstractSubTabFormView<VDS, HostListM
         softwareFormBuilder.addFormItem(new FormItem(constants.ovsVersionGeneral(), ovsVersion, 0).withAutoPlacement(),
                 2,
                 10);
+        softwareFormBuilder.addFormItem(new FormItem(constants.nmstateVersionGeneral(), nmstateVersion, 0).withAutoPlacement(),
+                2,
+                10);
         softwareFormBuilder.addFormItem(new FormItem(constants.kernelFeatures(), kernelFeatures, 0, true)
                 .withAutoPlacement(), 2, 10);
         softwareFormBuilder.addFormItem(new FormItem(constants.vncEncryptionLabel(), vncEncryptionEnabled, 0).withAutoPlacement(), 2, 10);
         softwareFormBuilder.addFormItem(new FormItem(constants.fipsEnabledLabel(), fipsEnabled, 0).withAutoPlacement(), 2, 10);
+        softwareFormBuilder.addFormItem(new FormItem(constants.ovnConfiguredLabel(), ovnConfigured, 0).withAutoPlacement(), 2, 10);
     }
 
     private void generateHardwareFormPanel() {
@@ -260,12 +267,13 @@ public class HostGeneralSubTabView extends AbstractSubTabFormView<VDS, HostListM
 
     private void populateGeneralFormPanel(boolean virtSupported) {
         // Build a form using the FormBuilder
-        generalFormBuilder = new FormBuilder(generalFormPanel, 3, 6);
+        generalFormBuilder = new FormBuilder(generalFormPanel, 3, 7);
         generalFormBuilder.setRelativeColumnWidth(0, 3);
         generalFormBuilder.setRelativeColumnWidth(1, 4);
         generalFormBuilder.setRelativeColumnWidth(2, 5);
 
-        generalFormBuilder.addFormItem(new FormItem(constants.spmPriority(), spmPriority, 0, 0, virtSupported).withAutoPlacement());
+        generalFormBuilder.addFormItem(new FormItem(constants.ipHost(), hostName,  0, 0).withAutoPlacement());
+        generalFormBuilder.addFormItem(new FormItem(constants.spmPriority(), spmPriority, 0, virtSupported).withAutoPlacement());
         generalFormBuilder.addFormItem(new FormItem(constants.activeVmsHostGeneral(), activeVms, 0, virtSupported).withAutoPlacement());
         generalFormBuilder.addFormItem(new FormItem(constants.logicalCores(), logicalCores, 0).withAutoPlacement());
         generalFormBuilder.addFormItem(new FormItem(constants.onlineCores(), onlineCores, 0).withAutoPlacement());
@@ -330,6 +338,7 @@ public class HostGeneralSubTabView extends AbstractSubTabFormView<VDS, HostListM
         vdsmVersion.setValue(model.getVdsmVersion());
         librbdVersion.setValue(model.getLibrbdVersion());
         ovsVersion.setValue(model.getOvsVersion());
+        nmstateVersion.setValue(model.getNmstateVersion());
     }
 
     private void updateHardwareFormPanel(VDS selectedItem) {

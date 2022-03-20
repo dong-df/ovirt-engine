@@ -362,14 +362,14 @@ public abstract class StorageHandlingCommandBase<T extends StoragePoolParameters
             getCompensationContext().snapshotEntity(getStoragePool());
             getStoragePool().setStatus(newStatus);
             StoragePool poolFromDb = storagePoolDao.get(getStoragePool().getId());
-            if ((getStoragePool().getSpmVdsId() == null && poolFromDb.getSpmVdsId() != null)
-                    || (getStoragePool().getSpmVdsId() != null && !getStoragePool().getSpmVdsId().equals(
-                            poolFromDb.getSpmVdsId()))) {
+            if (getStoragePool().getSpmVdsId() == null && poolFromDb.getSpmVdsId() != null
+                    || getStoragePool().getSpmVdsId() != null && !getStoragePool().getSpmVdsId().equals(
+                            poolFromDb.getSpmVdsId())) {
                 log.info("Set storage pool '{}' vds Id to '{}'", getStoragePool().getId(), poolFromDb.getSpmVdsId());
                 getStoragePool().setSpmVdsId(poolFromDb.getSpmVdsId());
             }
             if (getStoragePool().getStatus() == StoragePoolStatus.Uninitialized) {
-                log.info("Set storage pool '{}' vds Id to null", getStoragePool().getId(), poolFromDb.getSpmVdsId());
+                log.info("Set storage pool '{}' vds Id to null", getStoragePool().getId());
                 getStoragePool().setSpmVdsId(null);
             }
 
@@ -525,7 +525,7 @@ public abstract class StorageHandlingCommandBase<T extends StoragePoolParameters
             if (isFoundOvfDiskUpdated && !isUpdated) {
                 continue;
             }
-            if ((isUpdated && !isFoundOvfDiskUpdated) || date.after(foundOvfDiskUpdateDate)) {
+            if (isUpdated && !isFoundOvfDiskUpdated || date.after(foundOvfDiskUpdateDate)) {
                 isBetterOvfDiskFound = true;
             }
             if (isBetterOvfDiskFound) {
@@ -720,15 +720,6 @@ public abstract class StorageHandlingCommandBase<T extends StoragePoolParameters
 
     private boolean isDomainExistsInDiskDescription(Map<String, Object> map, Guid storageDomainId) {
         return Objects.toString(map.get(OvfInfoFileConstants.Domains), "").contains(storageDomainId.toString());
-    }
-
-    protected String getJsonDiskDescription(Disk disk) {
-        try {
-            return metadataDiskDescriptionHandler.generateJsonDiskDescription(disk);
-        } catch (IOException e) {
-            log.error("Exception while generating json for disk. ERROR: '{}'", e);
-            return StringUtils.EMPTY;
-        }
     }
 
     @Override

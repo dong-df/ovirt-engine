@@ -108,7 +108,7 @@ public class HostNetworkInterfaceBondedListViewItem extends HostNetworkInterface
                 return hostInterface.getName();
             }
         };
-        slavesTable.addColumn(name, constants.macInterface());
+        slavesTable.addColumn(name, constants.nameInterface());
 
         TextColumn<HostInterface> macAddress = new TextColumn<HostInterface>() {
             @Override
@@ -165,8 +165,7 @@ public class HostNetworkInterfaceBondedListViewItem extends HostNetworkInterface
         TextColumn<HostInterface> dropRate = new TextColumn<HostInterface>() {
             @Override
             public String getValue(HostInterface hostInterface) {
-                return String.valueOf(hostInterface.getRxDrop()
-                        + hostInterface.getTxDrop());
+                return String.valueOf(hostInterface.getRxDrop().add(hostInterface.getTxDrop()));
             }
         };
         slavesTable.addColumn(dropRate, templates.sub(constants.dropsInterface(), constants.pkts()));
@@ -250,7 +249,7 @@ public class HostNetworkInterfaceBondedListViewItem extends HostNetworkInterface
         if (InterfaceStatus.UP.equals(interfaceStatus) && isBond4) {
             bondProperties.append("\n").append(createActiveBondTooltipMessage(bond, lineModel));//$NON-NLS-1$
         }
-        if ((bond.getActiveSlave() != null) && (bond.getActiveSlave().length() > 0)) {
+        if (bond.getActiveSlave() != null && bond.getActiveSlave().length() > 0) {
             bondProperties.append("\n").append(messages.bondActiveSlave(bond.getActiveSlave()));//$NON-NLS-1$
         }
         return new SafeHtmlBuilder().appendEscapedLines(bondProperties.toString()).toSafeHtml();

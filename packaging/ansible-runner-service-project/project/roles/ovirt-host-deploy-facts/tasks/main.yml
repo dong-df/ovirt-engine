@@ -1,35 +1,18 @@
 ---
-- name: Install yum-utils
-  package:
-    name: yum-utils
-    state: present
+- include_tasks: "{{ item }}.yml"
+  with_items:
+    - host-os
+    - av-setup
+    - cinderlib-setup
 
-- name: Fetch info about VDSM
-  command: "repoquery --qf '%{VERSION}' vdsm"
-  changed_when: false
-  register: vdsm_version
-  check_mode: no
-  args:
-    warn: no
-
-- name: Detect host operating system
-  set_fact:
-    el_ver: "{{ ansible_distribution_major_version|int
-        if ansible_distribution == 'RedHat' or ansible_distribution == 'CentOS'
-        else 0 }}"
-    fc_ver: "{{ ansible_distribution_major_version|int
-        if ansible_distribution == 'Fedora'
-        else 0 }}"
-
-- name: Install Python3 for CentOS/RHEL8 hosts
+- name: Ensure Python3 is installed for CentOS/RHEL8 hosts
   yum:
     name: python3
     state: present
   when: el_ver|int >= 8
 
-- name: Set facts
+- name: Setup Ansible Python interpreter
   set_fact:
-    host_deploy_vdsm_version: "{{ vdsm_version.stdout }}"
     ansible_python_interpreter : "{{ '/usr/bin/python3'
         if (fc_ver|int > 0 or el_ver|int >= 8)
         else '/usr/bin/python2' }}"

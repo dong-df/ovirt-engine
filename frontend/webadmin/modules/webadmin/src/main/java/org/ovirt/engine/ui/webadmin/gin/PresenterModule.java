@@ -88,6 +88,7 @@ import org.ovirt.engine.ui.uicommonweb.models.hosts.HostInterfaceLineModel;
 import org.ovirt.engine.ui.uicommonweb.models.hosts.HostListModel;
 import org.ovirt.engine.ui.uicommonweb.models.networks.NetworkListModel;
 import org.ovirt.engine.ui.uicommonweb.models.pools.PoolListModel;
+import org.ovirt.engine.ui.uicommonweb.models.profiles.VnicProfileListModel;
 import org.ovirt.engine.ui.uicommonweb.models.providers.ProviderListModel;
 import org.ovirt.engine.ui.uicommonweb.models.quota.QuotaListModel;
 import org.ovirt.engine.ui.uicommonweb.models.storage.StorageListModel;
@@ -190,7 +191,6 @@ import org.ovirt.engine.ui.webadmin.section.main.presenter.popup.host.NetworkAtt
 import org.ovirt.engine.ui.webadmin.section.main.presenter.popup.host.SetupNetworksBondPopupPresenterWidget;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.popup.host.VfsConfigPopupPresenterWidget;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.popup.hostdev.AddVmHostDevicePopupPresenterWidget;
-import org.ovirt.engine.ui.webadmin.section.main.presenter.popup.hostdev.VmRepinHostPopupPresenterWidget;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.popup.instancetypes.InstanceTypesPopupPresenterWidget;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.popup.label.AffinityLabelPopupPresenterWidget;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.popup.macpool.SharedMacPoolPopupPresenterWidget;
@@ -257,6 +257,7 @@ import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.cluster.ClusterSu
 import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.cluster.SubTabClusterAffinityGroupPresenter;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.cluster.SubTabClusterAffinityLabelPresenter;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.cluster.SubTabClusterCpuProfilePresenter;
+import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.cluster.SubTabClusterEventPresenter;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.cluster.SubTabClusterGeneralPresenter;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.cluster.SubTabClusterGlusterHookPresenter;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.cluster.SubTabClusterHostPresenter;
@@ -342,7 +343,6 @@ import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.storage.SubTabSto
 import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.storage.SubTabStorageLeasePresenter;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.storage.SubTabStoragePermissionPresenter;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.storage.SubTabStorageRegisterDiskImagePresenter;
-import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.storage.SubTabStorageRegisterDiskPresenter;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.storage.SubTabStorageRegisterTemplatePresenter;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.storage.SubTabStorageRegisterVmPresenter;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.tab.storage.SubTabStorageSnapshotPresenter;
@@ -534,7 +534,6 @@ import org.ovirt.engine.ui.webadmin.section.main.view.popup.vm.VmNextRunConfigur
 import org.ovirt.engine.ui.webadmin.section.main.view.popup.vm.VmPopupView;
 import org.ovirt.engine.ui.webadmin.section.main.view.popup.vm.VmRemovePopupPresenterWidget;
 import org.ovirt.engine.ui.webadmin.section.main.view.popup.vm.VmRemovePopupView;
-import org.ovirt.engine.ui.webadmin.section.main.view.popup.vm.VmRepinHostPopupView;
 import org.ovirt.engine.ui.webadmin.section.main.view.popup.vm.VmRunOncePopupView;
 import org.ovirt.engine.ui.webadmin.section.main.view.popup.vm.VmSnapshotCreatePopupView;
 import org.ovirt.engine.ui.webadmin.section.main.view.popup.vm.VmSnapshotCustomPreviewPopupView;
@@ -545,6 +544,7 @@ import org.ovirt.engine.ui.webadmin.section.main.view.tab.cluster.ClusterSubTabP
 import org.ovirt.engine.ui.webadmin.section.main.view.tab.cluster.SubTabClusterAffinityGroupView;
 import org.ovirt.engine.ui.webadmin.section.main.view.tab.cluster.SubTabClusterAffinityLabelView;
 import org.ovirt.engine.ui.webadmin.section.main.view.tab.cluster.SubTabClusterCpuProfileView;
+import org.ovirt.engine.ui.webadmin.section.main.view.tab.cluster.SubTabClusterEventView;
 import org.ovirt.engine.ui.webadmin.section.main.view.tab.cluster.SubTabClusterGeneralView;
 import org.ovirt.engine.ui.webadmin.section.main.view.tab.cluster.SubTabClusterGlusterHookView;
 import org.ovirt.engine.ui.webadmin.section.main.view.tab.cluster.SubTabClusterHostView;
@@ -630,7 +630,6 @@ import org.ovirt.engine.ui.webadmin.section.main.view.tab.storage.SubTabStorageI
 import org.ovirt.engine.ui.webadmin.section.main.view.tab.storage.SubTabStorageLeaseView;
 import org.ovirt.engine.ui.webadmin.section.main.view.tab.storage.SubTabStoragePermissionView;
 import org.ovirt.engine.ui.webadmin.section.main.view.tab.storage.SubTabStorageRegisterDiskImageView;
-import org.ovirt.engine.ui.webadmin.section.main.view.tab.storage.SubTabStorageRegisterDiskView;
 import org.ovirt.engine.ui.webadmin.section.main.view.tab.storage.SubTabStorageRegisterTemplateView;
 import org.ovirt.engine.ui.webadmin.section.main.view.tab.storage.SubTabStorageRegisterVmView;
 import org.ovirt.engine.ui.webadmin.section.main.view.tab.storage.SubTabStorageSnapshotView;
@@ -900,10 +899,6 @@ public class PresenterModule extends BasePresenterModule {
                 SubTabStorageDiskPresenter.ViewDef.class,
                 SubTabStorageDiskView.class,
                 SubTabStorageDiskPresenter.ProxyDef.class);
-        bindPresenter(SubTabStorageRegisterDiskPresenter.class,
-                SubTabStorageRegisterDiskPresenter.ViewDef.class,
-                SubTabStorageRegisterDiskView.class,
-                SubTabStorageRegisterDiskPresenter.ProxyDef.class);
         bindPresenter(SubTabStorageRegisterDiskImagePresenter.class,
                 SubTabStorageRegisterDiskImagePresenter.ViewDef.class,
                 SubTabStorageRegisterDiskImageView.class,
@@ -1001,6 +996,10 @@ public class PresenterModule extends BasePresenterModule {
                 SubTabClusterAffinityLabelPresenter.ViewDef.class,
                 SubTabClusterAffinityLabelView.class,
                 SubTabClusterAffinityLabelPresenter.ProxyDef.class);
+        bindPresenter(SubTabClusterEventPresenter.class,
+                SubTabClusterEventPresenter.ViewDef.class,
+                SubTabClusterEventView.class,
+                SubTabClusterEventPresenter.ProxyDef.class);
         bindSingletonPresenterWidget(
                 new TypeLiteral<SearchPanelPresenterWidget<Cluster, ClusterListModel<Void>>>(){},
                 new TypeLiteral<SearchPanelPresenterWidget.ViewDef<ClusterListModel<Void>>>(){},
@@ -1459,6 +1458,10 @@ public class PresenterModule extends BasePresenterModule {
         bindPresenterWidget(VnicProfileBreadCrumbsPresenterWidget.class,
                 VnicProfileBreadCrumbsPresenterWidget.VnicProfileBreadCrumbsViewDef.class,
                 VnicProfileBreadCrumbsView.class);
+        bindSingletonPresenterWidget(
+                new TypeLiteral<SearchPanelPresenterWidget<VnicProfileView, VnicProfileListModel>>(){},
+                new TypeLiteral<SearchPanelPresenterWidget.ViewDef<VnicProfileListModel>>(){},
+                new TypeLiteral<SearchPanelView<VnicProfileListModel>>(){});
         bindActionPanel(new TypeLiteral<ActionPanelPresenterWidget.ViewDef<VnicProfileView, VnicProfileView>>(){},
             new TypeLiteral<ActionPanelView<VnicProfileView, VnicProfileView>>(){});
 
@@ -1893,10 +1896,6 @@ public class PresenterModule extends BasePresenterModule {
                 AddVmHostDevicePopupPresenterWidget.ViewDef.class,
                 AddVmHostDevicePopupView.class);
 
-        bindPresenterWidget(VmRepinHostPopupPresenterWidget.class,
-                VmRepinHostPopupPresenterWidget.ViewDef.class,
-                VmRepinHostPopupView.class);
-
         // Volume
         bindPresenter(VolumeSubTabPanelPresenter.class,
                 VolumeSubTabPanelPresenter.ViewDef.class,
@@ -2200,6 +2199,8 @@ public class PresenterModule extends BasePresenterModule {
             new TypeLiteral<DetailActionPanelView<VM, HostDeviceView>>(){});
         bindActionPanel(new TypeLiteral<DetailActionPanelPresenterWidget.ViewDef<VDS, HostInterfaceLineModel>>(){},
             new TypeLiteral<DetailActionPanelView<VDS, HostInterfaceLineModel>>(){});
+        bindActionPanel(new TypeLiteral<DetailActionPanelPresenterWidget.ViewDef<VDS, HostDeviceView>>(){},
+                new TypeLiteral<DetailActionPanelView<VDS, HostDeviceView>>(){});
         bindActionPanel(new TypeLiteral<DetailActionPanelPresenterWidget.ViewDef<StoragePool, StorageQos>>(){},
             new TypeLiteral<DetailActionPanelView<StoragePool, StorageQos>>(){});
         bindActionPanel(new TypeLiteral<DetailActionPanelPresenterWidget.ViewDef<Cluster, VDS>>(){},

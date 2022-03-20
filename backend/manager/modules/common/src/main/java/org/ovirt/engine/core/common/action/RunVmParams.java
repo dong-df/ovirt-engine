@@ -33,8 +33,9 @@ public class RunVmParams extends VmOperationParameterBase {
     private String floppyPath;
     private InitializationType initializationType;
     private Boolean runAsStateless;
-    private boolean balloonEnabled;
     private boolean runInUnknownStatus;
+    private boolean attachWgt;
+    private boolean initialize;
 
     private RunVmFlow cachedFlow;
 
@@ -62,7 +63,8 @@ public class RunVmParams extends VmOperationParameterBase {
                 && Objects.equals(floppyPath, other.floppyPath)
                 && initializationType == other.initializationType
                 && Objects.equals(runAsStateless, other.runAsStateless)
-                && balloonEnabled == other.balloonEnabled;
+                && attachWgt == other.attachWgt
+                && initialize == other.initialize;
     }
 
     @Override
@@ -74,7 +76,8 @@ public class RunVmParams extends VmOperationParameterBase {
                 floppyPath,
                 initializationType,
                 runAsStateless,
-                balloonEnabled
+                attachWgt,
+                initialize
         );
     }
 
@@ -118,14 +121,6 @@ public class RunVmParams extends VmOperationParameterBase {
         runAsStateless = value;
     }
 
-    public boolean isBalloonEnabled() {
-        return this.balloonEnabled;
-    }
-
-    public void setBalloonEnabled(boolean isBalloonEnabled) {
-        this.balloonEnabled = isBalloonEnabled;
-    }
-
     public RunVmFlow getCachedFlow() {
         return cachedFlow;
     }
@@ -140,6 +135,22 @@ public class RunVmParams extends VmOperationParameterBase {
 
     public void setRunInUnknownStatus(boolean runInUnknownStatus) {
         this.runInUnknownStatus = runInUnknownStatus;
+    }
+
+    public boolean isAttachWgt() {
+        return attachWgt;
+    }
+
+    public void setAttachWgt(boolean attachWgt) {
+        this.attachWgt = attachWgt;
+    }
+
+    public void setInitialize(boolean initialize) {
+        this.initialize = initialize;
+    }
+
+    public boolean isInitialize() {
+        return initialize;
     }
 
 }

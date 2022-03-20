@@ -22,9 +22,7 @@ import org.ovirt.engine.core.compat.Guid;
         description = "Gives hosts with higher CPU usage, lower weight (means that hosts with higher CPU usage are"
                 + " more likely to be selected)",
         type = PolicyUnitType.WEIGHT,
-        parameters = {
-                PolicyUnitParameter.HIGH_UTILIZATION
-        }
+        parameters = PolicyUnitParameter.HIGH_UTILIZATION
 )
 public class PowerSavingCPUWeightPolicyUnit extends EvenDistributionCPUWeightPolicyUnit {
 
@@ -57,7 +55,7 @@ public class PowerSavingCPUWeightPolicyUnit extends EvenDistributionCPUWeightPol
             }
 
             // Using negative score
-            int score = -(int)Math.round(calcHostLoadPerCore(vds, vmGroup, effectiveCpuCores, hostLoad));
+            int score = -(int)Math.round(calcHostLoadPerCore(vds, vmGroup, effectiveCpuCores, hostLoad, 0));
             scores.add(new Pair<>(vds.getId(), score));
         }
 

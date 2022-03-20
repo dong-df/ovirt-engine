@@ -20,7 +20,6 @@ import org.ovirt.engine.core.bll.ValidationResult;
 import org.ovirt.engine.core.bll.VdsCommand;
 import org.ovirt.engine.core.bll.context.CommandContext;
 import org.ovirt.engine.core.bll.host.provider.HostProviderProxy;
-import org.ovirt.engine.core.bll.hostedengine.HostedEngineHelper;
 import org.ovirt.engine.core.bll.job.ExecutionContext;
 import org.ovirt.engine.core.bll.job.ExecutionHandler;
 import org.ovirt.engine.core.bll.provider.ProviderProxyFactory;
@@ -79,8 +78,6 @@ public class AddVdsCommand<T extends AddVdsActionParameters> extends VdsCommand<
     @Inject
     private AuditLogDirector auditLogDirector;
 
-    @Inject
-    private HostedEngineHelper hostedEngineHelper;
     @Inject
     private ProviderDao providerDao;
     @Inject
@@ -141,8 +138,6 @@ public class AddVdsCommand<T extends AddVdsActionParameters> extends VdsCommand<
             }
         }
 
-        completeOpenstackNetworkProviderId();
-
         TransactionSupport.executeInNewTransaction(() -> {
             addVdsStaticToDb();
             addVdsDynamicToDb();
@@ -152,7 +147,7 @@ public class AddVdsCommand<T extends AddVdsActionParameters> extends VdsCommand<
             return null;
         });
 
-        if (getParameters().isProvisioned()) {
+        if (getParameters().isProvisioned() && getParameters().getVdsStaticData().isManaged()) {
             HostProviderProxy proxy = providerProxyFactory.create(getHostProvider());
             proxy.provisionHost(
                     getParameters().getvds(),
@@ -169,10 +164,11 @@ public class AddVdsCommand<T extends AddVdsActionParameters> extends VdsCommand<
         }
 
         // set vds spm id
-        if (getCluster().getStoragePoolId() != null) {
+        if (getCluster().getStoragePoolId() != null && getParameters().getVdsStaticData().isManaged()) {
             VdsActionParameters tempVar = new VdsActionParameters(getVdsIdRef());
             tempVar.setSessionId(getParameters().getSessionId());
             tempVar.setCompensationEnabled(true);
+            tempVar.setCorrelationId(getCorrelationId());
             ActionReturnValue addVdsSpmIdReturn =
                     runInternalAction(ActionType.AddVdsSpmId,
                             tempVar,
@@ -198,19 +194,17 @@ public class AddVdsCommand<T extends AddVdsActionParameters> extends VdsCommand<
         // do not install vds's which added in pending mode or for provisioning (currently power
         // clients). they are installed as part of the approve process or automatically after provision
         if (Config.<Boolean> getValue(ConfigValues.InstallVds) &&
+            getParameters().getVdsStaticData().isManaged() &&
             !getParameters().isPending() &&
             !getParameters().isProvisioned()) {
             final InstallVdsParameters installVdsParameters = new InstallVdsParameters(getVdsId(), getParameters().getPassword());
             installVdsParameters.setAuthMethod(getParameters().getAuthMethod());
             installVdsParameters.setOverrideFirewall(getParameters().getOverrideFirewall());
             installVdsParameters.setActivateHost(getParameters().getActivateHost());
-            installVdsParameters.setNetworkProviderId(getParameters().getVdsStaticData().getOpenstackNetworkProviderId());
-            if (getParameters().getHostedEngineDeployConfiguration() != null) {
-                Map<String, String> vdsDeployParams = hostedEngineHelper.createVdsDeployParams(
-                        getVdsId(),
-                        getParameters().getHostedEngineDeployConfiguration().getDeployAction());
-                installVdsParameters.setHostedEngineConfiguration(vdsDeployParams);
-            }
+            installVdsParameters.setRebootHost(getParameters().getRebootHost());
+            installVdsParameters
+                    .setHostedEngineDeployConfiguration(getParameters().getHostedEngineDeployConfiguration());
+            installVdsParameters.setCorrelationId(getCorrelationId());
             Map<String, String> values = new HashMap<>();
             values.put(VdcObjectType.VDS.name().toLowerCase(), getParameters().getvds().getName());
             Step installStep = executionHandler.addSubStep(getExecutionContext(),
@@ -228,13 +222,6 @@ public class AddVdsCommand<T extends AddVdsActionParameters> extends VdsCommand<
                     cloneContextAndDetachFromParent()
                     .withExecutionContext(installCtx)));
             ExecutionHandler.setAsyncJob(getExecutionContext(), true);
-        }
-    }
-
-    private void completeOpenstackNetworkProviderId() {
-        if (getParameters().getVdsStaticData().getOpenstackNetworkProviderId() == null) {
-            getParameters().getVdsStaticData().setOpenstackNetworkProviderId(
-                    getCluster().getDefaultNetworkProviderId());
         }
     }
 
@@ -305,7 +292,9 @@ public class AddVdsCommand<T extends AddVdsActionParameters> extends VdsCommand<
         VdsDynamic vdsDynamic = new VdsDynamic();
         vdsDynamic.setId(getParameters().getVdsStaticData().getId());
         // TODO: oVirt type - here oVirt behaves like power client?
-        if (getParameters().isPending()) {
+        if (!getParameters().getVdsStaticData().isManaged()) {
+            vdsDynamic.setStatus(VDSStatus.Unassigned);
+        } else if (getParameters().isPending()) {
             vdsDynamic.setStatus(VDSStatus.PendingApproval);
         } else if (getParameters().isProvisioned()) {
             vdsDynamic.setStatus(VDSStatus.InstallingOS);
@@ -333,6 +322,9 @@ public class AddVdsCommand<T extends AddVdsActionParameters> extends VdsCommand<
     @Override
     protected boolean validate() {
         T params = getParameters();
+        if (!params.getVdsStaticData().isManaged()) {
+            return true;
+        }
         setClusterId(params.getVdsStaticData().getClusterId());
         params.setVdsForUniqueId(null);
         // Check if this is a valid cluster
@@ -355,7 +347,9 @@ public class AddVdsCommand<T extends AddVdsActionParameters> extends VdsCommand<
                     && validate(validator.passwordNotEmpty(params.isPending(),
                             params.getAuthMethod(),
                             params.getPassword()))
-                    && validate(validator.supportsDeployingHostedEngine(params.getHostedEngineDeployConfiguration()));
+                    && validate(validator.supportsDeployingHostedEngine(params.getHostedEngineDeployConfiguration(),
+                            getCluster(),
+                            false));
         }
 
         if (!(returnValue
@@ -364,11 +358,6 @@ public class AddVdsCommand<T extends AddVdsActionParameters> extends VdsCommand<
                         getCluster().getCompatibilityVersion().toString(),
                         true)
                 && canConnect(params.getvds()))) {
-            return false;
-        }
-
-        if (!validateNetworkProviderConfiguration(
-                getParameters().getVdsStaticData().getOpenstackNetworkProviderId())) {
             return false;
         }
 
@@ -444,7 +433,7 @@ public class AddVdsCommand<T extends AddVdsActionParameters> extends VdsCommand<
         try {
             ByteArrayOutputStream out = new ConstraintByteArrayOutputStream(256);
             client.executeCommand(Config.getValue(ConfigValues.GetVdsmIdByVdsmToolCommand), null, out, err);
-            return new String(out.toByteArray(), StandardCharsets.UTF_8);
+            return new String(out.toByteArray(), StandardCharsets.UTF_8).trim();
         } catch(Exception e) {
             log.warn(
                     "Failed to initiate vdsm-id request on host: {} with error: {}",

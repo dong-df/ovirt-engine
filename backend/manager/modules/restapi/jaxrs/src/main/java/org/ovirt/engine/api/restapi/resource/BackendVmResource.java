@@ -5,6 +5,7 @@
 
 package org.ovirt.engine.api.restapi.resource;
 
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -31,9 +32,11 @@ import org.ovirt.engine.api.resource.StatisticsResource;
 import org.ovirt.engine.api.resource.VmApplicationsResource;
 import org.ovirt.engine.api.resource.VmBackupsResource;
 import org.ovirt.engine.api.resource.VmCdromsResource;
+import org.ovirt.engine.api.resource.VmCheckpointsResource;
 import org.ovirt.engine.api.resource.VmDisksResource;
 import org.ovirt.engine.api.resource.VmGraphicsConsolesResource;
 import org.ovirt.engine.api.resource.VmHostDevicesResource;
+import org.ovirt.engine.api.resource.VmMediatedDevicesResource;
 import org.ovirt.engine.api.resource.VmNicsResource;
 import org.ovirt.engine.api.resource.VmNumaNodesResource;
 import org.ovirt.engine.api.resource.VmReportedDevicesResource;
@@ -60,6 +63,7 @@ import org.ovirt.engine.core.common.action.MigrateMultipleVmsParameters;
 import org.ovirt.engine.core.common.action.MigrateVmParameters;
 import org.ovirt.engine.core.common.action.MigrateVmToServerParameters;
 import org.ovirt.engine.core.common.action.MoveOrCopyParameters;
+import org.ovirt.engine.core.common.action.RebootVmParameters;
 import org.ovirt.engine.core.common.action.RemoveVmFromPoolParameters;
 import org.ovirt.engine.core.common.action.RemoveVmParameters;
 import org.ovirt.engine.core.common.action.RestoreAllSnapshotsParameters;
@@ -73,6 +77,7 @@ import org.ovirt.engine.core.common.action.TryBackToAllSnapshotsOfVmParameters;
 import org.ovirt.engine.core.common.action.VmManagementParametersBase;
 import org.ovirt.engine.core.common.action.VmOperationParameterBase;
 import org.ovirt.engine.core.common.businessentities.Cluster;
+import org.ovirt.engine.core.common.businessentities.CpuPinningPolicy;
 import org.ovirt.engine.core.common.businessentities.GraphicsType;
 import org.ovirt.engine.core.common.businessentities.HaMaintenanceMode;
 import org.ovirt.engine.core.common.businessentities.InitializationType;
@@ -138,11 +143,30 @@ public class BackendVmResource
     }
 
     @Override
+    public Response autoPinCpuAndNumaNodes(Action action) {
+        VmManagementParametersBase params = new VmManagementParametersBase(getEntity(
+                org.ovirt.engine.core.common.businessentities.VM.class,
+                QueryType.GetVmByVmId,
+                new IdQueryParameters(guid), "VM: id=" + guid));
+        if (action.isOptimizeCpuSettings() != null && action.isOptimizeCpuSettings()) {
+            params.getVm().setCpuPinningPolicy(CpuPinningPolicy.RESIZE_AND_PIN_NUMA);
+        } else {
+            throw new BaseBackendResource.WebFaultException(null,
+                    localize(Messages.NOT_SUPPORTED_REASON, "`Pin` CPU Pinning policy"),
+                    Response.Status.BAD_REQUEST);
+        }
+
+
+        return performAction(ActionType.UpdateVm, params);
+    }
+
+    @Override
     public Vm update(Vm incoming) {
         validateParameters(incoming);
+        parent.validateVirtioScsiMultiQueues(incoming);
         if (incoming.isSetCluster() && (incoming.getCluster().isSetId() || incoming.getCluster().isSetName())) {
             Guid clusterId = lookupClusterId(incoming);
-            if(!clusterId.toString().equals(get().getCluster().getId())){
+            if (!clusterId.toString().equals(get().getCluster().getId())) {
                 performAction(ActionType.ChangeVMCluster,
                               new ChangeVMClusterParameters(clusterId, guid, null)); // TODO: change 'null' to 'incoming.getVmCompa...' when REST support is added
             }
@@ -226,6 +250,11 @@ public class BackendVmResource
         return inject(new BackendVmBackupsResource(guid));
     }
 
+    @Override
+    public VmCheckpointsResource getCheckpointsResource() {
+        return inject(new BackendVmCheckpointsResource(guid));
+    }
+
     public VmDisksResource getDisksResource() {
         return inject(new BackendVmDisksResource(guid));
     }
@@ -282,6 +311,11 @@ public class BackendVmResource
     }
 
     @Override
+    public VmMediatedDevicesResource getMediatedDevicesResource() {
+        return inject(new BackendVmMediatedDevicesResource(guid));
+    }
+
+    @Override
     public Response migrate(Action action) {
         boolean forceMigration = action.isSetForce() ? action.isForce() : false;
 
@@ -322,15 +356,24 @@ public class BackendVmResource
     public Response shutdown(Action action) {
         // REVISIT add waitBeforeShutdown Action paramater
         // to api schema before next sub-milestone
+        boolean forceStop = action.isSetForce() ? action.isForce() : false;
         String reason = action.getReason();
         return doAction(ActionType.ShutdownVm,
-                        new ShutdownVmParameters(guid, true, reason),
+                        new ShutdownVmParameters(guid, true, reason, forceStop),
                         action);
     }
 
     @Override
     public Response reboot(Action action) {
+        boolean forceStop = action.isSetForce() ? action.isForce() : false;
         return doAction(ActionType.RebootVm,
+                        new RebootVmParameters(guid, forceStop),
+                        action);
+    }
+
+    @Override
+    public Response reset(Action action) {
+        return doAction(ActionType.ResetVm,
                         new VmOperationParameterBase(guid),
                         action);
     }
@@ -453,22 +496,29 @@ public class BackendVmResource
         boolean useSysPrep = sysPrepSet && action.isUseSysprep();
         boolean cloudInitSet = action.isSetUseCloudInit();
         boolean useCloudInit = cloudInitSet && action.isUseCloudInit();
-        if (useSysPrep && useCloudInit) {
+        boolean ignitionSet = action.isSetUseIgnition();
+        boolean useIgnition = ignitionSet && action.isUseIgnition();
+        boolean useInitialization = action.isSetUseInitialization() && action.isUseInitialization();
+        if (useSysPrep && useCloudInit || useSysPrep && useIgnition || useCloudInit && useIgnition) {
             Fault fault = new Fault();
-            fault.setReason(localize(Messages.CANT_USE_SYSPREP_AND_CLOUD_INIT_SIMULTANEOUSLY));
+            fault.setReason(localize(Messages.CANT_USE_MIXED_INIT_SIMULTANEOUSLY));
             return Response.status(Response.Status.CONFLICT).entity(fault).build();
         }
         if (useSysPrep) {
             params.setInitializationType(InitializationType.Sysprep);
         } else if (useCloudInit) {
             params.setInitializationType(InitializationType.CloudInit);
-        } else if ((sysPrepSet && !useSysPrep) || (cloudInitSet && !useCloudInit)) {
+        } else if (useIgnition) {
+            params.setInitializationType(InitializationType.Ignition);
+        } else if (sysPrepSet && !useSysPrep || cloudInitSet && !useCloudInit || ignitionSet && !useIgnition) {
             //if sysprep or cloud-init were explicitly set to false, this indicates
             //that the user wants no initialization
             params.setInitializationType(InitializationType.None);
         } else {
             params.setInitializationType(null); //Engine will decide based on VM properties
         }
+        params.setInitialize(useInitialization);
+
         return doAction(actionType, params, action);
     }
 
@@ -497,8 +547,9 @@ public class BackendVmResource
     @Override
     public Response stop(Action action) {
         String reason = action.getReason();
+        boolean forceStop = action.isSetForce() ? action.isForce() : false;
         return doAction(ActionType.StopVm,
-                        new StopVmParameters(guid, StopVmTypeEnum.NORMAL, reason),
+                        new StopVmParameters(guid, StopVmTypeEnum.NORMAL, reason, forceStop),
                         action);
     }
 
@@ -591,6 +642,7 @@ public class BackendVmResource
         BackendVmDeviceHelper.setVirtioScsiController(this, model);
         BackendVmDeviceHelper.setSoundcard(this, model);
         BackendVmDeviceHelper.setRngDevice(this, model);
+        BackendVmDeviceHelper.setTpmDevice(this, model);
         parent.setVmOvfConfiguration(model, entity);
         return model;
     }
@@ -603,7 +655,6 @@ public class BackendVmResource
         }
         BackendVmDeviceHelper.setPayload(this, model);
         BackendVmDeviceHelper.setCertificateInfo(this, model);
-        MemoryPolicyHelper.setupMemoryBalloon(model, this);
         return model;
     }
 
@@ -625,9 +676,16 @@ public class BackendVmResource
             VmStatic updated = getMapper(modelType, VmStatic.class).map(incoming,
                     entity.getStaticData());
 
+            CpuPinningPolicy previousPolicy = entity.getCpuPinningPolicy();
+            parent.updateCpuPinningFields(updated, previousPolicy);
+
             updated.setUsbPolicy(VmMapper.getUsbPolicyOnUpdate(incoming.getUsb(), entity.getUsbPolicy()));
 
             VmManagementParametersBase params = new VmManagementParametersBase(updated);
+
+            if (incoming.isSetNumaTuneMode()) {
+                params.setUpdateNuma(true);
+            }
 
             params.setApplyChangesLater(isNextRunRequested());
             params.setMemoryHotUnplugEnabled(true);
@@ -638,9 +696,6 @@ public class BackendVmResource
                 } else {
                     params.setClearPayload(true);
                 }
-            }
-            if (incoming.isSetMemoryPolicy() && incoming.getMemoryPolicy().isSetBallooning()) {
-               params.setBalloonEnabled(incoming.getMemoryPolicy().isBallooning());
             }
             if (incoming.isSetConsole() && incoming.getConsole().isSetEnabled()) {
                 params.setConsoleEnabled(incoming.getConsole().isEnabled());
@@ -656,6 +711,9 @@ public class BackendVmResource
             if (incoming.isSetRngDevice()) {
                 params.setUpdateRngDevice(true);
                 params.setRngDevice(RngDeviceMapper.map(incoming.getRngDevice(), null));
+            }
+            if (incoming.isSetTpmEnabled()) {
+                params.setTpmEnabled(incoming.isTpmEnabled());
             }
 
             DisplayHelper.setGraphicsToParams(incoming.getDisplay(), params);
@@ -750,5 +808,14 @@ public class BackendVmResource
     @Override
     public AssignedAffinityLabelsResource getAffinityLabelsResource() {
         return inject(new BackendAssignedAffinityLabelsResource(id, VM::new));
+    }
+
+    @Override
+    public Response screenshot(Action action) {
+        String screenshot =
+                performAction(ActionType.ScreenshotVm, new VmOperationParameterBase(guid), String.class); // gets base64 encoded image
+
+        byte[] originalImage = Base64.getDecoder().decode(screenshot);
+        return Response.ok(originalImage).build();
     }
 }

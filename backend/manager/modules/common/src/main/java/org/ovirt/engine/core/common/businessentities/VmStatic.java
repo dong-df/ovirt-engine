@@ -24,10 +24,6 @@ public class VmStatic extends VmBase {
     private Guid originalTemplateGuid;
 
     @EditableVmField
-    @Size(max = BusinessEntitiesDefinitions.GENERAL_MAX_SIZE)
-    private String cpuPinning;
-
-    @EditableVmField
     private Guid instanceTypeId;
     private Guid imageTypeId;
 
@@ -37,6 +33,8 @@ public class VmStatic extends VmBase {
     @EditableVmField(onHostedEngine = true)
     private Guid providerId;
 
+    private String namespace;
+
     public VmStatic() {
         setNumOfMonitors(1);
         initialized = false;
@@ -44,7 +42,7 @@ public class VmStatic extends VmBase {
         setCpuShares(0);
         setDefaultBootSequence(BootSequence.C);
         setDefaultDisplayType(DisplayType.qxl);
-        setVmType(VmType.Desktop);
+        setVmType(VmType.Server);
         vmtGuid = Guid.Empty;
     }
 
@@ -53,10 +51,10 @@ public class VmStatic extends VmBase {
         vmtGuid = vmStatic.getVmtGuid();
         originalTemplateGuid = vmStatic.originalTemplateGuid;
         originalTemplateName = vmStatic.originalTemplateName;
-        cpuPinning = vmStatic.cpuPinning;
         setInitialized(vmStatic.isInitialized());
         setUseLatestVersion(vmStatic.isUseLatestVersion());
         setInstanceTypeId(vmStatic.getInstanceTypeId());
+        namespace = vmStatic.namespace;
     }
 
     public VmStatic(VmBase vmBase) {
@@ -97,14 +95,6 @@ public class VmStatic extends VmBase {
         return getId();
     }
 
-    public String getCpuPinning() {
-        return cpuPinning;
-    }
-
-    public void setCpuPinning(String cpuPinning) {
-        this.cpuPinning = cpuPinning;
-    }
-
     @Override
     public int hashCode() {
         return Objects.hash(
@@ -117,7 +107,8 @@ public class VmStatic extends VmBase {
                 originalTemplateGuid,
                 originalTemplateName,
                 useLatestVersion,
-                providerId
+                providerId,
+                namespace
         );
     }
 
@@ -139,7 +130,8 @@ public class VmStatic extends VmBase {
                 && Objects.equals(originalTemplateGuid, other.originalTemplateGuid)
                 && Objects.equals(originalTemplateName, other.originalTemplateName)
                 && useLatestVersion == other.useLatestVersion
-                && Objects.equals(providerId, other.providerId);
+                && Objects.equals(providerId, other.providerId)
+                && Objects.equals(namespace, other.namespace);
     }
 
     @Override
@@ -198,4 +190,16 @@ public class VmStatic extends VmBase {
         this.providerId = providerId;
     }
 
+    public String getNamespace() {
+        return namespace;
+    }
+
+    public void setNamespace(String namespace) {
+        this.namespace = namespace;
+    }
+
+    @Override
+    public boolean isManaged() {
+        return getOrigin() != OriginType.KUBEVIRT;
+    }
 }

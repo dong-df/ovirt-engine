@@ -129,7 +129,7 @@ public class SyntaxChecker implements ISyntaxChecker {
         // Doing this condition to identify whether this is the last
         // searchObject and no space is predicted !!
         if (final2) {
-            if (((curChar == ' ') || (idx + 1 == searchText.length())) && !betweenDoubleQuotes && !addObjFlag) {
+            if ((curChar == ' ' || idx + 1 == searchText.length()) && !betweenDoubleQuotes && !addObjFlag) {
                 strRealObj = strRealObj.trim();
                 if (nonSpaceRegexp.isMatch(strRealObj)) {
                     addObjFlag = true;
@@ -138,7 +138,7 @@ public class SyntaxChecker implements ISyntaxChecker {
                 }
             }
         } else {
-            if ((curChar == ' ') && !betweenDoubleQuotes && !addObjFlag) {
+            if (curChar == ' ' && !betweenDoubleQuotes && !addObjFlag) {
                 strRealObj = strRealObj.trim();
                 if (nonSpaceRegexp.isMatch(strRealObj)) {
                     addObjFlag = true;
@@ -202,9 +202,9 @@ public class SyntaxChecker implements ISyntaxChecker {
                 syntaxContainer.setErr(SyntaxError.INVALID_CHARECTER, curStartPos, idx + 1);
                 return syntaxContainer;
             }
-            if ((curChar == ' ') && (curState != SyntaxObjectType.CONDITION_RELATION)
-                    && (curState != SyntaxObjectType.COLON) && (curState != SyntaxObjectType.CONDITION_VALUE)
-                    && (curState != SyntaxObjectType.OR) && (curState != SyntaxObjectType.AND)) {
+            if (curChar == ' ' && curState != SyntaxObjectType.CONDITION_RELATION
+                    && curState != SyntaxObjectType.COLON && curState != SyntaxObjectType.CONDITION_VALUE
+                    && curState != SyntaxObjectType.OR && curState != SyntaxObjectType.AND) {
                 curStartPos += 1;
                 continue;
             }
@@ -346,8 +346,18 @@ public class SyntaxChecker implements ISyntaxChecker {
                 keepValid = false;
                 curConditionFieldAC = searchObjectAC.getFieldAutoCompleter(syntaxContainer.getSearchObjectStr());
                 if (curConditionFieldAC.validate(nextObject)) {
-                    syntaxContainer.addSyntaxObject(SyntaxObjectType.CONDITION_FIELD, nextObject, curStartPos, idx + 1);
-                    curStartPos = idx + 1;
+                    // Allow to use free text search on entities that has column name prefix in their values
+                    if (searchCharArr.length >= idx + 2) {
+                        char c = searchCharArr[idx + 1];
+                        // Check that this is a full keyword followed by a blank or by an operator
+                        if (c == ' ' || c == '!' || c == '=' || c == '<' || c == '>') {
+                            syntaxContainer.addSyntaxObject(SyntaxObjectType.CONDITION_FIELD,
+                                    nextObject,
+                                    curStartPos,
+                                    idx + 1);
+                            curStartPos = idx + 1;
+                        }
+                    }
 
                 } else if (sortbyAC.validate(nextObject)) {
                     syntaxContainer.addSyntaxObject(SyntaxObjectType.SORTBY, nextObject, curStartPos, idx + 1);
@@ -1221,38 +1231,9 @@ public class SyntaxChecker implements ISyntaxChecker {
         if (customizedRelation.equalsIgnoreCase("LIKE") || customizedRelation.equalsIgnoreCase("ILIKE")) {
             // Since '_' is treated in Postgres as '?' when using like, (i.e. match any single character)
             // we have to escape this character in the value to make it treated as a regular character.
-            // Due to changes between PG8.x and PG9.x on ESCAPE representation in a string, we should
-            // figure out what PG Release is running in order to escape the special character(_) correctly
-            // This is done in a IF block and not with Method Factory pattern since this is the only change
-            // right now, if we encounter other changes, this will be refactored to use the Method Factory pattern.
-            escapedValue = customizedValue.replace("_", getEscapedCharacter("_"));
+            escapedValue = customizedValue.replace("_", "\\_");
         }
         return escapedValue;
-    }
-
-    public static String getEscapedCharacter(String charToEscape) {
-        int pgMajorRelease = Config.<Integer> getValue(ConfigValues.PgMajorRelease);
-        if (pgMajorRelease == SyntaxChecker.PgMajorRelease.PG8.getValue()) {
-            return "\\\\" + charToEscape;
-        } else if (pgMajorRelease == SyntaxChecker.PgMajorRelease.PG9.getValue()) {
-            return "\\" + charToEscape;
-        }
-        return charToEscape;
-    }
-
-    private static enum PgMajorRelease {
-        PG8(8),
-        PG9(9);
-
-        private int value;
-
-        private PgMajorRelease(int value) {
-            this.value = value;
-        }
-
-        public int getValue() {
-            return value;
-        }
     }
 
     private static class ConditionData {

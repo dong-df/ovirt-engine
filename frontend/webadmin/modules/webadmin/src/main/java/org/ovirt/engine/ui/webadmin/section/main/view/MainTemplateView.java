@@ -11,6 +11,7 @@ import org.ovirt.engine.core.searchbackend.VmTemplateConditionFieldAutoCompleter
 import org.ovirt.engine.ui.common.idhandler.ElementIdHandler;
 import org.ovirt.engine.ui.common.presenter.FragmentParams;
 import org.ovirt.engine.ui.common.uicommon.model.MainModelProvider;
+import org.ovirt.engine.ui.common.widget.table.column.AbstractBooleanColumn;
 import org.ovirt.engine.ui.common.widget.table.column.AbstractEnumColumn;
 import org.ovirt.engine.ui.common.widget.table.column.AbstractFullDateTimeColumn;
 import org.ovirt.engine.ui.common.widget.table.column.AbstractLinkColumn;
@@ -21,6 +22,7 @@ import org.ovirt.engine.ui.webadmin.ApplicationConstants;
 import org.ovirt.engine.ui.webadmin.gin.AssetProvider;
 import org.ovirt.engine.ui.webadmin.section.main.presenter.MainTemplatePresenter;
 import org.ovirt.engine.ui.webadmin.widget.table.column.CommentColumn;
+import org.ovirt.engine.ui.webadmin.widget.table.column.TemplateAdditionalStatusColumn;
 
 import com.google.gwt.cell.client.FieldUpdater;
 import com.google.gwt.core.client.GWT;
@@ -45,6 +47,11 @@ public class MainTemplateView extends AbstractMainWithDetailsTableView<VmTemplat
 
     void initTable() {
         getTable().enableColumnResizing();
+
+        TemplateAdditionalStatusColumn additionalStatusColumn = new TemplateAdditionalStatusColumn();
+        additionalStatusColumn.setContextMenuTitle(constants.additionalStatusTemplate());
+        getTable().addColumn(additionalStatusColumn, constants.statusTemplate(), "75px"); //$NON-NLS-1$
+        getTable().table.setColumnVisible(additionalStatusColumn, false);
 
         AbstractTextColumn<VmTemplate> nameColumn = new AbstractLinkColumn<VmTemplate>(
                 new FieldUpdater<VmTemplate, String>() {
@@ -103,6 +110,15 @@ public class MainTemplateView extends AbstractMainWithDetailsTableView<VmTemplat
         };
         statusColumn.makeSortable(VmTemplateConditionFieldAutoCompleter.STATUS);
         getTable().addColumn(statusColumn, constants.statusTemplate(), "100px"); //$NON-NLS-1$
+
+        AbstractTextColumn<VmTemplate> sealedStatusColumn =
+                new AbstractBooleanColumn<VmTemplate>(constants.sealedTemplateTrueValue(), "") { //$NON-NLS-1$
+            @Override
+            protected Boolean getRawValue(VmTemplate template) {
+                return template.isSealed();
+            }
+        };
+        getTable().addColumn(sealedStatusColumn, constants.sealedTemplate(), "100px"); //$NON-NLS-1$
 
         AbstractTextColumn<VmTemplate> clusterColumn = new AbstractLinkColumn<VmTemplate>(new FieldUpdater<VmTemplate, String>() {
             @Override

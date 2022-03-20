@@ -32,6 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.ovirt.engine.core.common.AuditLogType;
+import org.ovirt.engine.core.common.businessentities.OriginType;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VDSStatus;
 import org.ovirt.engine.core.common.businessentities.VMStatus;
@@ -47,6 +48,7 @@ import org.ovirt.engine.core.common.vdscommands.VDSReturnValue;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogDirector;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogableBase;
 import org.ovirt.engine.core.dao.VdsDynamicDao;
+import org.ovirt.engine.core.dao.VmDeviceDao;
 import org.ovirt.engine.core.utils.InjectorExtension;
 import org.ovirt.engine.core.vdsbroker.ResourceManager;
 import org.ovirt.engine.core.vdsbroker.VdsManager;
@@ -69,6 +71,8 @@ public class VmAnalyzerTest {
     private ArgumentCaptor<VDSParametersBase> vdsParamsCaptor;
     @Mock
     private VdsDynamicDao vdsDynamicDao;
+    @Mock
+    private VmDeviceDao vmDeviceDao;
     @Mock
     private VdsDynamic srcHost;
     @Mock
@@ -328,6 +332,7 @@ public class VmAnalyzerTest {
         when(vmManager.isColdReboot()).thenReturn(false);
         when(vmManager.isAutoStart()).thenReturn(vmData.dbVm() != null ? vmData.dbVm().isAutoStartup() : false);
         when(vmManager.getStatistics()).thenReturn(new VmStatistics());
+        when(vmManager.getOrigin()).thenReturn(OriginType.OVIRT);
         when(resourceManager.getVdsManager(any())).thenReturn(vdsManager);
         // -- default behaviors --
         // dst host is up
@@ -347,6 +352,7 @@ public class VmAnalyzerTest {
         VDSReturnValue vdsReturnValue = new VDSReturnValue();
         vdsReturnValue.setSucceeded(true);
         doReturn(vdsReturnValue).when(vmAnalyzer).runVdsCommand(any(), any());
+        doReturn(true).when(vmAnalyzer).saveVmExternalData();
 
         if (run) {
             vmAnalyzer.analyze();

@@ -157,7 +157,7 @@ public class UserPermissionListModel extends PermissionListModel<DbUser> {
         } else {
             boolean isInherited = p != null && getEntity() != null && !p.getAdElementId().equals(getEntity().getId());
             getRemoveCommand().setIsExecutionAllowed(!isInherited && (getSelectedItem() != null
-                    || (getSelectedItems() != null && getSelectedItems().size() > 0)));
+                    || getSelectedItems() != null && getSelectedItems().size() > 0));
         }
 
         /**
@@ -191,14 +191,14 @@ public class UserPermissionListModel extends PermissionListModel<DbUser> {
             return;
         }
 
-        if (model.getSelectedItems() == null) {
+
+        List<Role> roles = model.getRole().getSelectedItems();
+        if (roles == null || roles.isEmpty()) {
             model.setIsValid(false);
             model.setMessage(
                     ConstantsManager.getInstance().getConstants().selectRoleToAssign());
             return;
         }
-
-        List<Role> roles = model.getRole().getSelectedItems();
         // adGroup/user
 
         DbUser user = getEntity();
@@ -246,10 +246,8 @@ public class UserPermissionListModel extends PermissionListModel<DbUser> {
         model.setHelpTag(HelpTag.add_system_permission_to_user);
         model.setHashName("add_system_permission_to_user"); //$NON-NLS-1$
 
-        UICommand tempVar = UICommand.createDefaultOkUiCommand("OnAddRoleToUser", this); //$NON-NLS-1$
-        model.getCommands().add(tempVar);
-        UICommand tempVar2 = UICommand.createCancelUiCommand("Cancel", this); //$NON-NLS-1$
-        model.getCommands().add(tempVar2);
+        model.getCommands().add(UICommand.createDefaultOkUiCommand("OnAddRoleToUser", this)); //$NON-NLS-1$
+        model.addCancelCommand(this);
     }
 
     @Override

@@ -8,7 +8,7 @@ import java.util.Map;
 import javax.validation.constraints.Size;
 import javax.validation.groups.Default;
 
-import org.codehaus.jackson.annotate.JsonIgnore;
+import org.ovirt.engine.core.common.action.VmExternalDataKind;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.config.Config;
 import org.ovirt.engine.core.common.config.ConfigValues;
@@ -19,6 +19,8 @@ import org.ovirt.engine.core.common.validation.group.ImportEntity;
 import org.ovirt.engine.core.common.validation.group.UpdateEntity;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.compat.Version;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 /**
  * Template
@@ -31,6 +33,9 @@ public class VmTemplate extends VmBase implements BusinessEntityWithStatus<Guid,
     private int childCount;
 
     private VmTemplateStatus status;
+
+    @EditableVmTemplateField
+    private boolean sealed;
 
     private String clusterName;
 
@@ -60,6 +65,11 @@ public class VmTemplate extends VmBase implements BusinessEntityWithStatus<Guid,
 
     private double cachedActualSize = -1.0;
 
+    @TransientField
+    private BiosType clusterBiosType;
+
+    private Map<VmExternalDataKind, String> vmExternalData;
+
     public VmTemplate() {
         setNiceLevel(0);
         setCpuShares(0);
@@ -80,7 +90,7 @@ public class VmTemplate extends VmBase implements BusinessEntityWithStatus<Guid,
                       int maxMemorySize,
                       String name,
                       int numOfSockets, int cpuPerSocket, int threadsPerCpu, int osId,
-                      Guid clusterId, Guid vmtGuid, int numOfMonitors, boolean singleQxlPci, int status, int usbPolicy,
+                      Guid clusterId, Guid vmtGuid, int numOfMonitors, int status, int usbPolicy,
                       String timeZone, int niceLevel, int cpuShares, BootSequence defaultBootSequence,
                       VmType vmType, boolean smartcardEnabled, boolean deleteProtected, SsoMethod ssoMethod,
                       Boolean tunnelMigration, String vncKeyboardLayout, int minAllocatedMem, boolean stateless,
@@ -91,21 +101,28 @@ public class VmTemplate extends VmBase implements BusinessEntityWithStatus<Guid,
                       Guid baseTemplateId, String templateVersionName,
                       SerialNumberPolicy serialNumberPolicy, String customSerialNumber,
                       boolean bootMenuEnabled, boolean spiceFIleTransferEnabled, boolean spiceCopyPasteEnabled,
-                      Guid cpuProfileId, NumaTuneMode numaTuneMode,
+                      Guid cpuProfileId,
                       Boolean autoConverge, Boolean migrateCompressed, Boolean migrateEncrypted,
+                      Integer parallelMigrations,
                       String userDefinedProperties,
                       String predefinedProperties,
                       String customProperties,
-                      String emulatedMachine, BiosType biosType, String customCpuName, boolean useHostCpuFlags,
+                      String emulatedMachine, String customCpuName, boolean useHostCpuFlags,
                       Guid smallIconId,
                       Guid largeIconId,
                       int numOfIoThreads,
                       ConsoleDisconnectAction consoleDisconnectAction,
+                      int consoleDisconnectActionDelay,
                       Version customCompatibilityVersion, Guid migrationPolicyId,
                       Guid leaseStorageDomainId,
                       VmResumeBehavior resumeBehavior,
                       boolean multiQueuesEnabled,
-                      boolean useTscFrequency) {
+                      boolean useTscFrequency,
+                      String cpuPinning,
+                      int virtioScsiMultiQueues,
+                      boolean balloonEnabled,
+                      BiosType biosType,
+                      CpuPinningPolicy cpuPinningPolicy) {
         super(name,
                 vmtGuid,
                 clusterId,
@@ -119,7 +136,6 @@ public class VmTemplate extends VmBase implements BusinessEntityWithStatus<Guid,
                 cpuPerSocket,
                 threadsPerCpu,
                 numOfMonitors,
-                singleQxlPci,
                 timeZone,
                 vmType,
                 UsbPolicy.forValue(usbPolicy),
@@ -155,27 +171,32 @@ public class VmTemplate extends VmBase implements BusinessEntityWithStatus<Guid,
                 spiceFIleTransferEnabled,
                 spiceCopyPasteEnabled,
                 cpuProfileId,
-                numaTuneMode,
                 autoConverge,
                 migrateCompressed,
                 migrateEncrypted,
+                parallelMigrations,
                 userDefinedProperties,
                 predefinedProperties,
                 customProperties,
                 emulatedMachine,
-                biosType,
                 customCpuName,
                 useHostCpuFlags,
                 smallIconId,
                 largeIconId,
                 numOfIoThreads,
                 consoleDisconnectAction,
+                consoleDisconnectActionDelay,
                 customCompatibilityVersion,
                 migrationPolicyId,
                 leaseStorageDomainId,
                 resumeBehavior,
                 multiQueuesEnabled,
-                useTscFrequency);
+                useTscFrequency,
+                cpuPinning,
+                virtioScsiMultiQueues,
+                balloonEnabled,
+                biosType,
+                cpuPinningPolicy);
 
         diskTemplateMap = new HashMap<>();
         diskImageMap = new HashMap<>();
@@ -382,4 +403,34 @@ public class VmTemplate extends VmBase implements BusinessEntityWithStatus<Guid,
     public boolean isBlank() {
         return Guid.Empty.equals(getBaseTemplateId());
     }
+
+    @Override
+    public boolean isManaged() {
+        return getOrigin() != OriginType.KUBEVIRT;
+    }
+
+    public void setSealed(boolean isSealed) {
+        this.sealed = isSealed;
+    }
+
+    public boolean isSealed() {
+        return sealed;
+    }
+
+    public BiosType getClusterBiosType() {
+        return clusterBiosType;
+    }
+
+    public void setClusterBiosType(BiosType clusterBiosType) {
+        this.clusterBiosType = clusterBiosType;
+    }
+
+    public Map<VmExternalDataKind, String> getVmExternalData() {
+        return vmExternalData;
+    }
+
+    public void setVmExternalData(Map<VmExternalDataKind, String> vmExternalData) {
+        this.vmExternalData = vmExternalData;
+    }
+
 }

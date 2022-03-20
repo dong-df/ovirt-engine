@@ -25,7 +25,6 @@ import org.ovirt.engine.core.common.vdscommands.VdsIdVDSCommandParametersBase;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dao.VmDynamicDao;
 import org.ovirt.engine.core.utils.threadpool.ThreadPools;
-import org.ovirt.engine.core.utils.timer.OnTimerMethodAnnotation;
 import org.ovirt.engine.core.vdsbroker.ResourceManager;
 import org.ovirt.engine.core.vdsbroker.VdsManager;
 import org.slf4j.Logger;
@@ -34,8 +33,8 @@ import org.slf4j.LoggerFactory;
 public class PollVmStatsRefresher extends VmStatsRefresher {
 
     private static final Logger log = LoggerFactory.getLogger(PollVmStatsRefresher.class);
-    protected static final long VMS_REFRESH_RATE = Config.<Long> getValue(ConfigValues.VdsRefreshRate) * 1000L;
-    protected static final int NUMBER_VMS_REFRESHES_BEFORE_SAVE = Config.<Integer> getValue(ConfigValues.NumberVmRefreshesBeforeSave);
+    public static final long VMS_REFRESH_RATE = Config.<Long> getValue(ConfigValues.VdsRefreshRate) * 1000L;
+    public static final int NUMBER_VMS_REFRESHES_BEFORE_SAVE = Config.<Integer> getValue(ConfigValues.NumberVmRefreshesBeforeSave);
     private static final Map<Guid, Integer> vdsIdToNumOfVms = new HashMap<>();
 
     @Inject
@@ -44,30 +43,41 @@ public class PollVmStatsRefresher extends VmStatsRefresher {
     @Inject
     private ResourceManager resourceManager;
     @Inject
-    private VmDynamicDao vmDynamicDao;
+    protected VmDynamicDao vmDynamicDao;
     private ScheduledFuture vmsMonitoringJob;
 
     public PollVmStatsRefresher(VdsManager vdsManager) {
         super(vdsManager);
     }
 
-    @OnTimerMethodAnnotation("poll")
     public void poll() {
-        if (isMonitoringNeeded(vdsManager.getStatus())) {
-            long fetchTime = System.nanoTime();
-            List<Pair<VmDynamic, VdsmVm>> fetchedVms = fetchVms();
-            if (fetchedVms == null) {
-                log.info("Failed to fetch vms info for host '{}'({}) - skipping VMs monitoring.", vdsManager.getVdsName(), vdsManager.getVdsId());
-                return;
-            }
+        try {
+            if (isMonitoringNeeded(vdsManager.getStatus())) {
+                long fetchTime = System.nanoTime();
+                List<Pair<VmDynamic, VdsmVm>> fetchedVms = fetchVms();
+                if (fetchedVms == null) {
+                    log.info("Failed to fetch vms info for host '{}'({}) - skipping VMs monitoring.", vdsManager.getVdsName(), vdsManager.getVdsId());
+                    return;
+                }
 
-            getVmsMonitoring().perform(fetchedVms, fetchTime, vdsManager, true);
-            Stream<VdsmVm> vdsmVmsToMonitor = filterVmsToDevicesMonitoring(fetchedVms);
-            processDevices(vdsmVmsToMonitor, fetchTime);
+                getVmsMonitoring().perform(fetchedVms, fetchTime, vdsManager, isStatistics());
+                processDevices(filterVmsToDevicesMonitoring(fetchedVms), fetchTime);
+                processExternalData(filterVmsToDevicesMonitoring(fetchedVms));
+            }
+        } catch (Throwable t) {
+            log.error("Failed during vms monitoring on host '{}'({}) error is: {}",
+                    vdsManager.getVdsName(),
+                    vdsManager.getVdsId(),
+                    ExceptionUtils.getRootCauseMessage(t));
+            log.debug("Exception:", t);
         }
     }
 
-    private Stream<VdsmVm> filterVmsToDevicesMonitoring(List<Pair<VmDynamic, VdsmVm>> polledVms) {
+    protected boolean isStatistics() {
+        return true;
+    }
+
+    protected Stream<VdsmVm> filterVmsToDevicesMonitoring(List<Pair<VmDynamic, VdsmVm>> polledVms) {
         return polledVms.stream()
                 // we only want to monitor vm devices of vms that already exist in the db
                 .filter(monitoredVm -> monitoredVm.getFirst() != null && monitoredVm.getSecond() != null)
@@ -78,9 +88,13 @@ public class PollVmStatsRefresher extends VmStatsRefresher {
         vmsMonitoringJob =
                 schedulerService.scheduleWithFixedDelay(
                         this::poll,
-                        VMS_REFRESH_RATE * NUMBER_VMS_REFRESHES_BEFORE_SAVE,
-                        VMS_REFRESH_RATE * NUMBER_VMS_REFRESHES_BEFORE_SAVE,
+                        getRefreshRate(),
+                        getRefreshRate(),
                         TimeUnit.MILLISECONDS);
+    }
+
+    protected long getRefreshRate() {
+        return VMS_REFRESH_RATE * NUMBER_VMS_REFRESHES_BEFORE_SAVE;
     }
 
     public void stopMonitoring() {
@@ -166,5 +180,11 @@ public class PollVmStatsRefresher extends VmStatsRefresher {
         return resourceManager.runVdsCommand(
                 VDSCommandType.GetAllVmStats,
                 new VdsIdVDSCommandParametersBase(vdsManager.getVdsId()));
+    }
+
+    private void processExternalData(Stream<VdsmVm> vms) {
+        VmExternalDataMonitoring dataMonitoring = getVmExternalDataMonitoring();
+        vms.forEach(vm -> dataMonitoring.updateVm(vm.getId(), vdsManager.getVdsId(), vm.getTpmDataHash(),
+                vm.getNvramDataHash()));
     }
 }

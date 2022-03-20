@@ -35,6 +35,7 @@ public final class BusinessEntitiesDefinitions {
     public static final int HOST_MIN_SPM_PRIORITY = -1;
     public static final int HOST_MAX_SPM_PRIORITY = 10;
     public static final int SSH_KEY_FINGERPRINT_SIZE = 128;
+    public static final int SSH_PUBLIC_KEY_SIZE = 8192;
 
     // Network Interface
     public static final int NETWORK_NAME_SIZE = 256;
@@ -110,4 +111,7 @@ public final class BusinessEntitiesDefinitions {
 
     // SPICE
     public static final int SPICE_PROXY_ADDR_SIZE = 255;
+
+    // Providers
+    public static final int PROVIDER_PASSWORD_MAX_SIZE = 200;
 }

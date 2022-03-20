@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -30,6 +31,7 @@ import org.ovirt.engine.core.compat.RpmVersion;
 import org.ovirt.engine.core.dal.dbbroker.DbFacadeUtils;
 import org.ovirt.engine.core.dao.network.DnsResolverConfigurationDao;
 import org.ovirt.engine.core.utils.JsonHelper;
+import org.ovirt.engine.core.utils.SerializationFactory;
 import org.ovirt.engine.core.utils.serialization.json.JsonObjectDeserializer;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -62,12 +64,40 @@ public class VdsDaoImpl extends BaseDao implements VdsDao {
     }
 
     @Override
-    public VDS getByName(String name) {
-        List<VDS> vdsList = getCallsHandler().executeReadList("GetVdsByName",
+    public VDS getByName(String name, Guid clusterId) {
+        List<VDS> vdsList = getCallsHandler().executeReadList("GetVdsByNameAndClusterId",
+                vdsRowMapper,
+                getCustomMapSqlParameterSource()
+                        .addValue("vds_name", name)
+                        .addValue("cluster_id", clusterId));
+        return vdsList.size() == 0 ? null : vdsList.get(0);
+    }
+
+    @Override
+    public Optional<VDS> getFirstByName(String name) {
+        List<VDS> hosts = getByName(name);
+        if (hosts.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(hosts.get(0));
+    }
+
+    @Override
+    public List<VDS> getByName(String name) {
+        return getCallsHandler().executeReadList("GetVdsByName",
                 vdsRowMapper,
                 getCustomMapSqlParameterSource()
                         .addValue("vds_name", name));
-        return vdsList.size() == 0 ? null : vdsList.get(0);
+    }
+
+    @Override
+    public List<VDS> getAllForHostname(String hostname, Guid clusterId) {
+        return getCallsHandler().executeReadList("GetVdsByHostNameAndClusterId",
+                vdsRowMapper,
+                getCustomMapSqlParameterSource()
+                        .addValue("host_name", hostname)
+                        .addValue("cluster_id", clusterId));
     }
 
     @Override
@@ -323,6 +353,7 @@ public class VdsDaoImpl extends BaseDao implements VdsDao {
         entity.setLibrbdVersion(new RpmVersion(rs.getString("librbd1_version")));
         entity.setGlusterfsCliVersion(new RpmVersion(rs.getString("glusterfs_cli_version")));
         entity.setOvsVersion(new RpmVersion(rs.getString("openvswitch_version")));
+        entity.setNmstateVersion(new RpmVersion(rs.getString("nmstate_version")));
         entity.setKvmVersion(rs.getString("kvm_version"));
         entity.setLibvirtVersion(new RpmVersion(rs.getString("libvirt_version")));
         entity.setSpiceVersion(rs.getString("spice_version"));
@@ -336,6 +367,7 @@ public class VdsDaoImpl extends BaseDao implements VdsDao {
         entity.setVdsSpmPriority(rs.getInt("vds_spm_priority"));
         entity.setAutoRecoverable(rs.getBoolean("recoverable"));
         entity.setSshKeyFingerprint(rs.getString("sshKeyFingerprint"));
+        entity.setSshPublicKey(rs.getString("ssh_public_key"));
         entity.setHostProviderId(getGuid(rs, "host_provider_id"));
         entity.setHardwareManufacturer(rs.getString("hw_manufacturer"));
         entity.setHardwareProductName(rs.getString("hw_product_name"));
@@ -356,7 +388,6 @@ public class VdsDaoImpl extends BaseDao implements VdsDao {
         entity.setBalloonEnabled(rs.getBoolean("enable_balloon"));
         entity.setCountThreadsAsCores(rs.getBoolean("count_threads_as_cores"));
         entity.setMaintenanceReason(rs.getString("maintenance_reason"));
-        entity.getStaticData().setOpenstackNetworkProviderId(getGuid(rs, "openstack_network_provider_id"));
         entity.setUpdateAvailable(rs.getBoolean("is_update_available"));
         entity.setHostDevicePassthroughEnabled(rs.getBoolean("is_hostdev_enabled"));
         entity.setHostedEngineHost(rs.getBoolean("is_hosted_engine_host"));
@@ -376,6 +407,8 @@ public class VdsDaoImpl extends BaseDao implements VdsDao {
         entity.setConnectorInfo(ObjectUtils.mapNullable(
                 rs.getString("connector_info"), JsonHelper::jsonToMapUnchecked));
         entity.setBackupEnabled(rs.getBoolean("backup_enabled"));
+        entity.setColdBackupEnabled(rs.getBoolean("cold_backup_enabled"));
+        entity.setClearBitmapsEnabled(rs.getBoolean("clear_bitmaps_enabled"));
         entity.setSupportedDomainVersionsAsString(rs.getString("supported_domain_versions"));
         entity.setClusterSmtDisabled(rs.getBoolean("cluster_smt_disabled"));
         entity.setSupportedBlockSize(ObjectUtils.mapNullable(
@@ -383,6 +416,11 @@ public class VdsDaoImpl extends BaseDao implements VdsDao {
         entity.setTscFrequency(rs.getString("tsc_frequency"));
         entity.setTscScalingEnabled(rs.getBoolean("tsc_scaling"));
         entity.setFipsEnabled(rs.getBoolean("fips_enabled"));
+        entity.setBootUuid(rs.getString("boot_uuid"));
+        entity.setCdChangePdiv(rs.getBoolean("cd_change_pdiv"));
+        entity.setOvnConfigured(rs.getBoolean("ovn_configured"));
+        entity.setCpuTopology(SerializationFactory.getDeserializer().deserialize(rs.getString("cpu_topology"), ArrayList.class));
+        entity.setVdsmCpusAffinity(rs.getString("vdsm_cpus_affinity"));
         return entity;
     };
 }

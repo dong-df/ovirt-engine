@@ -4,7 +4,7 @@
   <parent>
     <groupId>org.ovirt.engine.ui</groupId>
     <artifactId>webadmin-modules</artifactId>
-    <version>4.4.0-SNAPSHOT</version>
+    <version>4.5.0.1-SNAPSHOT</version>
   </parent>
   <artifactId>frontend</artifactId>
   <packaging>jar</packaging>
@@ -23,8 +23,8 @@
       <artifactId>jaxb-impl</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.glassfish.jaxb</groupId>
-      <artifactId>jaxb-core</artifactId>
+      <groupId>org.jboss.spec.javax.xml.bind</groupId>
+      <artifactId>jboss-jaxb-api_2.3_spec</artifactId>
     </dependency>
     <dependency>
       <groupId>com.google.gwt</groupId>
@@ -44,7 +44,7 @@
       <scope>provided</scope>
     </dependency>
     <dependency>
-      <groupId>com.google.gwt.inject</groupId>
+      <groupId>io.github.gwtplus.gin</groupId>
       <artifactId>gin</artifactId>
       <version>${gin.version}</version>
       <scope>provided</scope>
@@ -131,7 +131,6 @@
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>gwt-maven-plugin</artifactId>
         <configuration>
-          <jvm>/lib/jvm/jre-1.8.0-openjdk/bin/java</jvm>
           <servicePattern>**/gwtservices/*GWTService.java</servicePattern>
         </configuration>
         <executions>

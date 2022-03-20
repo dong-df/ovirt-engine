@@ -3,6 +3,7 @@ package org.ovirt.engine.core.vdsbroker.jsonrpc;
 import java.security.cert.Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -11,7 +12,10 @@ import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.http.impl.client.CloseableHttpClient;
+import org.ovirt.engine.core.common.action.VmExternalDataKind;
+import org.ovirt.engine.core.common.businessentities.storage.ImageTicket;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.utils.threadpool.ThreadPoolUtil;
 import org.ovirt.engine.core.vdsbroker.HttpUtils;
@@ -29,6 +33,7 @@ import org.ovirt.engine.core.vdsbroker.gluster.GlusterVDOVolumeListReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeGeoRepConfigList;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeGeoRepStatus;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeGeoRepStatusDetail;
+import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeGlobalOptionsInfoReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeOptionsInfoReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeProfileInfoReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumeSnapshotConfigReturn;
@@ -40,10 +45,12 @@ import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumesHealInfoReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.GlusterVolumesListReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.OneStorageDeviceReturn;
 import org.ovirt.engine.core.vdsbroker.gluster.StorageDeviceListReturn;
-import org.ovirt.engine.core.vdsbroker.irsbroker.GetDisksListReturn;
 import org.ovirt.engine.core.vdsbroker.irsbroker.OneUuidReturn;
 import org.ovirt.engine.core.vdsbroker.irsbroker.StatusReturn;
 import org.ovirt.engine.core.vdsbroker.irsbroker.StoragePoolInfo;
+import org.ovirt.engine.core.vdsbroker.irsbroker.UUIDListReturn;
+import org.ovirt.engine.core.vdsbroker.irsbroker.VmBackupInfo;
+import org.ovirt.engine.core.vdsbroker.irsbroker.VmCheckpointIds;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.BooleanReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.DeviceInfoReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.DevicesVisibilityMapReturn;
@@ -57,6 +64,7 @@ import org.ovirt.engine.core.vdsbroker.vdsbroker.ImageSizeReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.ImageTicketInformationReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.LUNListReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.LldpReturn;
+import org.ovirt.engine.core.vdsbroker.vdsbroker.MeasureReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.MigrateStatusReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.NbdServerURLReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.OneStorageDomainInfoReturn;
@@ -66,6 +74,7 @@ import org.ovirt.engine.core.vdsbroker.vdsbroker.OneVmReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.OvfReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.PrepareImageReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.QemuImageInfoReturn;
+import org.ovirt.engine.core.vdsbroker.vdsbroker.ScreenshotInfoReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.ServerConnectionStatusReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.SpmStatusReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.StatusOnlyReturn;
@@ -78,6 +87,7 @@ import org.ovirt.engine.core.vdsbroker.vdsbroker.VMInfoListReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.VMListReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.VMNamesListReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.VdsProperties;
+import org.ovirt.engine.core.vdsbroker.vdsbroker.VmExternalDataReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.VmInfoReturn;
 import org.ovirt.engine.core.vdsbroker.vdsbroker.VolumeInfoReturn;
 import org.ovirt.vdsm.jsonrpc.client.BrokerCommandCallback;
@@ -149,12 +159,14 @@ public class JsonRpcVdsServer implements IVdsServer {
 
     @Override
     @SuppressWarnings("rawtypes")
-    public StatusOnlyReturn copyData(String jobId, Map src, Map dst) {
+    public StatusOnlyReturn copyData(String jobId, Map src, Map dst, boolean copyBitmaps, boolean legal) {
         JsonRpcRequest request =
                 new RequestBuilder("SDM.copy_data")
                         .withParameter("source", src)
                         .withParameter("destination", dst)
                         .withParameter("job_id", jobId)
+                        .withParameter("copy_bitmaps", copyBitmaps)
+                        .withParameter("legal", legal)
                         .build();
         Map<String, Object> response = new FutureMap(this.client, request);
         return new StatusOnlyReturn(response);
@@ -196,11 +208,12 @@ public class JsonRpcVdsServer implements IVdsServer {
     }
 
     @Override
-    public StatusOnlyReturn mergeSubchain(String jobId, Map<String, Object> subchainInfo) {
+    public StatusOnlyReturn mergeSubchain(String jobId, Map<String, Object> subchainInfo, boolean mergeBitmaps) {
         JsonRpcRequest request =
                 new RequestBuilder("SDM.merge")
                         .withParameter("job_id", jobId)
                         .withParameter("subchain_info", subchainInfo)
+                        .withParameter("merge_bitmaps", mergeBitmaps)
                         .build();
         Map<String, Object> response = new FutureMap(this.client, request);
         return new StatusOnlyReturn(response);
@@ -232,6 +245,13 @@ public class JsonRpcVdsServer implements IVdsServer {
                         .withOptionalParameter("message", message)
                         .withParameter("reboot", reboot)
                         .build();
+        Map<String, Object> response = new FutureMap(this.client, request);
+        return new StatusOnlyReturn(response);
+    }
+
+    @Override
+    public StatusOnlyReturn reset(String vmId) {
+        JsonRpcRequest request = new RequestBuilder("VM.reset").withParameter("vmID", vmId).build();
         Map<String, Object> response = new FutureMap(this.client, request);
         return new StatusOnlyReturn(response);
     }
@@ -381,6 +401,18 @@ public class JsonRpcVdsServer implements IVdsServer {
                 new FutureMap(this.client, request).withResponseKey("statsList")
                         .withResponseType(Object[].class);
         return new VMInfoListReturn(response);
+    }
+
+    @Override
+    public VmExternalDataReturn getVmExternalData(String vmId, VmExternalDataKind kind, boolean forceUpdate) {
+        JsonRpcRequest request =
+                new RequestBuilder("VM.getExternalData").withParameter("vmID", vmId)
+                        .withParameter("kind", kind.getExternal())
+                        .withParameter("forceUpdate", forceUpdate)
+                        .build();
+        Map<String, Object> response =
+                new FutureMap(this.client, request).withResponseKey("info");
+        return new VmExternalDataReturn(response);
     }
 
     @Override
@@ -1036,22 +1068,28 @@ public class JsonRpcVdsServer implements IVdsServer {
     }
 
     @Override
-    public StatusOnlyReturn snapshot(String vmId, Map<String, String>[] disks) {
-        return snapshot(vmId, disks, null, false);
+    public StatusOnlyReturn snapshot(String vmId, Map<String, String>[] disks, String jobUUID, int timeout) {
+        return snapshot(vmId, disks, null, false, jobUUID, timeout);
     }
 
     @Override
-    public StatusOnlyReturn snapshot(String vmId, Map<String, String>[] disks, String memory) {
-        return snapshot(vmId, disks, memory, false);
+    public StatusOnlyReturn snapshot(String vmId, Map<String, String>[] disks, String memory, String jobUUID, int timeout) {
+        return snapshot(vmId, disks, memory, false, jobUUID, timeout);
     }
 
     @Override
-    public StatusOnlyReturn snapshot(String vmId, Map<String, String>[] disks, String memory, boolean frozen) {
+    public StatusOnlyReturn snapshot(String vmId, Map<String, String>[] disks, String memory, boolean frozen, String jobUUID, int timeout) {
+        String timeoutType = "freeze_timeout";
+        if (StringUtils.isNotEmpty(memory)) {
+            timeoutType = "timeout";
+        }
         JsonRpcRequest request =
                 new RequestBuilder("VM.snapshot").withParameter("vmID", vmId)
                         .withParameter("snapDrives", new ArrayList<>(Arrays.asList(disks)))
                         .withOptionalParameter("snapMemory", memory)
                         .withParameter("frozen", frozen)
+                        .withParameter("jobUUID", jobUUID)
+                        .withParameter(timeoutType, timeout)
                         .build();
         Map<String, Object> response = new FutureMap(this.client, request);
         return new StatusOnlyReturn(response);
@@ -1115,6 +1153,12 @@ public class JsonRpcVdsServer implements IVdsServer {
                         .build();
         Map<String, Object> response = new FutureMap(this.client, request);
         return new StatusOnlyReturn(response);
+    }
+
+    public GlusterVolumeGlobalOptionsInfoReturn glusterVolumeGlobalOptionsGet() {
+        JsonRpcRequest request = new RequestBuilder("GlusterVolume.globalVolumeOptions").build();
+        Map<String, Object> response = new FutureMap(this.client, request);
+        return new GlusterVolumeGlobalOptionsInfoReturn(response);
     }
 
     @Override
@@ -1837,24 +1881,11 @@ public class JsonRpcVdsServer implements IVdsServer {
     }
 
     @Override
-    public StatusOnlyReturn add_image_ticket(String ticketId, String[] ops, long timeout,
-            long size, String url, String filename, boolean sparse, String transferId) {
-        Map<String, Object> ticketDict = new HashMap<>();
-        ticketDict.put("uuid", ticketId);
-        ticketDict.put("timeout", timeout);
-        ticketDict.put("ops", ops);
-        ticketDict.put("size", size);
-        ticketDict.put("url", url);
-        ticketDict.put("sparse", sparse);
-        ticketDict.put("transfer_id", transferId);
-        // filename is null by default, and only specified by the UI
-        if (filename != null) {
-            ticketDict.put("filename", filename);
-        }
+    public StatusOnlyReturn add_image_ticket(ImageTicket ticket) {
 
         JsonRpcRequest request =
                 new RequestBuilder("Host.add_image_ticket")
-                        .withParameter("ticket", ticketDict)
+                        .withParameter("ticket", ticket.toDict())
                         .build();
         Map<String, Object> response =
                 new FutureMap(this.client, request);
@@ -2225,14 +2256,14 @@ public class JsonRpcVdsServer implements IVdsServer {
     }
 
     @Override
-    public GetDisksListReturn startVmBackup(String vmId, Map<String, Object> backupConfig) {
+    public VmBackupInfo startVmBackup(String vmId, Map<String, Object> backupConfig) {
         JsonRpcRequest request =
                 new RequestBuilder("VM.start_backup")
                         .withParameter("vmID", vmId)
                         .withParameter("config", backupConfig)
                         .build();
         Map<String, Object> response = new FutureMap(this.client, request).withIgnoreResponseKey();
-        return new GetDisksListReturn(response);
+        return new VmBackupInfo(response);
     }
 
     @Override
@@ -2247,33 +2278,80 @@ public class JsonRpcVdsServer implements IVdsServer {
     }
 
     @Override
-    public GetDisksListReturn vmBackupInfo(String vmId, String backupId) {
+    public VmBackupInfo vmBackupInfo(String vmId, String backupId, String checkpointId) {
         JsonRpcRequest request =
                 new RequestBuilder("VM.backup_info")
                         .withParameter("vmID", vmId)
                         .withParameter("backup_id", backupId)
+                        .withParameter("checkpoint_id", checkpointId)
                         .build();
-        Map<String, Object> response = new FutureMap(this.client, request).withResponseType(Object[].class);
-        return new GetDisksListReturn(response);
+        Map<String, Object> response = new FutureMap(this.client, request).withIgnoreResponseKey();
+        return new VmBackupInfo(response);
     }
 
     @Override
-    public StatusOnlyReturn redefineVmCheckpoints(String vmId, Map<String, Object>[] checkpoints) {
+    public VmCheckpointIds redefineVmCheckpoints(String vmId, Collection<Map<String, Object>> checkpoints) {
         JsonRpcRequest request =
                 new RequestBuilder("VM.redefine_checkpoints")
                         .withParameter("vmID", vmId)
                         .withParameter("checkpoints", checkpoints)
+                        .build();
+        Map<String, Object> response = new FutureMap(this.client, request).withIgnoreResponseKey();
+        return new VmCheckpointIds(response);
+    }
+
+    @Override
+    public VmCheckpointIds deleteVmCheckpoints(String vmId, String[] checkpointIds) {
+        JsonRpcRequest request =
+                new RequestBuilder("VM.delete_checkpoints")
+                        .withParameter("vmID", vmId)
+                        .withParameter("checkpoint_ids", checkpointIds)
+                        .build();
+        Map<String, Object> response = new FutureMap(this.client, request).withIgnoreResponseKey();
+        return new VmCheckpointIds(response);
+    }
+
+    @Override
+    public UUIDListReturn listVmCheckpoints(String vmId) {
+        JsonRpcRequest request =
+                new RequestBuilder("VM.list_checkpoints")
+                        .withParameter("vmID", vmId)
+                        .build();
+        Map<String, Object> response = new FutureMap(this.client, request).withResponseKey("uuidlist")
+                .withResponseType(Object[].class);
+        return new UUIDListReturn(response);
+    }
+
+    @Override
+    public StatusOnlyReturn addBitmap(String jobId, Map<String, Object> volInfo, String bitmapName) {
+        JsonRpcRequest request =
+                new RequestBuilder("SDM.add_bitmap")
+                        .withParameter("job_id", jobId)
+                        .withParameter("vol_info", volInfo)
+                        .withParameter("bitmap", bitmapName)
                         .build();
         Map<String, Object> response = new FutureMap(this.client, request);
         return new StatusOnlyReturn(response);
     }
 
     @Override
-    public StatusOnlyReturn deleteVmCheckpoints(String vmId, String[] checkpointIds) {
+    public StatusOnlyReturn removeBitmap(String jobId, Map<String, Object> volInfo, String bitmapName) {
         JsonRpcRequest request =
-                new RequestBuilder("VM.delete_checkpoints")
-                        .withParameter("vmID", vmId)
-                        .withParameter("checkpoints", checkpointIds)
+                new RequestBuilder("SDM.remove_bitmap")
+                        .withParameter("job_id", jobId)
+                        .withParameter("vol_info", volInfo)
+                        .withParameter("bitmap", bitmapName)
+                        .build();
+        Map<String, Object> response = new FutureMap(this.client, request);
+        return new StatusOnlyReturn(response);
+    }
+
+    @Override
+    public StatusOnlyReturn clearBitmaps(String jobId, Map<String, Object> volInfo) {
+        JsonRpcRequest request =
+                new RequestBuilder("SDM.clear_bitmaps")
+                        .withParameter("job_id", jobId)
+                        .withParameter("vol_info", volInfo)
                         .build();
         Map<String, Object> response = new FutureMap(this.client, request);
         return new StatusOnlyReturn(response);
@@ -2365,6 +2443,26 @@ public class JsonRpcVdsServer implements IVdsServer {
     }
 
     @Override
+    public MeasureReturn measureVolume(String sdUUID,
+            String spUUID,
+            String imgUUID,
+            String volUUID,
+            int dstVolFormat,
+            boolean withBacking) {
+        JsonRpcRequest request =
+                new RequestBuilder("Volume.measure")
+                        .withParameter("storagepoolID", spUUID)
+                        .withParameter("storagedomainID", sdUUID)
+                        .withParameter("imageID", imgUUID)
+                        .withParameter("volumeID", volUUID)
+                        .withParameter("dstVolFormat", dstVolFormat)
+                        .withParameter("backing_chain", withBacking)
+                        .build();
+        Map<String, Object> response = new FutureMap(this.client, request);
+        return new MeasureReturn(response);
+    }
+
+    @Override
     public QemuImageInfoReturn getQemuImageInfo(String sdUUID, String spUUID, String imgUUID, String volUUID) {
         JsonRpcRequest request =
                 new RequestBuilder("Volume.getQemuImageInfo")
@@ -2409,10 +2507,10 @@ public class JsonRpcVdsServer implements IVdsServer {
     }
 
     @Override
-    public StatusOnlyReturn sealDisks(String templateId, String jobId, String storagePoolId, List<Map<String, Object>> images) {
+    public StatusOnlyReturn sealDisks(String vmId, String jobId, String storagePoolId, List<Map<String, Object>> images) {
         JsonRpcRequest request =
                 new RequestBuilder("VM.seal")
-                        .withParameter("vmID", templateId)
+                        .withParameter("vmID", vmId)
                         .withParameter("job_id", jobId)
                         .withParameter("sp_id", storagePoolId)
                         .withOptionalParameterAsList("images", images)
@@ -2551,5 +2649,44 @@ public class JsonRpcVdsServer implements IVdsServer {
                         .build();
         Map<String, Object> response = new FutureMap(this.client, request);
         return new StatusOnlyReturn(response);
+    }
+
+    @Override
+    public VDSInfoReturn getLeaseStatus(String leaseUUID, String sdUUID) {
+        Map<String, Object> leaseDict = new HashMap<>();
+        leaseDict.put("lease_id", leaseUUID);
+        leaseDict.put("sd_id", sdUUID);
+
+        JsonRpcRequest request =
+                new RequestBuilder("Lease.status")
+                        .withParameter("lease", leaseDict)
+                        .build();
+        Map<String, Object> response = new FutureMap(this.client, request);
+        return new VDSInfoReturn(response);
+    }
+
+
+    @Override
+    public StatusOnlyReturn fenceLeaseJob(String leaseUUID, String sdUUID, Map<String, Object> leaseMetadata) {
+        Map<String, Object> leaseDict = new HashMap<>();
+        leaseDict.put("lease_id", leaseUUID);
+        leaseDict.put("sd_id", sdUUID);
+
+        JsonRpcRequest request =
+                new RequestBuilder("Lease.fence")
+                        .withParameter("lease", leaseDict)
+                        .withParameter("metadata", leaseMetadata)
+                        .build();
+        Map<String, Object> response = new FutureMap(this.client, request);
+        return new StatusOnlyReturn(response);
+    }
+
+    @Override
+    public ScreenshotInfoReturn createScreenshot(String vmId) {
+        JsonRpcRequest request =
+                new RequestBuilder("VM.screenshot").withParameter("vmID", vmId)
+                        .build();
+        Map<String, Object> response = new FutureMap(this.client, request).withIgnoreResponseKey();
+        return new ScreenshotInfoReturn(response);
     }
 }

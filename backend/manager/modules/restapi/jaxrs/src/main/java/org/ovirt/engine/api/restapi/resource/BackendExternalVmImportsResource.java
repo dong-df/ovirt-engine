@@ -19,6 +19,7 @@ import org.ovirt.engine.core.common.businessentities.StorageDomainStatic;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeType;
+import org.ovirt.engine.core.common.queries.IdAndNameQueryParameters;
 import org.ovirt.engine.core.common.queries.NameQueryParameters;
 import org.ovirt.engine.core.common.queries.QueryType;
 import org.ovirt.engine.core.compat.Guid;
@@ -32,7 +33,6 @@ public class BackendExternalVmImportsResource extends BackendResource implements
                 "provider",
                 "url",
                 "name",
-                "sparse",
                 "cluster.id|name",
                 "storageDomain.id|name");
 
@@ -64,10 +64,11 @@ public class BackendExternalVmImportsResource extends BackendResource implements
         parameters.setExternalName(vmImport.getName());
         parameters.setNewVmName(vmImport.getVm() != null ? vmImport.getVm().getName() : null);
         parameters.setVolumeType(getVolumeType(vmImport));
-        parameters.setProxyHostId(getProxyHostId(vmImport));
+        Guid clusterId = getClusterId(vmImport);
+        parameters.setProxyHostId(getProxyHostId(vmImport, clusterId));
         parameters.setVirtioIsoName(getVirtioIsoName(vmImport));
         parameters.setStorageDomainId(getStorageDomainId(vmImport));
-        parameters.setClusterId(getClusterId(vmImport));
+        parameters.setClusterId(clusterId);
         parameters.setQuotaId(getQuotaId(vmImport));
         parameters.setCpuProfileId(getCpuProfileId(vmImport));
         parameters.setUsername(vmImport.getUsername());
@@ -79,7 +80,7 @@ public class BackendExternalVmImportsResource extends BackendResource implements
         return VmMapper.mapExternalVmProviderToOrigin(vmImport.getProvider());
     }
 
-    private Guid getProxyHostId(ExternalVmImport vmImport) {
+    private Guid getProxyHostId(ExternalVmImport vmImport, Guid clusterId) {
         if (vmImport.isSetHost()) {
             if (vmImport.getHost().isSetId()) {
                 return asGuid(vmImport.getHost().getId());
@@ -87,7 +88,7 @@ public class BackendExternalVmImportsResource extends BackendResource implements
                 String hostName = vmImport.getHost().getName();
                 VDS vds = getEntity(VDS.class,
                         QueryType.GetVdsByName,
-                        new NameQueryParameters(vmImport.getHost().getName()),
+                        new IdAndNameQueryParameters(clusterId, vmImport.getHost().getName()),
                         hostName,
                         true);
                 return vds.getId();
@@ -102,7 +103,10 @@ public class BackendExternalVmImportsResource extends BackendResource implements
     }
 
     private static VolumeType getVolumeType(ExternalVmImport vmImport) {
-        return Boolean.TRUE.equals(vmImport.isSparse()) ? VolumeType.Sparse : VolumeType.Preallocated;
+        if (vmImport.isSparse() == null) {
+            return null;
+        }
+        return vmImport.isSparse() ? VolumeType.Sparse : VolumeType.Preallocated;
     }
 
     private Guid getClusterId(ExternalVmImport vmImport) {

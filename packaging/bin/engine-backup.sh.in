@@ -57,13 +57,6 @@ my_load_config() {
 		[ -e "${f}" ] && . "${f}"
 	done
 
-	JASPER_PROPERTIES=/var/lib/ovirt-engine-reports/build-conf/master.properties
-	if [ -e "${JASPER_PROPERTIES}" ]; then
-		load_jasper_reports_db_creds
-	else
-		JASPER_PROPERTIES=
-	fi
-
 	load_branding
 	source_d config
 }
@@ -101,10 +94,10 @@ def escape(s, chars):
 
 config.optionxform = str
 
-with open(props_file) as f:
+with io.open(props_file, mode='r', encoding='utf-8') as f:
     config.readfp(
         io.StringIO(
-          '[default]' + f.read().decode('utf-8')
+          '[default]\n' + f.read()
         )
     )
 
@@ -134,27 +127,16 @@ dwh_enabled() {
 	engine_setup_service_enabled "OVESETUP_DWH_CORE/enable"
 }
 
-reports_enabled() {
-	engine_setup_service_enabled "OVESETUP_REPORTS_CORE/enable"
+cinderlib_enabled() {
+	engine_setup_service_enabled "OVESETUP_CL_DB/enable"
 }
 
-load_jasper_reports_db_creds() {
-	eval $(get_java_props \
-		"${JASPER_PROPERTIES}" \
-		REPORTS_DB_HOST dbHost \
-		REPORTS_DB_PORT dbPort \
-		REPORTS_DB_USER dbUsername \
-		REPORTS_DB_PASSWORD dbPassword \
-		REPORTS_DB_DATABASE js.dbName
-	)
-	# TODO Drop this when reports support secured connection/secured host validation.
-	# Currently set only for provisionDB - the rest of the code effectively ignores this
-	REPORTS_DB_SECURED=False
-	REPORTS_DB_SECURED_VALIDATION=False
+grafana_enabled() {
+	engine_setup_service_enabled "OVESETUP_GRAFANA_CORE/enable"
 }
 
 load_branding() {
-	for f in /etc/ovirt-engine/branding/*/external_resources.properties; do
+	for f in /etc/ovirt-engine/branding/*/branding-external-resources.properties; do
 		if [ -e "${f}" ]; then
 			eval $(get_java_props \
 				"${f}" \
@@ -168,6 +150,7 @@ load_branding() {
 BACKUP_PATHS="/etc/ovirt-engine
 /etc/ovirt-engine-dwh
 /etc/ovirt-provider-ovn/conf.d
+/etc/ovirt-provider-ovn/logger.conf
 /etc/ovirt-vmconsole
 /etc/pki/ovirt-engine
 /etc/pki/ovirt-vmconsole
@@ -184,12 +167,22 @@ BACKUP_PATHS="/etc/ovirt-engine
 /etc/firewalld/services/ovirt-postgres.xml
 /etc/firewalld/services/ovirt-provider-ovn.xml
 /etc/firewalld/services/ovn-central-firewall-service.xml
-/var/lib/openvswitch"
+/var/lib/openvswitch
+/etc/grafana"
+
 # Add /var/lib/ovirt-engine except a few
-VAR_LIB_EXCLUSIONS="/var/lib/ovirt-engine/backups
-/var/lib/ovirt-engine/jboss_runtime"
+VAR_LIB_OVIRT_ENGINE_EXCLUSIONS="/var/lib/ovirt-engine/backups
+/var/lib/ovirt-engine/jboss_runtime
+/var/lib/ovirt-engine/ansible-runner-service.log"
 for p in /var/lib/ovirt-engine/*; do
-	echo "${VAR_LIB_EXCLUSIONS}" | grep -q "^${p}\$" || BACKUP_PATHS="${BACKUP_PATHS}
+	echo "${VAR_LIB_OVIRT_ENGINE_EXCLUSIONS}" | grep -q "^${p}\$" || BACKUP_PATHS="${BACKUP_PATHS}
+${p}"
+done
+
+# Add /var/lib/grafana except its db, which is backed up separately
+VAR_LIB_GRAFANA_EXCLUSIONS="/var/lib/grafana/grafana.db"
+for p in /var/lib/grafana/*; do
+	echo "${VAR_LIB_GRAFANA_EXCLUSIONS}" | grep -q "^${p}\$" || BACKUP_PATHS="${BACKUP_PATHS}
 ${p}"
 done
 
@@ -207,7 +200,8 @@ TEMP_FOLDER=""
 FILE=""
 DB_BACKUP_FILE_NAME="engine_backup.db"
 DWHDB_BACKUP_FILE_NAME="dwh_backup.db"
-REPORTSDB_BACKUP_FILE_NAME="reports_backup.db"
+CINDERLIBDB_BACKUP_FILE_NAME="cinderlib_backup.db"
+GRAFANA_BACKUP_FILE_NAME="grafana.db"
 
 PACKAGE_VERSION_FILENAME="version"
 OS_VERSION_FILENAME="os_version"
@@ -221,8 +215,12 @@ cleanup() {
 		FAILURE_NOTIFIED=1
 		notify_engine "${ENGINE_DB_USER}" "${ENGINE_DB_HOST}" "${ENGINE_DB_PORT}" "${ENGINE_DB_DATABASE}" -1 "Failed"
 	fi
+	if [ "${ec}" = '1' -a -n "${TEMP_FOLDER}" ]; then
+		local avail=$(df -k --output=avail "${TEMP_FOLDER}" | grep -v Avail)
+		[ "${avail}" -lt 10000 ] && output "ERROR: Low free space on ${TEMP_FOLDER}: ${avail}KiB"
+	fi
 
-	[ -n "${TEMP_FOLDER}" ] && rm -rf "${TEMP_FOLDER}"
+	[ -n "${TEMP_FOLDER}" -a -z "${KEEP_TEMP_FOLDER}" ] && rm -rf "${TEMP_FOLDER}"
 }
 
 trap cleanup 0
@@ -242,6 +240,8 @@ USAGE:
     files                           product files only
     db                              Engine database only
     dwhdb                           Data Warehouse database only
+    cinderlibdb                     Cinderlib database only
+    grafanadb                       Grafana database only
     The option --scope can be passed more than once, with different scopes.
  --file=FILE                        file to use during backup or restore.
                                     If mode is backup,  default to $ENGINE_BACKUP_DEFAULT_DIR/ovirt-engine-backup-YmdHMS.backup
@@ -298,6 +298,23 @@ USAGE:
  --dwh-db-name=name                 set Data Warehouse database name
  --dwh-db-secured                   set a secured connection for the Data Warehouse database
  --dwh-db-secured-validation        validate host for Data Warehouse database
+ --cinderlib-db-compressor=COMPRESSOR     compress the Cinderlib database, same options as --archive-compressor
+ --cinderlib-db-dump-format=FORMAT        Cinderlib database dump format, same options as --db-dump-format
+ --cinderlib-db-restore-jobs=JOBS         for Cinderlib database, same as --db-restore-jobs
+ --provision-cinderlib-db                 create a PostgreSQL database for Cinderlib on restore
+ --change-cinderlib-db-credentials        activate the following options, to restore
+                                    the Cinderlib database using credentials other
+                                    than those stored in the backup itself.
+                                    If used, existing credentials are ignored.
+ --cinderlib-db-host=host                 set Cinderlib database host
+ --cinderlib-db-port=port                 set Cinderlib database port
+ --cinderlib-db-user=user                 set Cinderlib database user
+ --cinderlib-db-passfile=file             set Cinderlib database password - read from file
+ --cinderlib-db-password=pass             set Cinderlib database password
+ --cinderlib-db-password                  set Cinderlib database password - interactively
+ --cinderlib-db-name=name                 set Cinderlib database name
+ --cinderlib-db-secured                   set a secured connection for the Cinderlib database
+ --cinderlib-db-secured-validation        validate host for Cinderlib database
 
  --no-restore-permissions           Affects only the custom dump format. Will pass
                                     to pg_restore '--no-owner --no-privileges'.
@@ -350,6 +367,8 @@ USAGE:
      Database password as if provided by --db-password=pass option.
  OVIRT_DWH_DATABASE_PASSWORD
      Database password as if provided by --dwh-db-password=pass option.
+ OVIRT_CINDERLIB_DATABASE_PASSWORD
+     Database password as if provided by --cinderlib-db-password=pass option.
 
  Documentation
 
@@ -390,7 +409,8 @@ SCOPE=
 SCOPE_FILES=
 SCOPE_ENGINE_DB=
 SCOPE_DWH_DB=
-SCOPE_REPORTS_DB=
+SCOPE_CINDERLIB_DB=
+SCOPE_GRAFANA_DB=
 KEEP_TEMPORARY_DATA=
 ARCHIVE_COMPRESS_OPTION=z
 FILES_COMPRESS_OPTION=J
@@ -424,25 +444,26 @@ MY_DWH_DB_DATABASE=
 MY_DWH_DB_SECURED=False
 MY_DWH_DB_SECURED_VALIDATION=False
 MY_DWH_DB_CREDS=
-REPORTS_DB_DUMP_COMPRESSOR=
-REPORTS_DB_DUMP_FORMAT=custom
-REPORTS_DB_RESTORE_JOBS=2
-PROVISION_REPORTS_DB=
-CHANGE_REPORTS_DB_CREDENTIALS=
-MY_REPORTS_DB_HOST=
-MY_REPORTS_DB_PORT="${POSTGRESQL_DEFAULT_PORT}"
-MY_REPORTS_DB_USER=
-ORIG_REPORTS_DB_USER=
-MY_REPORTS_DB_PASSWORD="${OVIRT_REPORTS_DATABASE_PASSWORD}"
-MY_REPORTS_DB_DATABASE=
-MY_REPORTS_DB_SECURED=False
-MY_REPORTS_DB_SECURED_VALIDATION=False
-MY_REPORTS_DB_CREDS=
+CINDERLIB_DB_DUMP_COMPRESSOR=
+CINDERLIB_DB_DUMP_FORMAT=custom
+CINDERLIB_DB_RESTORE_JOBS=2
+PROVISION_CINDERLIB_DB=
+CHANGE_CINDERLIB_DB_CREDENTIALS=
+MY_CINDERLIB_DB_HOST=
+MY_CINDERLIB_DB_PORT="${POSTGRESQL_DEFAULT_PORT}"
+MY_CINDERLIB_DB_USER=
+ORIG_CINDERLIB_DB_USER=
+MY_CINDERLIB_DB_PASSWORD="${OVIRT_CINDERLIB_DATABASE_PASSWORD}"
+MY_CINDERLIB_DB_DATABASE=
+MY_CINDERLIB_DB_SECURED=False
+MY_CINDERLIB_DB_SECURED_VALIDATION=False
+MY_CINDERLIB_DB_CREDS=
+GRAFANA_DB_FILENAME=/var/lib/grafana/grafana.db
 RESTORE_PERMISSIONS=
 PROVISION_ALL_DBS=
 HE_REMOVE_STORAGE_VM=
 HE_REMOVE_HOSTS=
-VALID_BACKUP_RESTORE_PAIRS="3.6 4.0"
+VALID_BACKUP_RESTORE_PAIRS="4.3 4.4"
 # A newline-separated list of pair. E.g. if we want to allow 4.0->4.1,
 #VALID_BACKUP_RESTORE_PAIRS="3.6 4.0
 #4.0 4.1"
@@ -450,13 +471,13 @@ BACKUP_VERSION=
 INSTALLED_VERSION=
 EXCLUDED_FILES_ON_RESTORE="etc/ovirt-engine/engine-config/engine-config.properties
 etc/ovirt-engine-setup.conf.d/*packaging*
-etc/ovirt-engine-reports
-var/lib/ovirt-engine-reports
-etc/httpd/conf.d/z-ovirt-engine-reports-proxy.conf
-etc/ovirt-engine/engine.conf.d/10-setup-reports-access.conf
 etc/pki/ovirt-engine/cacert.template.in
 etc/pki/ovirt-engine/cert.template.in
-etc/pki/ovirt-engine/openssl.conf"
+etc/pki/ovirt-engine/openssl.conf
+etc/ovirt-engine/engine.conf.d/20-branding-rhv.conf
+etc/ovirt-engine/branding/50-rhv-2.brand
+ovirt-engine/engine.conf.d/10-scl-postgres.conf
+ovirt-engine-dwh/ovirt-engine-dwhd.conf.d/10-scl-postgres.conf"
 
 # Hashers. Must support:
 # - No options, for creation of hash file
@@ -516,7 +537,8 @@ set_scope() {
 			SCOPE_FILES=1
 			SCOPE_ENGINE_DB=1
 			SCOPE_DWH_DB=1
-			SCOPE_REPORTS_DB=1
+			SCOPE_CINDERLIB_DB=1
+			SCOPE_GRAFANA_DB=1
 			;;
 		files)
 			SCOPE_FILES=1
@@ -527,8 +549,11 @@ set_scope() {
 		dwhdb)
 			SCOPE_DWH_DB=1
 			;;
-		reportsdb)
-			SCOPE_REPORTS_DB=1
+		cinderlibdb)
+			SCOPE_CINDERLIB_DB=1
+			;;
+		grafanadb)
+			SCOPE_GRAFANA_DB=1
 			;;
 		*) die "invalid scope '${s}'"
 	esac
@@ -538,16 +563,6 @@ set_scope() {
 	else
 		SCOPE="${SCOPE},${s}"
 	fi
-
-	# Reports is not included in 4.0.
-	# When restoring with 4.0 a backup done in 3.6 that includes
-	# Reports, ignore the Reports dump.
-	# When backing up with 4.0 a system that was upgraded from 3.6
-	# and had Reports, do not backup the Reports database.
-	# Relevant file paths were also removed for this from
-	# BACKUP_PATHS above.
-	# TODO in 4.1 or so - actually remove the code.
-	SCOPE_REPORTS_DB=
 }
 
 parseArgs() {
@@ -688,55 +703,55 @@ parseArgs() {
 			--dwh-db-sec-validation)
 				MY_DWH_DB_SECURED_VALIDATION="True"
 			;;
-			--reports-db-compressor=*)
-				REPORTS_DB_DUMP_COMPRESSOR=$(compressor_to_command "${v}")
+			--cinderlib-db-compressor=*)
+				CINDERLIB_DB_DUMP_COMPRESSOR=$(compressor_to_command "${v}")
 				[ $? != 0 ] && die "failed parsing compressor"
 			;;
-			--reports-db-dump-format=*)
-				REPORTS_DB_DUMP_FORMAT=$(parse_dump_format "${v}")
+			--cinderlib-db-dump-format=*)
+				CINDERLIB_DB_DUMP_FORMAT=$(parse_dump_format "${v}")
 				[ $? != 0 ] && die "failed parsing dump format"
 			;;
-			--reports-db-restore-jobs=*)
-				REPORTS_DB_RESTORE_JOBS=$(parse_jobs "${v}")
+			--cinderlib-db-restore-jobs=*)
+				CINDERLIB_DB_RESTORE_JOBS=$(parse_jobs "${v}")
 				[ $? != 0 ] && die "failed parsing jobs"
 			;;
-			--provision-reports-db)
-				PROVISION_REPORTS_DB=1
+			--provision-cinderlib-db)
+				PROVISION_CINDERLIB_DB=1
 				PROVISIONING=1
 			;;
-			--change-reports-db-credentials)
-				CHANGE_REPORTS_DB_CREDENTIALS=1
+			--change-cinderlib-db-credentials)
+				CHANGE_CINDERLIB_DB_CREDENTIALS=1
 			;;
-			--reports-db-host=*)
-				MY_REPORTS_DB_HOST="${v}"
+			--cinderlib-db-host=*)
+				MY_CINDERLIB_DB_HOST="${v}"
 			;;
-			--reports-db-port=*)
-				MY_REPORTS_DB_PORT="${v}"
+			--cinderlib-db-port=*)
+				MY_CINDERLIB_DB_PORT="${v}"
 			;;
-			--reports-db-user=*)
-				MY_REPORTS_DB_USER="${v}"
-				ORIG_REPORTS_DB_USER="${REPORTS_DB_USER}"
+			--cinderlib-db-user=*)
+				MY_CINDERLIB_DB_USER="${v}"
+				ORIG_CINDERLIB_DB_USER="${CINDERLIB_DB_USER}"
 			;;
-			--reports-db-passfile=*)
+			--cinderlib-db-passfile=*)
 				DB_PASSFILE="${v}"
 				[ -r "${DB_PASSFILE}" ] || \
 					die "Can not read password file ${DB_PASSFILE}"
-				read -r MY_REPORTS_DB_PASSWORD < "${DB_PASSFILE}"
+				read -r MY_CINDERLIB_DB_PASSWORD < "${DB_PASSFILE}"
 			;;
-			--reports-db-password=*)
-				MY_REPORTS_DB_PASSWORD="${v}"
+			--cinderlib-db-password=*)
+				MY_CINDERLIB_DB_PASSWORD="${v}"
 			;;
-			--reports-db-password)
-				MY_REPORTS_DB_PASSWORD="$(readdbpassword Reports)" || exit 1
+			--cinderlib-db-password)
+				MY_CINDERLIB_DB_PASSWORD="$(readdbpassword CINDERLIB)" || exit 1
 			;;
-			--reports-db-name=*)
-				MY_REPORTS_DB_DATABASE="${v}"
+			--cinderlib-db-name=*)
+				MY_CINDERLIB_DB_DATABASE="${v}"
 			;;
-			--reports-db-secured)
-				MY_REPORTS_DB_SECURED="True"
+			--cinderlib-db-secured)
+				MY_CINDERLIB_DB_SECURED="True"
 			;;
-			--reports-db-sec-validation)
-				MY_REPORTS_DB_SECURED_VALIDATION="True"
+			--cinderlib-db-sec-validation)
+				MY_CINDERLIB_DB_SECURED_VALIDATION="True"
 			;;
 			--restore-permissions)
 				RESTORE_PERMISSIONS=1
@@ -761,8 +776,6 @@ parseArgs() {
 				DB_DUMP_COMPRESSOR=
 				DWH_DB_DUMP_FORMAT=custom
 				DWH_DB_DUMP_COMPRESSOR=
-				REPORTS_DB_DUMP_FORMAT=custom
-				REPORTS_DB_DUMP_COMPRESSOR=
 			;;
 			--small-size)
 				ARCHIVE_COMPRESS_OPTION=J
@@ -771,8 +784,6 @@ parseArgs() {
 				DB_DUMP_COMPRESSOR=xz
 				DWH_DB_DUMP_FORMAT=plain
 				DWH_DB_DUMP_COMPRESSOR=xz
-				REPORTS_DB_DUMP_FORMAT=plain
-				REPORTS_DB_DUMP_COMPRESSOR=xz
 			;;
 			--fast-backup)
 				ARCHIVE_COMPRESS_OPTION=z
@@ -781,8 +792,6 @@ parseArgs() {
 				DB_DUMP_COMPRESSOR=
 				DWH_DB_DUMP_FORMAT=custom
 				DWH_DB_DUMP_COMPRESSOR=
-				REPORTS_DB_DUMP_FORMAT=custom
-				REPORTS_DB_DUMP_COMPRESSOR=
 			;;
 			--help)
 				usage
@@ -870,26 +879,26 @@ verifyArgs() {
 			-o -n "${MY_DWH_DB_DATABASE}" \
 		\) \
 	] && die "Please use --change-dwh-db-credentials to change dwh db credentials"
-	if [ -n "${CHANGE_REPORTS_DB_CREDENTIALS}" ]; then
-		[ -n "${PROVISION_REPORTS_DB}" -o -n "${PROVISION_ALL_DBS}" ] && die "Cannot change credentials if provisioning a database"
-		[ -n "${MY_REPORTS_DB_HOST}" ] || die "--reports-db-host is missing"
-		[ -n "${MY_REPORTS_DB_USER}" ] || die "--reports-db-user is missing"
-		[ -n "${MY_REPORTS_DB_PASSWORD}" ] || \
-			die "--reports-db-passfile or --reports-db-password is missing"
-		[ -n "${MY_REPORTS_DB_DATABASE}" ] || die "--reports-db-name is missing"
+	if [ -n "${CHANGE_CINDERLIB_DB_CREDENTIALS}" ]; then
+		[ -n "${PROVISION_CINDERLIB_DB}" -o -n "${PROVISION_ALL_DBS}" ] && die "Cannot change credentials if provisioning a database"
+		[ -n "${MY_CINDERLIB_DB_HOST}" ] || die "--cinderlib-db-host is missing"
+		[ -n "${MY_CINDERLIB_DB_USER}" ] || die "--cinderlib-db-user is missing"
+		[ -n "${MY_CINDERLIB_DB_PASSWORD}" ] || \
+			die "--cinderlib-db-passfile or --cinderlib-db-password is missing"
+		[ -n "${MY_CINDERLIB_DB_DATABASE}" ] || die "--cinderlib-db-name is missing"
 	fi
-	[ -z "${CHANGE_REPORTS_DB_CREDENTIALS}" -a \
+	[ -z "${CHANGE_CINDERLIB_DB_CREDENTIALS}" -a \
 		\( \
-			-n "${MY_REPORTS_DB_HOST}" \
-			-o -n "${MY_REPORTS_DB_USER}" \
-			-o -n "${MY_REPORTS_DB_PASSWORD}" \
-			-o -n "${MY_REPORTS_DB_DATABASE}" \
+			-n "${MY_CINDERLIB_DB_HOST}" \
+			-o -n "${MY_CINDERLIB_DB_USER}" \
+			-o -n "${MY_CINDERLIB_DB_PASSWORD}" \
+			-o -n "${MY_CINDERLIB_DB_DATABASE}" \
 		\) \
-	] && die "Please use --change-reports-db-credentials to change reports db credentials"
+	] && die "Please use --change-cinderlib-db-credentials to change cinderlib db credentials"
 
 	if [ "${DB_DUMP_FORMAT}" = "plain" \
 		-o "${DWH_DB_DUMP_FORMAT}" = "plain" \
-		-o "${REPORTS_DB_DUMP_FORMAT}" = "plain" \
+		-o "${CINDERLIB_DB_DUMP_FORMAT}" = "plain" \
 	]; then
 		output "#####################################################################################################"
 		output "Please note: permissions are not backed up with a plain dump format, thus not restored during restore"
@@ -910,7 +919,7 @@ verifyArgsConfig() {
 			\( \
 				"${DB_DUMP_FORMAT}" = "custom" \
 				-o "${DWH_DB_DUMP_FORMAT}" = "custom" \
-				-o "${REPORTS_DB_DUMP_FORMAT}" = "custom" \
+				-o "${CINDERLIB_DB_DUMP_FORMAT}" = "custom" \
 			\) \
 		] && die "Please pass one of --restore-permissions or --no-restore-permissions when restoring a backup with a custom dump format"
 	fi
@@ -962,10 +971,15 @@ dobackup() {
 		log "Backing up dwh database to ${tardir}/db/${DWHDB_BACKUP_FILE_NAME}"
 		backupDB "${tardir}/db/${DWHDB_BACKUP_FILE_NAME}" "${DWH_DB_USER}" "${DWH_DB_HOST}" "${DWH_DB_PORT}" "${DWH_DB_DATABASE}" "${DWH_DB_DUMP_COMPRESSOR}" "${DWH_DB_DUMP_FORMAT}"
 	fi
-	if reports_enabled && [ -n "${SCOPE_REPORTS_DB}" -a -n "${REPORTS_DB_USER}" ]; then
-		output "- Reports database '"${REPORTS_DB_DATABASE}"'"
-		log "Backing up reports database to ${tardir}/db/${REPORTSDB_BACKUP_FILE_NAME}"
-		backupDB "${tardir}/db/${REPORTSDB_BACKUP_FILE_NAME}" "${REPORTS_DB_USER}" "${REPORTS_DB_HOST}" "${REPORTS_DB_PORT}" "${REPORTS_DB_DATABASE}" "${REPORTS_DB_DUMP_COMPRESSOR}" "${REPORTS_DB_DUMP_FORMAT}"
+	if cinderlib_enabled && [ -n "${SCOPE_CINDERLIB_DB}" -a -n "${CINDERLIB_DB_USER}" ]; then
+		output "- CINDERLIB database '"${CINDERLIB_DB_DATABASE}"'"
+		log "Backing up cinderlib database to ${tardir}/db/${CINDERLIBDB_BACKUP_FILE_NAME}"
+		backupDB "${tardir}/db/${CINDERLIBDB_BACKUP_FILE_NAME}" "${CINDERLIB_DB_USER}" "${CINDERLIB_DB_HOST}" "${CINDERLIB_DB_PORT}" "${CINDERLIB_DB_DATABASE}" "${CINDERLIB_DB_DUMP_COMPRESSOR}" "${CINDERLIB_DB_DUMP_FORMAT}"
+	fi
+	if grafana_enabled && [ -n "${SCOPE_GRAFANA_DB}" ]; then
+		output "- Grafana database '"${GRAFANA_DB_FILENAME}"'"
+		log "Backing up grafana database to ${tardir}/db/${GRAFANA_BACKUP_FILE_NAME}"
+		backupSQLiteDB "${tardir}/db/${GRAFANA_BACKUP_FILE_NAME}" "${GRAFANA_DB_FILENAME}"
 	fi
 	echo "${PACKAGE_VERSION}" > "${tardir}/${PACKAGE_VERSION_FILENAME}" || logdie "Can't create ${tardir}/${PACKAGE_VERSION_FILENAME}"
 	getOSVersion > "${tardir}/${OS_VERSION_FILENAME}" || logdie "Can't create ${tardir}/${OS_VERSION_FILENAME}"
@@ -983,7 +997,12 @@ dobackup() {
 }
 
 getOSVersion() {
-	python@PY_VERSION@ -c 'import platform; d = platform.linux_distribution(full_distribution_name=0); print("%s%s" % (d[0], d[1].split(".")[0]))'
+	python@PY_VERSION@ -c 'import distro; d = distro.linux_distribution(full_distribution_name=0); print("%s%s" % (d[0], d[1].split(".")[0]))'
+}
+
+looseVersion_le() {
+	# return 0 if first arg is <= second arg
+	python@PY_VERSION@ -c 'import sys; from distutils.version import LooseVersion; sys.exit(0 if LooseVersion(sys.argv[1]) <= LooseVersion(sys.argv[2]) else 1)' "$1" "$2"
 }
 
 createtar() {
@@ -1025,12 +1044,15 @@ verifyhash() {
 backupFiles() {
 	local paths="$1"
 	local target="$2"
-	echo "${paths}" | \
-		while read -r path; do
-			[ -e "${path}" ] && echo "${path}"
-		done | \
-		sed 's;^/;;' | \
-		tar -C / --files-from - -cpS"${FILES_COMPRESS_OPTION}"f "${target}" || logdie "Failed backing up ${paths}"
+	(
+		echo "${paths}" | \
+			while read -r path; do
+				[ -e "${path}" ] && echo "${path}"
+			done | \
+			sed 's;^/;;' | \
+			tar -C / --files-from - -cpS"${FILES_COMPRESS_OPTION}"f "${target}"
+	) 2>> "${LOG}" \
+		|| logdie "Failed backing up ${paths}"
 }
 
 backupDB() {
@@ -1077,6 +1099,19 @@ backupDB() {
 	[ -n "${failed_msg}" ] && logdie "${failed_msg}"
 }
 
+backupSQLiteDB() {
+	local backup_file="$1"
+	local db_file="$2"
+
+	# Backup with sqlite, attempt to lock for up to 10 seconds
+	sqlite3 "${db_file}" << __EOF__ 2>> "${LOG}" || logdie "failed to backup ${db_file} with sqlite3"
+.timeout 10000
+.backup ${backup_file}
+__EOF__
+	chown --reference="${db_file}" "${backup_file}" 2>> "${LOG}" || logdie "chown failed"
+	chmod --reference="${db_file}" "${backup_file}" 2>> "${LOG}" || logdie "chmod failed"
+}
+
 dorestore() {
 	output "Preparing to restore:"
 	if [ -r "${ENGINE_UP_MARK}" ]; then
@@ -1096,16 +1131,16 @@ dorestore() {
 		generatePgPass
 		verifyConnection "${DWH_DB_USER}" "${DWH_DB_HOST}" "${DWH_DB_PORT}" "${DWH_DB_DATABASE}"
 	fi
-	if [ -n "${CHANGE_REPORTS_DB_CREDENTIALS}" ]; then
-		output "- Setting credentials for Reports database '${MY_REPORTS_DB_DATABASE}'"
-		setMyReportsDBCredentials
+	if [ -n "${CHANGE_CINDERLIB_DB_CREDENTIALS}" ]; then
+		output "- Setting credentials for Cinderlib database '${MY_CINDERLIB_DB_DATABASE}'"
+		setMyCinderlibDBCredentials
 		generatePgPass
-		verifyConnection "${REPORTS_DB_USER}" "${REPORTS_DB_HOST}" "${REPORTS_DB_PORT}" "${REPORTS_DB_DATABASE}"
+		verifyConnection "${CINDERLIB_DB_USER}" "${CINDERLIB_DB_HOST}" "${CINDERLIB_DB_PORT}" "${CINDERLIB_DB_DATABASE}"
 	fi
 
 	output "- Unpacking file '${FILE}'"
 	log "Opening tarball ${FILE} to ${TEMP_FOLDER}"
-	tar -C "${TEMP_FOLDER}" -pSsxf "${FILE}" || logdie "cannot open ${TEMP_FOLDER}"
+	tar -C "${TEMP_FOLDER}" -pSsxf "${FILE}" 2>> "${LOG}" || logdie "cannot open ${TEMP_FOLDER}"
 	log "Verifying hash"
 	verifyhash "${TEMP_FOLDER}"
 	log "Verifying version"
@@ -1114,33 +1149,22 @@ dorestore() {
 	log "Reading config"
 	. "${TEMP_FOLDER}/config"
 
-	verifyArgsConfig
-
 	# Refresh scope vars according to what actually found
 	[ -s "${TEMP_FOLDER}/files" ] || SCOPE_FILES=
 	[ -s "${TEMP_FOLDER}/db/${DB_BACKUP_FILE_NAME}" ] || SCOPE_ENGINE_DB=
 	[ -s "${TEMP_FOLDER}/db/${DWHDB_BACKUP_FILE_NAME}" ] || SCOPE_DWH_DB=
-	[ -s "${TEMP_FOLDER}/db/${REPORTSDB_BACKUP_FILE_NAME}" ] || SCOPE_REPORTS_DB=
+	[ -s "${TEMP_FOLDER}/db/${CINDERLIBDB_BACKUP_FILE_NAME}" ] || SCOPE_CINDERLIB_DB=
+	[ -s "${TEMP_FOLDER}/db/${GRAFANA_BACKUP_FILE_NAME}" ] || SCOPE_GRAFANA_DB=
 
-	# Notify user if reports found
-	if [ -s "${TEMP_FOLDER}/db/${REPORTSDB_BACKUP_FILE_NAME}" ]; then
-		log "Reports dump found, notifying user that it is not restored"
-		cat << __EOF__
-------------------------------------------------------------------------------
-Please note:
-
-A Reports dump was found inside the backup.
-
-This version does not support Reports, and the dump and configuration files
-will not be restored.
-------------------------------------------------------------------------------
-__EOF__
-	fi
+	log 'Scope after checking backup content:'
+	for v in SCOPE_FILES SCOPE_ENGINE_DB SCOPE_DWH_DB SCOPE_CINDERLIB_DB SCOPE_GRAFANA_DB; do
+		log "$v:${!v}"
+	done
 
 	if [ -n "${PROVISION_ALL_DBS}" ]; then
 		[ -n "${SCOPE_ENGINE_DB}" ] && PROVISION_DB=1
 		[ -n "${SCOPE_DWH_DB}" ] && PROVISION_DWH_DB=1
-		[ -n "${SCOPE_REPORTS_DB}" ] && PROVISION_REPORTS_DB=1
+		[ -n "${SCOPE_CINDERLIB_DB}" ] && PROVISION_CINDERLIB_DB=1
 	fi
 
 	output "Restoring:"
@@ -1153,6 +1177,30 @@ __EOF__
 	log "Reloading configuration"
 	my_load_config
 
+	# Update provisioning vars if all DBs are on localhost and are inaccessible
+	generatePgPass # Needed for canConnectToDB
+	if [ \
+		-z "${CHANGE_DB_CREDENTIALS}" -a \
+		-z "${CHANGE_DWH_DB_CREDENTIALS}" -a \
+		-z "${CHANGE_CINDERLIB_DB_CREDENTIALS}" -a \
+		"${ENGINE_DB_HOST}" == "localhost" -a \
+		"${DWH_DB_HOST}" == "localhost" -a \
+		"${CINDERLIB_DB_HOST}" == "localhost" \
+	] && \
+		! canConnectToDB "${ENGINE_DB_USER}" "${ENGINE_DB_HOST}" "${ENGINE_DB_PORT}" "${ENGINE_DB_DATABASE}" && \
+		! canConnectToDB "${DWH_DB_USER}" "${DWH_DB_HOST}" "${DWH_DB_PORT}" "${DWH_DB_DATABASE}" && \
+		! canConnectToDB "${CINDERLIB_DB_USER}" "${CINDERLIB_DB_HOST}" "${CINDERLIB_DB_PORT}" "${CINDERLIB_DB_DATABASE}" \
+	; then
+		PROVISIONING=1
+		PROVISION_ALL_DBS=1
+		PROVISION_DB=1
+		PROVISION_DWH_DB=1
+		PROVISION_CINDERLIB_DB=1
+		[ -z "${RESTORE_PERMISSIONS}" ] && RESTORE_PERMISSIONS="1"
+	fi
+
+	verifyArgsConfig
+
 	if [ -n "${PROVISIONING}" ]; then
 		output "Provisioning PostgreSQL users/databases:"
 		if [ -n "${PROVISION_DB}" -a -n "${SCOPE_ENGINE_DB}" ]; then
@@ -1161,22 +1209,22 @@ __EOF__
 		if [ -n "${PROVISION_DWH_DB}" -a -n "${SCOPE_DWH_DB}" ]; then
 			provisionDB "${DWH_DB_USER}" "${DWH_DB_HOST}" "${DWH_DB_PORT}" "${DWH_DB_DATABASE}" "${DWH_DB_PASSWORD}" "${DWH_DB_SECURED}" "${DWH_DB_SECURED_VALIDATION}" "${TEMP_FOLDER}/db/${DWHDB_BACKUP_FILE_NAME}" "${DWH_DB_DUMP_COMPRESSOR}" "${DWH_DB_DUMP_FORMAT}"
 		fi
-		if [ -n "${PROVISION_REPORTS_DB}" -a -n "${SCOPE_REPORTS_DB}" ]; then
-			provisionDB "${REPORTS_DB_USER}" "${REPORTS_DB_HOST}" "${REPORTS_DB_PORT}" "${REPORTS_DB_DATABASE}" "${REPORTS_DB_PASSWORD}" "${REPORTS_DB_SECURED}" "${REPORTS_DB_SECURED_VALIDATION}" "${TEMP_FOLDER}/db/${REPORTSDB_BACKUP_FILE_NAME}" "${REPORTS_DB_DUMP_COMPRESSOR}" "${REPORTS_DB_DUMP_FORMAT}"
+		if [ -n "${PROVISION_CINDERLIB_DB}" -a -n "${SCOPE_CINDERLIB_DB}" ]; then
+			provisionDB "${CINDERLIB_DB_USER}" "${CINDERLIB_DB_HOST}" "${CINDERLIB_DB_PORT}" "${CINDERLIB_DB_DATABASE}" "${CINDERLIB_DB_PASSWORD}" "${CINDERLIB_DB_SECURED}" "${CINDERLIB_DB_SECURED_VALIDATION}" "${TEMP_FOLDER}/db/${CINDERLIBDB_BACKUP_FILE_NAME}" "${CINDERLIB_DB_DUMP_COMPRESSOR}" "${CINDERLIB_DB_DUMP_FORMAT}"
 		fi
 		output "Restoring:"
 	fi
 
 	[ -n "${CHANGE_DB_CREDENTIALS}" ] && setMyEngineDBCredentials
 	[ -n "${CHANGE_DWH_DB_CREDENTIALS}" ] && setMyDwhDBCredentials
-	[ -n "${CHANGE_REPORTS_DB_CREDENTIALS}" ] && setMyReportsDBCredentials
+	[ -n "${CHANGE_CINDERLIB_DB_CREDENTIALS}" ] && setMyCinderlibDBCredentials
 
 	log "Generating pgpass"
 	generatePgPass # Must run after configuration reload
 	log "Verifying connection"
 	[ -n "${SCOPE_ENGINE_DB}" -a -n "${ENGINE_DB_USER}" ] && verifyConnection "${ENGINE_DB_USER}" "${ENGINE_DB_HOST}" "${ENGINE_DB_PORT}" "${ENGINE_DB_DATABASE}"
 	[ -n "${SCOPE_DWH_DB}" -a -n "${DWH_DB_USER}" ] && verifyConnection "${DWH_DB_USER}" "${DWH_DB_HOST}" "${DWH_DB_PORT}" "${DWH_DB_DATABASE}"
-	[ -n "${SCOPE_REPORTS_DB}" -a -n "${REPORTS_DB_USER}" ] && verifyConnection "${REPORTS_DB_USER}" "${REPORTS_DB_HOST}" "${REPORTS_DB_PORT}" "${REPORTS_DB_DATABASE}"
+	[ -n "${SCOPE_CINDERLIB_DB}" -a -n "${CINDERLIB_DB_USER}" ] && verifyConnection "${CINDERLIB_DB_USER}" "${CINDERLIB_DB_HOST}" "${CINDERLIB_DB_PORT}" "${CINDERLIB_DB_DATABASE}"
 
 	if [ -n "${SCOPE_ENGINE_DB}" -a -n "${ENGINE_DB_USER}" ]; then
 		output "- Engine database '"${ENGINE_DB_DATABASE}"'"
@@ -1209,16 +1257,30 @@ __EOF__
 		log "Restoring dwh database backup at ${TEMP_FOLDER}/db/${DWHDB_BACKUP_FILE_NAME}"
 		restoreDB "${TEMP_FOLDER}/db/${DWHDB_BACKUP_FILE_NAME}" "${DWH_DB_USER}" "${DWH_DB_HOST}" "${DWH_DB_PORT}" "${DWH_DB_DATABASE}" "${ORIG_DWH_DB_USER}" "${DWH_DB_DUMP_COMPRESSOR}" "${DWH_DB_DUMP_FORMAT}" "${DWH_DB_RESTORE_JOBS}"
 	fi
-	if [ -n "${SCOPE_REPORTS_DB}" -a -n "${REPORTS_DB_USER}" ]; then
-		output "- Reports database '"${REPORTS_DB_DATABASE}"'"
-		log "Restoring REPORTS database backup at ${TEMP_FOLDER}/db/${REPORTSDB_BACKUP_FILE_NAME}"
-		restoreDB "${TEMP_FOLDER}/db/${REPORTSDB_BACKUP_FILE_NAME}" "${REPORTS_DB_USER}" "${REPORTS_DB_HOST}" "${REPORTS_DB_PORT}" "${REPORTS_DB_DATABASE}" "${ORIG_REPORTS_DB_USER}" "${REPORTS_DB_DUMP_COMPRESSOR}" "${REPORTS_DB_DUMP_FORMAT}" "${REPORTS_DB_RESTORE_JOBS}"
+	if [ -n "${SCOPE_CINDERLIB_DB}" -a -n "${CINDERLIB_DB_USER}" ]; then
+		output "- Cinderlib database '"${CINDERLIB_DB_DATABASE}"'"
+		log "Restoring Cinderlib database backup at ${TEMP_FOLDER}/db/${CINDERLIBDB_BACKUP_FILE_NAME}"
+		restoreDB "${TEMP_FOLDER}/db/${CINDERLIBDB_BACKUP_FILE_NAME}" "${CINDERLIB_DB_USER}" "${CINDERLIB_DB_HOST}" "${CINDERLIB_DB_PORT}" "${CINDERLIB_DB_DATABASE}" "${ORIG_CINDERLIB_DB_USER}" "${CINDERLIB_DB_DUMP_COMPRESSOR}" "${CINDERLIB_DB_DUMP_FORMAT}" "${CINDERLIB_DB_RESTORE_JOBS}"
+	fi
+	if [ -n "${SCOPE_GRAFANA_DB}" ]; then
+		output "- Grafana database '"${GRAFANA_DB_FILENAME}"'"
+		restoreSQLiteDB "${TEMP_FOLDER}/db/${GRAFANA_BACKUP_FILE_NAME}" "${GRAFANA_DB_FILENAME}" "grafana:grafana"
 	fi
 	[ -n "${CHANGE_DB_CREDENTIALS}" ] && changeEngineDBConf
 	[ -n "${CHANGE_DWH_DB_CREDENTIALS}" -o -n "${CHANGE_DB_CREDENTIALS}" -a "${DWH_DB_USER}" ] && changeDwhDBConf
-	[ -n "${CHANGE_REPORTS_DB_CREDENTIALS}" ] && changeReportsDBConf
+	[ -n "${CHANGE_CINDERLIB_DB_CREDENTIALS}" -o -n "${CHANGE_DB_CREDENTIALS}" -a "${CINDERLIB_DB_USER}" ] && changeCinderlibDBConf
 	source_d dorestore
 	output "You should now run engine-setup."
+}
+
+canConnectToDB() {
+	local user="$1"
+	local host="$2"
+	local port="$3"
+	local database="$4"
+
+	pg_cmd psql -c "select 1" >> "${LOG}" 2>&1 \
+		|| return 1
 }
 
 verifyConnection() {
@@ -1229,7 +1291,7 @@ verifyConnection() {
 
 	local pgrestorelog="${TEMP_FOLDER}/pg-restore-log"
 
-	pg_cmd psql -c "select 1" >> "${LOG}" 2>&1 \
+	canConnectToDB "${user}" "${host}" "${port}" "${database}" \
 		|| logdie "Can't connect to database '${database}'. Please see '${0} --help'."
 
 	pg_cmd psql -t -c "show lc_messages" 2> /dev/null \
@@ -1254,15 +1316,27 @@ __EOF
 }
 
 verifyVersion() {
-	INSTALLED_VERSION="$(echo ${PACKAGE_VERSION} | cut -d . -f 1-2)"
-	BACKUP_VERSION="$(cat ${TEMP_FOLDER}/${PACKAGE_VERSION_FILENAME} | cut -d . -f 1-2)"
+	INSTALLED_VERSION="${PACKAGE_VERSION}"
+	INSTALLED_VERSION_X_Y="$(echo ${INSTALLED_VERSION} | cut -d . -f 1-2)"
+	BACKUP_VERSION="$(cat ${TEMP_FOLDER}/${PACKAGE_VERSION_FILENAME})"
+	BACKUP_VERSION_X_Y="$(echo ${BACKUP_VERSION} | cut -d . -f 1-2)"
 	local ok=
 	while read validbck validres; do
-		[ "${BACKUP_VERSION}" = "${validbck}" -a "${INSTALLED_VERSION}" = "${validres}" ] && ok=1
+		[ "${BACKUP_VERSION_X_Y}" = "${validbck}" -a "${INSTALLED_VERSION_X_Y}" = "${validres}" ] && ok=1
 	done << __EOF__
 ${VALID_BACKUP_RESTORE_PAIRS}
 __EOF__
-	[ "${INSTALLED_VERSION}" == "${BACKUP_VERSION}" ] && ok=1
+	[ "${INSTALLED_VERSION_X_Y}" == "${BACKUP_VERSION_X_Y}" ] && looseVersion_le "${BACKUP_VERSION}" "${INSTALLED_VERSION}" && ok=1
+	if [ "${BACKUP_VERSION_X_Y}" = "4.3" ]; then
+		# Prevent upgrading from < 4.3.10.
+		# We already document to upgrade first to latest 4.3, before upgrading to 4.4.
+		# Also, specifically, cinderlib backup was added in 4.3.10,
+		# So a backup taken with 4.3.9 on a setup with cinderlib,
+		# will not include its db, and engine-setup will fail, and
+		# this will leave the system in a broken state. Prevent that.
+		local z="$(echo ${BACKUP_VERSION} | cut -d . -f 3)"
+		[ "${z}" -lt 10 ] && ok=
+	fi
 	[ -z "${ok}" ] && logdie "Backup was created by version '${BACKUP_VERSION}' and can not be restored using the installed version ${INSTALLED_VERSION}"
 }
 
@@ -1292,6 +1366,8 @@ provisionDB() {
 
 	cat << __EOF__ > "${answerfile}"
 [environment:default]
+OVESETUP_PROVISIONDB_CONFIG/provisionDb=bool:True
+OVESETUP_PROVISIONDB_CONFIG/provisionUser=bool:True
 OVESETUP_PROVISION_DB/host=str:localhost
 OVESETUP_PROVISION_DB/port=int:5432
 OVESETUP_PROVISION_DB/secured=bool:False
@@ -1332,11 +1408,11 @@ __EOF__
 		elif [ "${format}" = "custom" ]; then
 			local no_perms=
 			if [ -z "${compressor}" ]; then
-				pg_restore "${backupfile}" -s 2> "${pgrestorelog}"
+				pg_restore "${backupfile}" -s -f - 2> "${pgrestorelog}"
 			else
 				# Requires the compressor to support '-d'. All our current ones do.
 				"${compressor}" -d < "${backupfile}" | \
-					pg_restore -s 2> "${pgrestorelog}"
+					pg_restore -s -f - 2> "${pgrestorelog}"
 			fi
 		else
 			logdie "Unsupported format ${format}"
@@ -1346,8 +1422,32 @@ __EOF__
 				grep -Ev "^${user}\$|^postgres\$|^PUBLIC\$" > "${extra_users}"
 
 		for extrau in $(cat "${extra_users}"); do
-			output "- extra user '${extrau}' having grants on database ${database}, created with a random password"
-			/usr/share/ovirt-engine/setup/bin/ovirt-engine-provisiondb --otopi-environment="OVESETUP_PROVISION_DB/user=str:${extrau}" < /dev/null > "${pgprovisionlog}" 2>&1
+			cat << __EOF__ > "${answerfile}"
+[environment:default]
+OVESETUP_PROVISIONDB_CONFIG/provisionDb=bool:False
+OVESETUP_PROVISIONDB_CONFIG/provisionUser=bool:True
+OVESETUP_PROVISION_DB/host=str:localhost
+OVESETUP_PROVISION_DB/port=int:5432
+OVESETUP_PROVISION_DB/secured=bool:False
+OVESETUP_PROVISION_DB/securedHostValidation=bool:False
+OVESETUP_PROVISION_DB/database=str:${database}
+OVESETUP_PROVISION_DB/user=str:${extrau}
+OVESETUP_PROVISION_DB/dumper=str:pg_custom
+OVESETUP_PROVISION_DB/filter=none:None
+OVESETUP_PROVISION_DB/restoreJobs=int:2
+OVESETUP_CORE/engineStop=bool:False
+__EOF__
+			if [ "${extrau}" = "${GRAFANA_DB_USER}" -a "${database}" = "${DWH_DB_DATABASE}" ]; then
+				output "- user '${extrau}' on database '${database}'"
+				cat << __EOF__ >> "${answerfile}"
+OVESETUP_PROVISION_DB/password=str:${GRAFANA_DB_PASSWORD}
+OVESETUP_PROVISIONDB_CONFIG/addToPGHBA=bool:True
+OVESETUP_PROVISIONDB_CONFIG/grantReadOnly=bool:True
+__EOF__
+			else
+				output "- extra user '${extrau}' having grants on database ${database}, created with a random password"
+			fi
+			/usr/share/ovirt-engine/setup/bin/ovirt-engine-provisiondb --config-append="${answerfile}" < /dev/null > "${pgprovisionlog}" 2>&1
 			provrc=$?
 			cat "${pgprovisionlog}" >> "${LOG}"  2>&1 \
 				|| logdie "Failed to append pg provisioning log to restore log"
@@ -1410,6 +1510,11 @@ language "plpgsql" already exists
 must be owner of language plpgsql
 must be owner of extension plpgsql
 must be owner of extension uuid-ossp
+# PG 11 does not dump "public" schema creation, and emits errors
+# when restoring backups from older versions, that do include this
+schema "public" already exists
+must be owner of schema public
+must be member of role "postgres"
 #
 # engine uses uuid-ossp PG extension, which requires special privs,
 permission denied for language c
@@ -1423,6 +1528,9 @@ function public.uuid_ns_dns\(\) does not exist
 function public.uuid_ns_oid\(\) does not exist
 function public.uuid_ns_url\(\) does not exist
 function public.uuid_ns_x500\(\) does not exist
+# Ignore errors caused by custom extensions in backed up db
+permission denied to create extension
+extension .* does not exist
 __EOF
 )
 	grep 'ERROR: ' "${pgrestorelog}" | grep -Ev "${IGNORED_ERRORS}" > "${non_ignored_errors}" 2>&1
@@ -1434,6 +1542,22 @@ __EOF
 	fi
 }
 
+restoreSQLiteDB() {
+	local backupfile="$1"
+	local db_file="$2"
+	local dir_owner="$3"
+
+	local db_dir=$(dirname ${db_file})
+	if ! [ -d "${db_dir}" ]; then
+		# Can happen if using scope=grafanadb only, without scope=files.
+		# Not very likely, but better safe than sorry.
+		mkdir -p "${db_dir}" 2>> "${LOG}" || logdie "mkdir failed"
+		chmod 0750 "${db_dir}" 2>> "${LOG}" || logdie "chmod failed"
+		chown "${dir_owner}" "${db_dir}" 2>> "${LOG}" || output "Warning: ${dir_owner} user or group missing"
+	fi
+	cp -a "${backupfile}" "${db_file}" 2>> "${LOG}" || "cp failed"
+}
+
 verifyEngineDb() {
 	local backupfile="$1"
 	local compressor="$2"
@@ -1442,6 +1566,7 @@ verifyEngineDb() {
 	log "verifyEngineDb: backupfile ${backupfile} compressor ${compressor} format ${format}"
 	local pgrestorelog="${TEMP_FOLDER}/pg-restore-log"
 	local vdc_options_dump="${TEMP_FOLDER}/vdc_options_dump"
+	local pg_restore_errors="${TEMP_FOLDER}/pg_restore_errors"
 
 	# TODO perhaps refactor out the format/compressor logic and reuse in restoreDB
 	if [ "${format}" = "plain" ]; then
@@ -1454,11 +1579,11 @@ verifyEngineDb() {
 	elif [ "${format}" = "custom" ]; then
 		local no_perms=
 		if [ -z "${compressor}" ]; then
-			pg_restore "${backupfile}" -t vdc_options 2> "${pgrestorelog}"
+			pg_restore "${backupfile}" -f - -t vdc_options 2> "${pgrestorelog}"
 		else
 			# Requires the compressor to support '-d'. All our current ones do.
 			"${compressor}" -d < "${backupfile}" | \
-				pg_restore -t vdc_options 2> "${pgrestorelog}"
+				pg_restore -f - -t vdc_options 2> "${pgrestorelog}"
 		fi
 	else
 		logdie "Unsupported format ${format}"
@@ -1472,6 +1597,14 @@ verifyEngineDb() {
 
 	[ -z "$(awk '$2=="DomainName" {print $3}' < ${vdc_options_dump})" ] || \
 		logdie "legacy kerberos/ldap directory integration was in use. Please migrate to ovirt-engine-extension-aaa-ldap and backup/restore again"
+
+	grep -i 'error: ' "${pgrestorelog}" > "${pg_restore_errors}" 2>&1
+	local numerrors=$(cat "${pg_restore_errors}" | wc -l)
+	if [ ${numerrors} -ne 0 ]; then
+		log "Errors in pg_restore log:"
+		cat "${pg_restore_errors}" >> "${LOG}"
+		logdie "Errors while running pg_restore ${database}"
+	fi
 }
 
 cleanDbTempData() {
@@ -1600,7 +1733,7 @@ restoreFiles() {
 	# Extract files to temp dir
 	local temp_files="${TEMP_FOLDER}/files.d"
 	mkdir -p "${temp_files}"
-	tar -C "${temp_files}" -pSsx -f "${archive}" || \
+	tar -C "${temp_files}" -pSsx -f "${archive}" 2>> "${LOG}" || \
 		logdie "Failed extracting ${archive}"
 
 	# Do not restore/overwrite some files
@@ -1630,7 +1763,7 @@ __EOF__
 	fi
 
 	# Restore!
-	tar -C / -pSsx --exclude-from "${excluded_files}" -f "${archive}" || \
+	tar -C / -pSsx --exclude-from "${excluded_files}" -f "${archive}" 2>> "${LOG}" || \
 		logdie "Failed restoring ${paths}"
 
 	# Make next engine-setup ask about apache
@@ -1708,34 +1841,34 @@ __EOF__
 	eval "${MY_DWH_DB_CREDS}"
 }
 
-setMyReportsDBCredentials() {
+setMyCinderlibDBCredentials() {
 	local options
 
-	[ "${MY_REPORTS_DB_SECURED}" = "True" ] && \
+	[ "${MY_CINDERLIB_DB_SECURED}" = "True" ] && \
 		options="${options}&ssl=true"
-	[ "${MY_REPORTS_DB_SECURED_VALIDATION}" != "True" ] && \
+	[ "${MY_CINDERLIB_DB_SECURED_VALIDATION}" != "True" ] && \
 		options="${options}&sslfactory=org.postgresql.ssl.NonValidatingFactory"
 
 	[ -n "${options}" ] && options="${options#&}"
 
 	local encpass="$(sed 's;\(["\$]\);\\\1;g' << __EOF__
-${MY_REPORTS_DB_PASSWORD}
+${MY_CINDERLIB_DB_PASSWORD}
 __EOF__
 )"
 
-	MY_REPORTS_DB_CREDS="$(cat << __EOF__
-REPORTS_DB_HOST="${MY_REPORTS_DB_HOST}"
-REPORTS_DB_PORT="${MY_REPORTS_DB_PORT}"
-REPORTS_DB_USER="${MY_REPORTS_DB_USER}"
-REPORTS_DB_PASSWORD="${encpass}"
-REPORTS_DB_DATABASE="${MY_REPORTS_DB_DATABASE}"
-REPORTS_DB_SECURED="${MY_REPORTS_DB_SECURED}"
-REPORTS_DB_SECURED_VALIDATION="${MY_REPORTS_DB_SECURED_VALIDATION}"
-REPORTS_DB_DRIVER="org.postgresql.Driver"
-REPORTS_DB_URL="jdbc:postgresql://\${REPORTS_DB_HOST}:\${REPORTS_DB_PORT}/\${REPORTS_DB_DATABASE}?${options}"
+	MY_CINDERLIB_DB_CREDS="$(cat << __EOF__
+CINDERLIB_DB_HOST="${MY_CINDERLIB_DB_HOST}"
+CINDERLIB_DB_PORT="${MY_CINDERLIB_DB_PORT}"
+CINDERLIB_DB_USER="${MY_CINDERLIB_DB_USER}"
+CINDERLIB_DB_PASSWORD="${encpass}"
+CINDERLIB_DB_DATABASE="${MY_CINDERLIB_DB_DATABASE}"
+CINDERLIB_DB_SECURED="${MY_CINDERLIB_DB_SECURED}"
+CINDERLIB_DB_SECURED_VALIDATION="${MY_CINDERLIB_DB_SECURED_VALIDATION}"
+CINDERLIB_DB_DRIVER="org.postgresql.Driver"
+CINDERLIB_DB_URL="jdbc:postgresql://\${CINDERLIB_DB_HOST}:\${CINDERLIB_DB_PORT}/\${CINDERLIB_DB_DATABASE}?${options}"
 __EOF__
 )"
-	eval "${MY_REPORTS_DB_CREDS}"
+	eval "${MY_CINDERLIB_DB_CREDS}"
 }
 
 changeEngineDBConf() {
@@ -1781,50 +1914,22 @@ changeDwhDBConf() {
 	printf "%s\n" "${MY_DWH_DB_CREDS}" >> "${conf}"
 }
 
-changeReportsDBConf() {
-	local conf="${JASPER_PROPERTIES}"
+changeCinderlibDBConf() {
+	local conf="${ENGINE_ETC}/engine.conf.d/10-setup-cinderlib-database.conf"
 	[ -f "${conf}" ] || logdie "Can not find ${conf}"
 
 	local backup="${conf}.$(date +"%Y%m%d%H%M%S")"
 	log "Backing up ${conf} to ${backup}"
 	cp -a "${conf}" "${backup}" || logdie "Failed to backup ${conf}"
 	output "Rewriting ${conf}"
-	cat << __EOF__ > "${conf}"
-# File locations
-reportsHome=/var/lib/ovirt-engine-reports
-reportsWar=/var/lib/ovirt-engine-reports/ovirt-engine-reports.war
-currentConf=/var/lib/ovirt-engine-reports/build-conf
-appServerDir=/var/lib/ovirt-engine-reports
-
-appServerType=jboss7
-
-# database type
-dbType=postgresql
-
-# database location and connection settings
-dbHost=${REPORTS_DB_HOST}
-dbPort=${REPORTS_DB_PORT}
-dbUsername=${REPORTS_DB_USER}
-dbPassword=${REPORTS_DB_PASSWORD}
-js.dbName=${REPORTS_DB_DATABASE}
-
-# web app name
-# (set one of these to deploy to a non-default war file name)
-webAppNameCE=ovirt-engine-reports
-webAppNamePro=ovirt-engine-reports
-
-# Database
-maven.jdbc.groupId=postgresql
-maven.jdbc.artifactId=postgresql
-maven.jdbc.version=9.2-1002.jdbc4
-deployJDBCDriver=false
-__EOF__
+	printf "%s\n" "${MY_CINDERLIB_DB_CREDS}" > "${conf}"
 }
 
 generatePgPass() {
 	local password="${ENGINE_DB_PASSWORD}"
 	local dwh_password="${DWH_DB_PASSWORD}"
-	local reports_password="${REPORTS_DB_PASSWORD}"
+	local cinderlib_password="${CINDERLIB_DB_PASSWORD}"
+	local cinderlib_password="${CINDERLIB_DB_PASSWORD}"
 	MYPGPASS="${TEMP_FOLDER}/.pgpass"
 
 	touch "${MYPGPASS}" || logdie "Can't touch ${MYPGPASS}"
@@ -1841,7 +1946,7 @@ generatePgPass() {
 	if ! psql -V | grep -q ' 8\.'; then
 		password="$(printf "%s" "${password}" | sed -e 's/\\/\\\\/g' -e 's/:/\\:/g')"
 		dwh_password="$(printf "%s" "${dwh_password}" | sed -e 's/\\/\\\\/g' -e 's/:/\\:/g')"
-		reports_password="$(printf "%s" "${reports_password}" | sed -e 's/\\/\\\\/g' -e 's/:/\\:/g')"
+		cinderlib_password="$(printf "%s" "${cinderlib_password}" | sed -e 's/\\/\\\\/g' -e 's/:/\\:/g')"
 	fi
 
 	cat > "${MYPGPASS}" << __EOF__
@@ -1850,8 +1955,8 @@ __EOF__
 	[ -n "${DWH_DB_USER}" ] && cat >> "${MYPGPASS}" << __EOF__
 ${DWH_DB_HOST}:${DWH_DB_PORT}:${DWH_DB_DATABASE}:${DWH_DB_USER}:${dwh_password}
 __EOF__
-	[ -n "${REPORTS_DB_USER}" ] && cat >> "${MYPGPASS}" << __EOF__
-${REPORTS_DB_HOST}:${REPORTS_DB_PORT}:${REPORTS_DB_DATABASE}:${REPORTS_DB_USER}:${reports_password}
+	[ -n "${CINDERLIB_DB_USER}" ] && cat >> "${MYPGPASS}" << __EOF__
+${CINDERLIB_DB_HOST}:${CINDERLIB_DB_PORT}:${CINDERLIB_DB_DATABASE}:${CINDERLIB_DB_USER}:${cinderlib_password}
 __EOF__
 }
 
@@ -1905,8 +2010,8 @@ dump_config_for_restore() {
 DB_DUMP_FORMAT
 DWH_DB_DUMP_COMPRESSOR
 DWH_DB_DUMP_FORMAT
-REPORTS_DB_DUMP_COMPRESSOR
-REPORTS_DB_DUMP_FORMAT"
+CINDERLIB_DB_DUMP_COMPRESSOR
+CINDERLIB_DB_DUMP_FORMAT"
 	echo "${VARS_TO_SAVE}" | while read -r var; do
 		eval echo "${var}=\${${var}}"
 	done
@@ -1936,7 +2041,8 @@ notify_engine() {
 	[ -n "${SCOPE_FILES}" ] && do_notify 'files'
 	[ -n "${SCOPE_ENGINE_DB}" ] && do_notify 'db'
 	[ -n "${SCOPE_DWH_DB}" ] && do_notify 'dwhdb'
-	[ -n "${SCOPE_REPORTS_DB}" ] && do_notify 'reportsdb'
+	[ -n "${SCOPE_CINDERLIB_DB}" ] && do_notify 'cinderlib'
+	[ -n "${SCOPE_GRAFANA_DB}" ] && do_notify 'grafanadb'
 
 	unset -f do_notify
 }
@@ -1946,7 +2052,7 @@ doverify() {
 
 	output "- Unpacking file '${FILE}'"
 	log "Opening tarball ${FILE} to ${TEMP_FOLDER}"
-	tar -C "${TEMP_FOLDER}" -pSsxf "${FILE}" || logdie "cannot open ${TEMP_FOLDER}"
+	tar -C "${TEMP_FOLDER}" -pSsxf "${FILE}" 2>> "${LOG}" || logdie "cannot open ${TEMP_FOLDER}"
 	log "Verifying hash"
 	verifyhash "${TEMP_FOLDER}"
 	log "Verifying version"
@@ -1959,7 +2065,8 @@ doverify() {
 	[ -s "${TEMP_FOLDER}/files" ] || SCOPE_FILES=
 	[ -s "${TEMP_FOLDER}/db/${DB_BACKUP_FILE_NAME}" ] || SCOPE_ENGINE_DB=
 	[ -s "${TEMP_FOLDER}/db/${DWHDB_BACKUP_FILE_NAME}" ] || SCOPE_DWH_DB=
-	[ -s "${TEMP_FOLDER}/db/${REPORTSDB_BACKUP_FILE_NAME}" ] || SCOPE_REPORTS_DB=
+	[ -s "${TEMP_FOLDER}/db/${CINDERLIBDB_BACKUP_FILE_NAME}" ] || SCOPE_CINDERLIB_DB=
+	[ -s "${TEMP_FOLDER}/db/${GRAFANA_BACKUP_FILE_NAME}" ] || SCOPE_GRAFANA_DB=
 
 	if [ -n "${SCOPE_ENGINE_DB}" -a -n "${ENGINE_DB_USER}" ]; then
 		output "- Engine database '"${ENGINE_DB_DATABASE}"'"
@@ -1986,11 +2093,6 @@ output "Start of engine-backup with mode '${MODE}'"
 output "scope: ${SCOPE}"
 output "archive file: ${FILE}"
 output "log file: ${LOG}"
-
-if ! [ -z "$sclenv" ]; then
-	log "Setting scl env for ${sclenv}"
-	. scl_source enable ${sclenv}
-fi
 
 generatePgPass
 do${MODE}

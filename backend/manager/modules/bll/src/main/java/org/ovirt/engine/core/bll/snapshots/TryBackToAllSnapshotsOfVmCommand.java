@@ -17,6 +17,7 @@ import javax.enterprise.inject.Typed;
 import javax.inject.Inject;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.exception.ExceptionUtils;
 import org.ovirt.engine.core.bll.ConcurrentChildCommandsExecutionCallback;
 import org.ovirt.engine.core.bll.LockMessagesMatchUtil;
@@ -214,7 +215,7 @@ public class TryBackToAllSnapshotsOfVmCommand<T extends TryBackToAllSnapshotsOfV
         getSnapshotsManager().attemptToRestoreVmConfigurationFromSnapshot(getVm(),
                 getDstSnapshot(),
                 snapshotDao.getId(getVm().getId(), SnapshotType.ACTIVE),
-                getImagesToPreview(),
+                getFilteredImagesToPreview(),
                 getCompensationContext(),
                 getCurrentUser(),
                 new VmInterfaceManager(getMacPool()),
@@ -274,6 +275,7 @@ public class TryBackToAllSnapshotsOfVmCommand<T extends TryBackToAllSnapshotsOfV
                     SnapshotType.PREVIEW,
                     getVm(),
                     true,
+                    null,
                     previousActiveSnapshot.getMemoryDiskId(),
                     previousActiveSnapshot.getMetadataDiskId(),
                     null,
@@ -588,42 +590,46 @@ public class TryBackToAllSnapshotsOfVmCommand<T extends TryBackToAllSnapshotsOfV
                         ONLY_SNAPABLE, ONLY_ACTIVE);
         diskImages.addAll(DisksFilter.filterCinderDisks(getVm().getDiskMap().values(), ONLY_PLUGGED));
         if (!diskImages.isEmpty()) {
-          if (!validate(new StoragePoolValidator(getStoragePool()).existsAndUp())) {
-              return false;
-          }
+            if (!validate(new StoragePoolValidator(getStoragePool()).existsAndUp())) {
+                return false;
+            }
 
-          DiskImagesValidator diskImagesValidator = new DiskImagesValidator(diskImages);
+            DiskImagesValidator diskImagesValidator = new DiskImagesValidator(diskImages);
             if (!validate(diskImagesValidator.diskImagesNotIllegal()) ||
                     !validate(diskImagesValidator.diskImagesNotLocked())) {
-              return false;
-          }
+                return false;
+            }
 
-          List<DiskImage> images = getImagesToPreview();
-          DiskImagesValidator diskImagesToPreviewValidator = new DiskImagesValidator(images);
-          if (!validate(diskImagesToPreviewValidator.noDuplicatedIds()) ||
-                  !validate(diskImagesToPreviewValidator.diskImagesSnapshotsAttachedToVm(getVmId())) ||
-                  !validate(diskImagesToPreviewValidator.diskImagesNotIllegal()) ||
-                  !validate(diskImagesToPreviewValidator.diskImagesNotLocked())) {
-              return false;
-          }
+            List<DiskImage> images = getImagesToPreview();
+            DiskImagesValidator diskImagesToPreviewValidator = new DiskImagesValidator(images);
+            if (!validate(diskImagesToPreviewValidator.noDuplicatedIds()) ||
+                    !validate(diskImagesToPreviewValidator.diskImagesSnapshotsAttachedToVm(getVmId())) ||
+                    !validate(diskImagesToPreviewValidator.diskImagesNotIllegal()) ||
+                    !validate(diskImagesToPreviewValidator.diskImagesNotLocked())) {
+                return false;
+            }
 
-          Set<Guid> storageIds = ImagesHandler.getAllStorageIdsForImageIds(diskImages);
-          // verify lease storage domain status
-          if (getParameters().getDstLeaseDomainId() != null) {
-              storageIds.add(getParameters().getDstLeaseDomainId());
-          } else if (getDstSnapshot().getVmConfiguration() != null && getParameters().isRestoreLease()) {
-              Guid leaseDomainId = OvfUtils.fetchLeaseDomainId(getDstSnapshot().getVmConfiguration());
-              if (leaseDomainId != null) {
-                  storageIds.add(leaseDomainId);
-              }
-          }
+            Set<Guid> storageIds = ImagesHandler.getAllStorageIdsForImageIds(diskImages);
+            // verify lease storage domain status
+            if (getParameters().getDstLeaseDomainId() != null) {
+                storageIds.add(getParameters().getDstLeaseDomainId());
+            } else if (getDstSnapshot().getVmConfiguration() != null && getParameters().isRestoreLease()) {
+                Guid leaseDomainId = OvfUtils.fetchLeaseDomainId(getDstSnapshot().getVmConfiguration());
+                if (leaseDomainId != null) {
+                    storageIds.add(leaseDomainId);
+                }
+            }
 
-          MultipleStorageDomainsValidator storageValidator =
+            MultipleStorageDomainsValidator storageValidator =
                     new MultipleStorageDomainsValidator(getVm().getStoragePoolId(), storageIds);
             if (!validate(storageValidator.allDomainsExistAndActive())
                     || !validate(storageValidator.allDomainsWithinThresholds())
                     || !validateCinder()
                     || !validate(storageValidator.isSupportedByManagedBlockStorageDomains(getActionType()))) {
+                return false;
+            }
+
+            if (!validateDamagedSnapshotsForVmImages(getVmId())) {
                 return false;
             }
         }
@@ -639,6 +645,15 @@ public class TryBackToAllSnapshotsOfVmCommand<T extends TryBackToAllSnapshotsOfV
 
         if(!canRestoreVmConfigFromSnapshot()) {
             return failValidation(EngineMessage.MAC_POOL_NOT_ENOUGH_MAC_ADDRESSES);
+        }
+        return true;
+    }
+
+    private boolean validateDamagedSnapshotsForVmImages(Guid vmId) {
+        List<Guid> vmImagesWithDamagedSnapshot = diskDao.getImagesWithDamagedSnapshotForVm(vmId);
+        if (!vmImagesWithDamagedSnapshot.isEmpty()) {
+            addValidationMessageVariable("diskIds", StringUtils.join(vmImagesWithDamagedSnapshot, "\n"));
+            return failValidation(EngineMessage.ACTION_TYPE_FAILED_DAMAGED_IMAGE_SNAPSHOT);
         }
         return true;
     }
@@ -716,5 +731,15 @@ public class TryBackToAllSnapshotsOfVmCommand<T extends TryBackToAllSnapshotsOfV
     @Override
     public CommandCallback getCallback() {
         return getParameters().isUseCinderCommandCallback() ? callbackProvider.get() : null;
+    }
+
+    private List<DiskImage> getFilteredImagesToPreview() {
+        List<DiskImage> images = getImagesToPreview();
+        List<DiskImage> imagesToExclude = diskImageDao.getAttachedDiskSnapshotsToVm(getVmId(), Boolean.TRUE);
+        Set<Guid> excludeIds = imagesToExclude.stream().map(DiskImage::getId).collect(Collectors.toSet());
+
+        return images.stream()
+                .filter(image -> !excludeIds.contains(image.getId()))
+                .collect(Collectors.toList());
     }
 }

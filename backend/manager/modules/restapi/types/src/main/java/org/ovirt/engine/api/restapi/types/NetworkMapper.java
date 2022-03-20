@@ -96,6 +96,10 @@ public class NetworkMapper {
             entity.setProvidedBy(providerNetwork);
         }
 
+        if (model.isSetPortIsolation()) {
+            entity.setPortIsolation(model.isPortIsolation());
+        }
+
         return entity;
     }
 
@@ -165,6 +169,10 @@ public class NetworkMapper {
                     DnsResolverConfigurationMapper.map(entity.getDnsResolverConfiguration()));
         }
 
+        if (entity.getVdsmName() != null) {
+            model.setVdsmName(entity.getVdsmName());
+        }
+
         if (entity.isExternal()) {
             OpenStackNetworkProvider externalProvider = new OpenStackNetworkProvider();
             externalProvider.setId(entity.getProvidedBy().getProviderId().toString());
@@ -175,6 +183,8 @@ public class NetworkMapper {
                 model.setExternalProviderPhysicalNetwork(providerPhysicalNetwork);
             }
         }
+
+        model.setPortIsolation(entity.isPortIsolation());
 
         return model;
     }

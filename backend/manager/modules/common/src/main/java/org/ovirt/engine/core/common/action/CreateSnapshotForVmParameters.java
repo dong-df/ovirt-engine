@@ -2,26 +2,30 @@ package org.ovirt.engine.core.common.action;
 
 import java.io.Serializable;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import javax.validation.constraints.Size;
 
-import org.codehaus.jackson.annotate.JsonIgnore;
 import org.hibernate.validator.constraints.NotEmpty;
 import org.ovirt.engine.core.common.businessentities.BusinessEntitiesDefinitions;
+import org.ovirt.engine.core.common.businessentities.Snapshot;
 import org.ovirt.engine.core.common.businessentities.Snapshot.SnapshotType;
+import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.validation.annotation.ValidDescription;
 import org.ovirt.engine.core.common.validation.group.CreateEntity;
 import org.ovirt.engine.core.compat.Guid;
 
-public class CreateSnapshotForVmParameters extends VmOperationParameterBase implements Serializable {
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
+public class CreateSnapshotForVmParameters extends VmOperationParameterBase implements HostJobCommandParameters, Serializable {
     private static final long serialVersionUID = 847791941815264795L;
 
-    @NotEmpty(groups = { CreateEntity.class },
+    @NotEmpty(groups = CreateEntity.class,
             message = "VALIDATION_DISK_IMAGE_DESCRIPTION_NOT_EMPTY")
-    @ValidDescription(message = "VALIDATION_DISK_IMAGE_DESCRIPTION_INVALID", groups = { CreateEntity.class })
-    @Size(max = BusinessEntitiesDefinitions.GENERAL_MAX_SIZE, groups = { CreateEntity.class },
+    @ValidDescription(message = "VALIDATION_DISK_IMAGE_DESCRIPTION_INVALID", groups = CreateEntity.class)
+    @Size(max = BusinessEntitiesDefinitions.GENERAL_MAX_SIZE, groups = CreateEntity.class,
             message = "VALIDATION_DISK_IMAGE_DESCRIPTION_MAX")
     private String description;
 
@@ -40,7 +44,7 @@ public class CreateSnapshotForVmParameters extends VmOperationParameterBase impl
 
     private Set<Guid> disks;
 
-    private Map<Guid, Guid> diskToImageIds;
+    private Map<Guid, DiskImage> diskImagesMap;
 
     private boolean liveSnapshotRequired;
 
@@ -48,11 +52,29 @@ public class CreateSnapshotForVmParameters extends VmOperationParameterBase impl
 
     private CreateSnapshotStage createSnapshotStage = CreateSnapshotStage.CREATE_VOLUME_STARTED;
 
+    private Guid hostJobId;
+
+    private Snapshot snapshot;
+
+    private boolean legacyFlow;
+
+    private List<DiskImage> cachedSelectedActiveDisks;
+
+    private boolean memorySnapshotSupported;
+
+    private boolean parentLiveMigrateDisk;
+
+    private boolean shouldFreezeOrThaw;
+
+    private Guid bitmap;
+
+
     public CreateSnapshotForVmParameters() {
         needsLocking = true;
         saveMemory = true;
         diskIdsToIgnoreInChecks = Collections.emptySet();
-        diskToImageIds = Collections.emptyMap();
+        diskImagesMap = Collections.emptyMap();
+        legacyFlow = false;
     }
 
     public CreateSnapshotForVmParameters(Guid vmId, String description) {
@@ -61,7 +83,8 @@ public class CreateSnapshotForVmParameters extends VmOperationParameterBase impl
         needsLocking = true;
         saveMemory = true;
         diskIdsToIgnoreInChecks = Collections.emptySet();
-        diskToImageIds = Collections.emptyMap();
+        diskImagesMap = Collections.emptyMap();
+        legacyFlow = false;
     }
 
     public CreateSnapshotForVmParameters(Guid vmId, String description, boolean saveMemory) {
@@ -129,12 +152,12 @@ public class CreateSnapshotForVmParameters extends VmOperationParameterBase impl
         this.createdSnapshotId = createdSnapshotId;
     }
 
-    public Map<Guid, Guid> getDiskToImageIds() {
-        return diskToImageIds;
+    public Map<Guid, DiskImage> getDiskImagesMap() {
+        return diskImagesMap;
     }
 
-    public void setDiskToImageIds(Map<Guid, Guid> diskToImageIds) {
-        this.diskToImageIds = diskToImageIds;
+    public void setDiskImagesMap(Map<Guid, DiskImage> diskImagesMap) {
+        this.diskImagesMap = diskImagesMap;
     }
 
     public CreateSnapshotStage getCreateSnapshotStage() {
@@ -159,6 +182,71 @@ public class CreateSnapshotForVmParameters extends VmOperationParameterBase impl
 
     public void setLiveSnapshotSucceeded(boolean liveSnapshotSucceeded) {
         this.liveSnapshotSucceeded = liveSnapshotSucceeded;
+    }
+
+    public void setSnapshot(Snapshot snapshot) {
+        this.snapshot = snapshot;
+    }
+
+    public Snapshot getSnapshot() {
+        return snapshot;
+    }
+
+    @Override
+    public Guid getHostJobId() {
+        return hostJobId;
+    }
+
+    public void setHostJobId(Guid hostJobId) {
+        this.hostJobId = hostJobId;
+    }
+
+    public void setLegacyFlow(boolean legacyFlow) {
+        this.legacyFlow = legacyFlow;
+    }
+
+    public boolean isLegacyFlow() {
+        return legacyFlow;
+    }
+
+    public void setCachedSelectedActiveDisks(List<DiskImage> cachedSelectedActiveDisks) {
+        this.cachedSelectedActiveDisks = cachedSelectedActiveDisks;
+    }
+
+    public List<DiskImage> getCachedSelectedActiveDisks() {
+        return cachedSelectedActiveDisks;
+    }
+
+    public void setMemorySnapshotSupported(boolean memorySnapshotSupported) {
+        this.memorySnapshotSupported = memorySnapshotSupported;
+    }
+
+    public boolean isMemorySnapshotSupported() {
+        return memorySnapshotSupported;
+    }
+
+    public void setParentLiveMigrateDisk(boolean parentLiveMigrateDisk) {
+        this.parentLiveMigrateDisk = parentLiveMigrateDisk;
+    }
+
+    public boolean isParentLiveMigrateDisk() {
+        return parentLiveMigrateDisk;
+    }
+
+    public void setShouldFreezeOrThaw(boolean shouldFreezeOrThaw) {
+        this.shouldFreezeOrThaw = shouldFreezeOrThaw;
+    }
+
+    public boolean getShouldFreezeOrThaw() {
+        return shouldFreezeOrThaw;
+    }
+
+    public Guid getBitmap() {
+        return bitmap;
+    }
+
+    public void setBitmap(Guid bitmap) {
+        this.bitmap = bitmap;
     }
 
     public enum CreateSnapshotStage {

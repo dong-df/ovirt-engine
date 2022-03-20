@@ -6,6 +6,7 @@ import java.util.List;
 import javax.inject.Inject;
 
 import org.ovirt.engine.core.bll.CommandBase;
+import org.ovirt.engine.core.bll.NonTransactiveCommandAttribute;
 import org.ovirt.engine.core.bll.RenamedEntityInfoProvider;
 import org.ovirt.engine.core.bll.ValidationResult;
 import org.ovirt.engine.core.bll.context.CommandContext;
@@ -20,7 +21,9 @@ import org.ovirt.engine.core.common.validation.group.UpdateEntity;
 import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dal.dbbroker.auditloghandling.AuditLogable;
 import org.ovirt.engine.core.dao.provider.ProviderDao;
+import org.ovirt.engine.core.utils.transaction.TransactionSupport;
 
+@NonTransactiveCommandAttribute(forceCompensation = true)
 public class UpdateProviderCommand<P extends ProviderParameters> extends CommandBase<P>
         implements RenamedEntityInfoProvider {
 
@@ -57,12 +60,18 @@ public class UpdateProviderCommand<P extends ProviderParameters> extends Command
 
     @Override
     protected boolean validate() {
-        ProviderValidator validatorOld = new ProviderValidator(getOldProvider());
-        ProviderValidator validatorNew = new ProviderValidator(getProvider());
+        ProviderValidator validatorOld = getProviderProxy(getOldProvider()).getProviderValidator();
+        ProviderValidator validatorNew = getProviderProxy(getProvider()).getProviderValidator();
         return validate(validatorOld.providerIsSet())
                 && (nameKept() || validate(validatorNew.nameAvailable()))
                 && validate(validatorNew.validateAuthUrl())
+                && validate(validatorNew.validatePassword())
+                && validate(validatorNew.validateUpdateProvider())
                 && validate(providerTypeNotChanged(getOldProvider(), getProvider()));
+    }
+
+    private ProviderProxy<?> getProviderProxy(Provider provider) {
+        return providerProxyFactory.create(getProvider());
     }
 
     private ValidationResult providerTypeNotChanged(Provider<?> oldProvider, Provider<?> newProvider) {
@@ -76,10 +85,16 @@ public class UpdateProviderCommand<P extends ProviderParameters> extends Command
 
     @Override
     protected void executeCommand() {
-        providerDao.update(getProvider());
+        TransactionSupport.executeInNewTransaction(() -> {
+            getCompensationContext().snapshotEntity(getOldProvider());
+            providerDao.update(getProvider());
+            getCompensationContext().stateChanged();
+            return null;
+        });
 
         ProviderProxy providerProxy = providerProxyFactory.create(getProvider());
         if (providerProxy != null) {
+            providerProxy.setCommandContext(getContext());
             providerProxy.onModification();
         }
 
