@@ -11,23 +11,21 @@ Welcome to the oVirt Engine - Open Virtualization Manager source repository.
 
 Patches are welcome!
 
-Please submit patches to [gerrit.ovirt.org:ovirt-engine](https://gerrit.ovirt.org/#/admin/projects/ovirt-engine).
-If you are not familiar with the review process for Gerrit patches you can read about
-[Working with oVirt Gerrit](https://ovirt.org/develop/dev-process/working-with-gerrit.html)
-on the [oVirt](https://ovirt.org/) website.
-
-**NOTE**: We might not notice pull requests that you create on Github, because we only use Github for backups.
+Please submit patches to https://github.com/oVirt/ovirt-engine[github.com:ovirt-engine].
+If you are not familiar with the review process you can read about
+https://ovirt.org/develop/dev-process/working-with-github.html[Working with oVirt on GitHub]
+on the https://ovirt.org/[oVirt] website.
 
 
 === Found a bug or documentation issue?
 To submit a bug or suggest an enhancement for oVirt Engine please use
-[oVirt Bugzilla for ovirt-engine product](https://bugzilla.redhat.com/enter_bug.cgi?product=ovirt-engine).
+https://bugzilla.redhat.com/enter_bug.cgi?product=ovirt-engine[oVirt Bugzilla for ovirt-engine product].
 
 If you find a documentation issue on the oVirt website please navigate and click "Report an issue on GitHub" in the page footer.
 
 
 == Still need help?
-If you have any other questions, please join [oVirt Users forum / mailing list](https://lists.ovirt.org/admin/lists/users.ovirt.org/) and ask there.
+If you have any other questions, please join https://lists.ovirt.org/admin/lists/users.ovirt.org/[oVirt Users forum / mailing list] and ask there.
 
 
 
@@ -57,11 +55,12 @@ Install the following system components:
 - python3-otopi >= 1.10.0
 - python3-ovirt-setup-lib
 - maven >= 3.5
-- ansible >= 2.9.0
-- ansible-runner-service-dev >= 1.0.6
+- ansible-core >= 2.12.0
+- ansible-runner >= 2.1.3
 - ovirt-ansible-roles >= 1.2.0
 - ovirt-imageio-daemon >= 2.0.6
 - ovirt-engine-metrics (optional)
+- ovirt-provider-ovn (optional)
 - python3-ovirt-engine-sdk4 (optional)
 - ansible-lint / python3-ansible-lint (optional)
 - python3-flake8 / pyflakes (optional)
@@ -101,22 +100,6 @@ There are 2 programs which provide 'javac'.
 
 Enter to keep the current selection[+], or type selection number: 2
 
-```
-- Maven >= 3.5 is required, download and extract if not installed using
-distribution package management, and add to PATH.
-
-Fedora 30
-```console
-$ sudo dnf module install maven
-```
-
-- verify your `mvn` version:
-```console
-$ mvn -v | head -1
-Apache Maven 3.5.4 (Red Hat 3.5.4-5)
-
-```
-
 - export `JAVA_HOME` if `mvn` is not executing using java-11:
 ```console
 #put this in your ~/.bashrc
@@ -132,57 +115,18 @@ is to install following packages:
 - ovirt-engine-wildfly
 - ovirt-engine-wildfly-overlay
 
-Both packages can be installed from ovirt-master-snapshot-static repository:
+Both packages can be installed from oVirt COPR CentOS repositories.
+Repository list can be updated using the following commands:
++
+  $ sudo dnf copr enable -y ovirt/ovirt-master-snapshot centos-stream-8
+  $ sudo dnf install -y ovirt-release-master
 
-  [ovirt-master-snapshot-static]
-  name=Latest oVirt master additional nightly snapshot
-  baseurl=http://resources.ovirt.org/pub/ovirt-master-snapshot-static/rpm/@DIST@$releasever/
-  enabled=1
-  skip_if_unavailable=1
-  gpgcheck=0
-
-Please replace `@DIST@` with `fc` for Fedora or `el` for Centos/RHEL.
-
-Alternatively, repository list can be updated using the following command:
-
-  $ sudo yum install -y http://resources.ovirt.org/pub/yum-repo/ovirt-release-master.rpm
+- For more info see
+https://copr.fedorainfracloud.org/coprs/ovirt/ovirt-master-snapshot/[copr master-snapshot repositories].
 
 OVN/OVS is an optional dependency. If you want to use it, check the requirements in the
 ovirt-engine.spec.in file for a list of packages. Otherwise, you should reply 'No'
 when asked about it by engine-setup.
-
-For Fedora prerequisites installation, following command can be applied:
-
-  $ sudo yum install -y $(cat automation/check-patch.packages)
-
-Install additional packages for Fedora:
-
-  $ sudo yum install -y \
-        ansible \
-        ansible-runner-service-dev \
-        bind-utils \
-        libxml2-python \
-        m2crypto \
-        mailcap \
-        openssl \
-        ovirt-ansible-roles \
-        ovirt-engine-metrics \
-        ovirt-engine-wildfly \
-        ovirt-engine-wildfly-overlay \
-        ovirt-setup-lib \
-        python3-daemon \
-        python3-dateutil \
-        python3-jinja2 \
-        python-ovirt-engine-sdk4 \
-        unzip
-
-Optional packages for Fedora:
-
-  $ sudo yum install -y \
-        python3-docker-py \
-        python3-flake8 \
-        python3-isort \
-        python3-pycodestyle
 
 ==== System settings
 
@@ -224,7 +168,7 @@ better to have VM's starting allocation and maximum allocation set to the same v
 
 Initialize PostgreSQL configuration files:
 
-  $ sudo postgresql-setup --initdb --unit postgresql # fedora
+  $ sudo postgresql-setup --initdb --unit postgresql
 
 Configure PostgreSQL to accept user and password:
 
@@ -278,29 +222,15 @@ Enable uuid-ossp extension for the database:
   engine=# CREATE EXTENSION "uuid-ossp";
   engine=# \q
 
-==== Ansible Runner Service configration
+==== Ansible Runner configration
 
-Since oVirt 4.4 the engine is integrated with Ansible Runner Service. To properly integrate the development
-environment with the Ansible Runner Service, you need to edit `/etc/ansible-runner-service/config.yaml` file
-as follows:
+Since oVirt 4.5 the engine is integrated with ansible-core and ansible-runner,
+so you need to install RPM packages for both, but not additional configuration
+is required.
 
-  ---
-  playbooks_root_dir: '$PREFIX/share/ovirt-engine/ansible-runner-service-project'
-  ssh_private_key: '$PREFIX/etc/pki/ovirt-engine/keys/engine_id_rsa'
-  port: 50001
-  target_user: root
-
-Please replace `$PREFIX` with the real path of your development environment, which you've specified during
-the compilation of the engine, for example:
-
-  playbooks_root_dir: '/home/user/ovirt-engine/share/ovirt-engine/ansible-runner-service-project'
-  ssh_private_key: '/home/user/ovirt-engine/etc/pki/ovirt-engine/keys/engine_id_rsa'
-
-
-After edditing the file, make sure you've restarted the Ansible Runner Service service:
-
-  # systemctl restart ansible-runner-service
-  # systemctl enable ansible-runner-service
+All previously used configuration for ansible-runner-service is no longer
+relevant and 'ansible-runner-service*' packages and configuration can be
+removed.
 
 === Development
 
@@ -340,7 +270,7 @@ dist:: Create source tarball out of git repository.
 maven:: Force execution of maven.
 generated-files:: Create file from templates (.in files).
 +
-  When creating new templates, generated files will be automatically appears in .gitignore, updated .gitignore should be part of commiting new templates.
+  When creating new templates, generated files will be automatically appears in .gitignore, updated .gitignore should be part of committing new templates.
 
 
 ===== Build customization

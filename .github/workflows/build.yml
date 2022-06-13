@@ -1,9 +1,9 @@
 name: build
 on:
   push:
-    branches: [master]
+    branches: [master, ovirt-engine-4.5.0.z]
   pull_request:
-    branches: [master]
+    branches: [master, ovirt-engine-4.5.0.z]
   workflow_dispatch:
 
 jobs:
@@ -41,7 +41,7 @@ jobs:
 
         # Configure CS8 repositories
         dnf config-manager --enable powertools
-        dnf module enable -y pki-deps javapackages-tools
+        dnf module enable -y pki-deps javapackages-tools maven:3.6
 
     - name: Prepare CentOS Stream 9 environment
       if: ${{ matrix.shortcut == 'cs9' }}

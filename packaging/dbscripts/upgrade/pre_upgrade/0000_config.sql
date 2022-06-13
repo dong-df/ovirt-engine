@@ -205,6 +205,11 @@ select fn_db_add_config_value('HostPackagesUpdateTimeInHours','24','general');
 -- Refresh rate (in hours) for available certification check
 select fn_db_add_config_value('CertificationValidityCheckTimeInHours','24','general');
 
+-- Refresh rate (in hours) for outdated artifacts check
+select fn_db_add_config_value('AnsibleRunnerArtifactsCleanupCheckTimeInHours','24','general');
+
+select fn_db_add_config_value('AnsibleRunnerArtifactsLifetimeInDays', '14', 'general');
+
 select fn_db_add_config_value('MaxIoThreadsPerVm','127','general');
 
 select fn_db_add_config_value('DisplayUncaughtUIExceptions', 'true', 'general');
@@ -335,6 +340,8 @@ select fn_db_add_config_value_for_versions_up_to('MaxNumOfVmCpus', '{"x86":710,"
 select fn_db_add_config_value_for_versions_up_to('MaxNumOfVmSockets', '16', '4.5');
 select fn_db_add_config_value_for_versions_up_to('MaxNumOfVmSockets', '10000', '4.7');
 select fn_db_add_config_value('MaxNumOfCpusCoefficient', '2', 'general');
+select fn_db_add_config_value('ManyVmCpus', '128', 'general');
+select fn_db_add_config_value('UefiBigVmMemoryGB', '16', 'general');
 select fn_db_add_config_value('MaxRerunVmOnVdsCount','3','general');
 select fn_db_add_config_value('MaxStorageVdsDelayCheckSec','5','general');
 select fn_db_add_config_value('MaxStorageVdsTimeoutCheckSec','30','general');
@@ -444,9 +451,9 @@ select fn_db_add_config_value('ServerCPUList',
     '4.3');
 select fn_db_add_config_value('ServerCPUList',
     '1:Intel Nehalem Family:vmx,nx,model_Nehalem:Nehalem:x86_64; '
-        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,md_clear,model_Nehalem:Nehalem,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,model_Nehalem:Nehalem,+spec-ctrl,+ssbd:x86_64; '
         || '3:Intel Westmere Family:aes,vmx,nx,model_Westmere:Westmere:x86_64; '
-        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,md_clear,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd:x86_64; '
         || '5:Intel SandyBridge Family:vmx,nx,model_SandyBridge:SandyBridge:x86_64; '
         || '6:Secure Intel SandyBridge Family:vmx,spec_ctrl,ssbd,md_clear,model_SandyBridge:SandyBridge,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
         || '7:Intel IvyBridge Family:vmx,nx,model_IvyBridge:IvyBridge:x86_64; '
@@ -475,9 +482,9 @@ select fn_db_add_config_value('ServerCPUList',
 
 select fn_db_add_config_value('ServerCPUList',
     '1:Intel Nehalem Family:vmx,nx,model_Nehalem:Nehalem:x86_64; '
-        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,md_clear,model_Nehalem:Nehalem,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,model_Nehalem:Nehalem,+spec-ctrl,+ssbd:x86_64; '
         || '3:Intel Westmere Family:aes,vmx,nx,model_Westmere:Westmere:x86_64; '
-        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,md_clear,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd:x86_64; '
         || '5:Intel SandyBridge Family:vmx,nx,model_SandyBridge:SandyBridge:x86_64; '
         || '6:Secure Intel SandyBridge Family:vmx,spec_ctrl,ssbd,md_clear,model_SandyBridge:SandyBridge,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
         || '7:Intel IvyBridge Family:vmx,nx,model_IvyBridge:IvyBridge:x86_64; '
@@ -508,9 +515,9 @@ select fn_db_add_config_value('ServerCPUList',
 
 select fn_db_add_config_value('ServerCPUList',
     '1:Intel Nehalem Family:vmx,nx,model_Nehalem:Nehalem:x86_64; '
-        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,md_clear,model_Nehalem:Nehalem,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,model_Nehalem:Nehalem,+spec-ctrl,+ssbd:x86_64; '
         || '3:Intel Westmere Family:aes,vmx,nx,model_Westmere:Westmere:x86_64; '
-        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,md_clear,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd:x86_64; '
         || '5:Intel SandyBridge Family:vmx,nx,model_SandyBridge:SandyBridge:x86_64; '
         || '6:Secure Intel SandyBridge Family:vmx,spec_ctrl,ssbd,md_clear,model_SandyBridge:SandyBridge,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
         || '7:Intel IvyBridge Family:vmx,nx,model_IvyBridge:IvyBridge:x86_64; '
@@ -541,9 +548,9 @@ select fn_db_add_config_value('ServerCPUList',
 
 select fn_db_add_config_value('ServerCPUList',
     '1:Intel Nehalem Family:vmx,nx,model_Nehalem:Nehalem:x86_64; '
-        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,md_clear,model_Nehalem:Nehalem,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,model_Nehalem:Nehalem,+spec-ctrl,+ssbd:x86_64; '
         || '3:Intel Westmere Family:aes,vmx,nx,model_Westmere:Westmere:x86_64; '
-        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,md_clear,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd:x86_64; '
         || '5:Intel SandyBridge Family:vmx,nx,model_SandyBridge:SandyBridge:x86_64; '
         || '6:Secure Intel SandyBridge Family:vmx,spec_ctrl,ssbd,md_clear,model_SandyBridge:SandyBridge,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
         || '7:Intel IvyBridge Family:vmx,nx,model_IvyBridge:IvyBridge:x86_64; '
@@ -645,7 +652,7 @@ select fn_db_add_config_value('VdsRefreshRate','2','general');
 select fn_db_add_config_value('vdsRetries','0','general');
 select fn_db_add_config_value('vdsTimeout','180','general');
 select fn_db_add_config_value('WindowsGuestAgentUpdateCheckInternal', '180', 'general');
-select fn_db_add_config_value('VdsCertificateValidityInDays','398','general');
+select fn_db_add_config_value('VdsCertificateValidityInDays','1827','general');
 --Handling Virtual Machine Domain Name
 select fn_db_add_config_value_for_versions_up_to('VM32BitMaxMemorySizeInMB','20480','4.7');
 select fn_db_add_config_value_for_versions_up_to('VM64BitMaxMemorySizeInMB','6291456','4.5');
@@ -817,6 +824,7 @@ select fn_db_add_config_value_for_versions_up_to('BiosTypeSupported', 'true', '4
 select fn_db_add_config_value('LiveSnapshotTimeoutInMinutes', '30', 'general');
 select fn_db_add_config_value('LiveSnapshotAllowInconsistent', 'true', 'general');
 select fn_db_add_config_value('LiveSnapshotFreezeTimeout', '8', 'general');
+select fn_db_add_config_value('VolumeUtilizationChunkInMB', '2560', 'general'); -- Cluster level 4.7 and above.
 
 -- VirtIO-Win drivers path
 select fn_db_add_config_value('VirtioWinIsoPath','/usr/share/virtio-win','general');
@@ -832,10 +840,10 @@ select fn_db_add_config_value_for_versions_up_to('VgpuFramebufferSupported', 'tr
 -- not in ConfigValues enum, used on python side, do not delete
 select fn_db_add_config_value('DbJustRestored','0','general');
 
-select fn_db_add_config_value('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_]*):(true|false))(,(([a-zA-Z0-9_]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;mdev_type=^.*$;hugepages=^[0-9]+$', '4.2');
-select fn_db_add_config_value('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_]*):(true|false))(,(([a-zA-Z0-9_]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;mdev_type=^[^,](,?[0-9A-Za-z_-]+)+$;hugepages=^[0-9]+$', '4.3');
-select fn_db_add_config_value_for_versions_up_to('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_-]*):(true|false))(,(([a-zA-Z0-9_-]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;mdev_type=^[^,](,?[0-9A-Za-z_-]+)+$;hugepages=^[0-9]+$;scsi_hostdev=^(scsi_generic|scsi_block|scsi_hd|virtio_blk_pci)$;nvram_template=^.*$', '4.5');
-select fn_db_add_config_value_for_versions_up_to('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_-]*):(true|false))(,(([a-zA-Z0-9_-]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;mdev_type=^[^,](,?[0-9A-Za-z_-]+)+$;hugepages=^[0-9]+$;scsi_hostdev=^(scsi_generic|scsi_block|scsi_hd|virtio_blk_pci)$;nvram_template=^.*$;extra_cpu_flags=^([+-]?[a-zA-Z0-9_-]+)(,[+-]?[a-zA-Z0-9_-]+)*$', '4.7');
+select fn_db_add_config_value('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_]*):(true|false))(,(([a-zA-Z0-9_]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;hugepages=^[0-9]+$', '4.2');
+select fn_db_add_config_value('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_]*):(true|false))(,(([a-zA-Z0-9_]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;hugepages=^[0-9]+$', '4.3');
+select fn_db_add_config_value_for_versions_up_to('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_-]*):(true|false))(,(([a-zA-Z0-9_-]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;hugepages=^[0-9]+$;scsi_hostdev=^(scsi_generic|scsi_block|scsi_hd|virtio_blk_pci)$;nvram_template=^.*$', '4.5');
+select fn_db_add_config_value_for_versions_up_to('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_-]*):(true|false))(,(([a-zA-Z0-9_-]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;hugepages=^[0-9]+$;scsi_hostdev=^(scsi_generic|scsi_block|scsi_hd|virtio_blk_pci)$;nvram_template=^.*$;extra_cpu_flags=^([+-]?[a-zA-Z0-9_-]+)(,[+-]?[a-zA-Z0-9_-]+)*$', '4.7');
 
 -- Host monitoring watchdog
 select fn_db_add_config_value('HostMonitoringWatchdogIntervalInSeconds','900','general');
@@ -856,7 +864,7 @@ select fn_db_add_config_value('BootstrapCommand',
 select fn_db_add_config_value('BootstrapPackageDirectory', '/usr/share/ovirt-host-deploy/interface-3', 'general');
 select fn_db_add_config_value('BootstrapPackageName', 'ovirt-host-deploy.tar', 'general');
 select fn_db_add_config_value('CertExpirationAlertPeriodInDays', '30', 'general');
-select fn_db_add_config_value('CertExpirationWarnPeriodInDays', '120', 'general');
+select fn_db_add_config_value('CertExpirationWarnPeriodInDays', '365', 'general');
 select fn_db_add_config_value('DBI18NPrefix', '', 'general');
 select fn_db_add_config_value('DBLikeSyntax', 'ILIKE', 'general');
 select fn_db_add_config_value('DBPagingSyntax', ' WHERE RowNum BETWEEN %1$s AND %2$s', 'general');
@@ -958,6 +966,11 @@ select fn_db_add_config_value('InstanceId', uuid_generate_v1()::varchar, 'genera
 
 -- Number of MAC address left in pool to invoke audit warning
 select fn_db_add_config_value('RemainingMacsInPoolWarningThreshold', '10', 'general');
+
+-- Number of times that the Notification Service was rebooted, this is needed for
+-- SNMP V3 security requirements and should not be modified manually.
+
+select fn_db_add_config_value('NotificationServiceBoots', '0', 'general');
 
 ------------------------------------------------------------------------------------
 --                  Update with override section
@@ -1098,6 +1111,7 @@ select fn_db_update_config_value('VdcVersion','4.4.0.0','general');
 -- but it doesn't harm to keep it up to date here as well.
 select fn_db_update_config_value('ProductRPMVersion','4.4.0.0','general');
 select fn_db_update_config_value_for_versions_from_up_to('VdsFenceOptionMapping','apc:secure=secure,port=ipport,slot=port;apc_snmp:port=port,encrypt_options=encrypt_options;bladecenter:secure=secure,port=ipport,slot=port;cisco_ucs:secure=ssl,slot=port;drac5:secure=secure,slot=port;drac7:;eps:slot=port;hpblade:port=port;ilo:secure=ssl,port=ipport;ipmilan:;ilo2:secure=ssl,port=ipport;ilo3:;ilo4:;ilo_ssh:port=port;redfish:port=ipport,secure=ssl;rsa:secure=secure,port=ipport;rsb:;wti:secure=secure,port=ipport,slot=port', '4.2', '4.3');
+select fn_db_update_config_value_for_versions_from_up_to('VdsFenceOptionMapping', 'apc:secure=secure,port=ipport,slot=port;apc_snmp:port=port,encrypt_options=encrypt_options;bladecenter:secure=secure,port=ipport,slot=port;cisco_ucs:secure=ssl,slot=port;drac5:secure=secure,slot=port;drac7:;eps:slot=port;hpblade:port=port;ilo:secure=ssl,port=ipport;ipmilan:port=ipport;ilo2:secure=ssl,port=ipport;ilo3:;ilo4:;ilo_ssh:port=port;redfish:port=ipport,secure=ssl;rsa:secure=secure,port=ipport;rsb:;wti:secure=secure,port=ipport,slot=port', '4.4', '4.7');
 select fn_db_update_config_value_for_versions_from_up_to('VdsFenceType', 'apc,apc_snmp,bladecenter,cisco_ucs,drac5,drac7,eps,hpblade,ilo,ilo2,ilo3,ilo4,ilo_ssh,ipmilan,redfish,rsa,rsb,wti','4.2','4.3');
 select fn_db_update_config_value('VdsRefreshRate','3','general');
 select fn_db_update_config_value('VmGracefulShutdownMessage','System Administrator has initiated shutdown of this Virtual Machine. Virtual Machine is shutting down.','general');
@@ -1114,10 +1128,10 @@ select fn_db_update_config_value('IsSuspendSupported','{"undefined": "true", "x8
 select fn_db_update_config_value('HotPlugCpuSupported', '{"x86":"true","ppc":"true","s390x":"true"}', '4.2');
 select fn_db_update_config_value('HotUnplugCpuSupported', '{"x86":"true","ppc":"true","s390x":"false"}', '4.2');
 
-select fn_db_update_config_value('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_]*):(true|false))(,(([a-zA-Z0-9_]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;mdev_type=^.*$;hugepages=^[0-9]+$', '4.2');
-select fn_db_update_config_value('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_]*):(true|false))(,(([a-zA-Z0-9_]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;mdev_type=^[^,](,?[0-9A-Za-z_-]+)+$;hugepages=^[0-9]+$', '4.3');
-select fn_db_update_config_value_for_versions_from_up_to('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_-]*):(true|false))(,(([a-zA-Z0-9_-]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;mdev_type=^[^,](,?[0-9A-Za-z_-]+)+$;hugepages=^[0-9]+$;scsi_hostdev=^(scsi_generic|scsi_block|scsi_hd|virtio_blk_pci)$;nvram_template=^.*$', '4.4','4.5');
-select fn_db_update_config_value('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_-]*):(true|false))(,(([a-zA-Z0-9_-]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;mdev_type=^[^,](,?[0-9A-Za-z_-]+)+$;hugepages=^[0-9]+$;scsi_hostdev=^(scsi_generic|scsi_block|scsi_hd|virtio_blk_pci)$;nvram_template=^.*$;extra_cpu_flags=^([+-]?[a-zA-Z0-9_-]+)(,[+-]?[a-zA-Z0-9_-]+)*$', '4.6');
+select fn_db_update_config_value('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_]*):(true|false))(,(([a-zA-Z0-9_]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;hugepages=^[0-9]+$', '4.2');
+select fn_db_update_config_value('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_]*):(true|false))(,(([a-zA-Z0-9_]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;hugepages=^[0-9]+$', '4.3');
+select fn_db_update_config_value_for_versions_from_up_to('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_-]*):(true|false))(,(([a-zA-Z0-9_-]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;hugepages=^[0-9]+$;scsi_hostdev=^(scsi_generic|scsi_block|scsi_hd|virtio_blk_pci)$;nvram_template=^.*$', '4.4','4.5');
+select fn_db_update_config_value_for_versions_from_up_to('PredefinedVMProperties', 'sap_agent=^(true|false)$;sndbuf=^[0-9]+$;vhost=^(([a-zA-Z0-9_-]*):(true|false))(,(([a-zA-Z0-9_-]*):(true|false)))*$;viodiskcache=^(none|writeback|writethrough)$;hugepages=^[0-9]+$;scsi_hostdev=^(scsi_generic|scsi_block|scsi_hd|virtio_blk_pci)$;nvram_template=^.*$;extra_cpu_flags=^([+-]?[a-zA-Z0-9_-]+)(,[+-]?[a-zA-Z0-9_-]+)*$', '4.6', '4.7');
 
 select fn_db_update_config_value('HotPlugMemorySupported','{"x86":"true","ppc":"true","s390x":"false"}', '4.2');
 select fn_db_update_config_value('HotUnplugMemorySupported','{"x86":"true","ppc":"true","s390x":"false"}','4.2');
@@ -1213,9 +1227,9 @@ select fn_db_update_config_value('ServerCPUList',
     '4.3');
 select fn_db_update_config_value('ServerCPUList',
     '1:Intel Nehalem Family:vmx,nx,model_Nehalem:Nehalem:x86_64; '
-        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,md_clear,model_Nehalem:Nehalem,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,model_Nehalem:Nehalem,+spec-ctrl,+ssbd:x86_64; '
         || '3:Intel Westmere Family:aes,vmx,nx,model_Westmere:Westmere:x86_64; '
-        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,md_clear,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd:x86_64; '
         || '5:Intel SandyBridge Family:vmx,nx,model_SandyBridge:SandyBridge:x86_64; '
         || '6:Secure Intel SandyBridge Family:vmx,spec_ctrl,ssbd,md_clear,model_SandyBridge:SandyBridge,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
         || '7:Intel IvyBridge Family:vmx,nx,model_IvyBridge:IvyBridge:x86_64; '
@@ -1243,9 +1257,9 @@ select fn_db_update_config_value('ServerCPUList',
     '4.4');
 select fn_db_update_config_value('ServerCPUList',
     '1:Intel Nehalem Family:vmx,nx,model_Nehalem:Nehalem:x86_64; '
-        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,md_clear,model_Nehalem:Nehalem,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,model_Nehalem:Nehalem,+spec-ctrl,+ssbd:x86_64; '
         || '3:Intel Westmere Family:aes,vmx,nx,model_Westmere:Westmere:x86_64; '
-        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,md_clear,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd:x86_64; '
         || '5:Intel SandyBridge Family:vmx,nx,model_SandyBridge:SandyBridge:x86_64; '
         || '6:Secure Intel SandyBridge Family:vmx,spec_ctrl,ssbd,md_clear,model_SandyBridge:SandyBridge,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
         || '7:Intel IvyBridge Family:vmx,nx,model_IvyBridge:IvyBridge:x86_64; '
@@ -1275,9 +1289,9 @@ select fn_db_update_config_value('ServerCPUList',
     '4.5');
 select fn_db_update_config_value('ServerCPUList',
     '1:Intel Nehalem Family:vmx,nx,model_Nehalem:Nehalem:x86_64; '
-        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,md_clear,model_Nehalem:Nehalem,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,model_Nehalem:Nehalem,+spec-ctrl,+ssbd:x86_64; '
         || '3:Intel Westmere Family:aes,vmx,nx,model_Westmere:Westmere:x86_64; '
-        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,md_clear,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd:x86_64; '
         || '5:Intel SandyBridge Family:vmx,nx,model_SandyBridge:SandyBridge:x86_64; '
         || '6:Secure Intel SandyBridge Family:vmx,spec_ctrl,ssbd,md_clear,model_SandyBridge:SandyBridge,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
         || '7:Intel IvyBridge Family:vmx,nx,model_IvyBridge:IvyBridge:x86_64; '
@@ -1305,11 +1319,43 @@ select fn_db_update_config_value('ServerCPUList',
         || '3:IBM z13s, z13:sie,model_z13-base:z13-base:s390x; '
         || '4:IBM z14:sie,model_z14-base:z14-base:s390x;',
     '4.6');
+select fn_db_update_config_value('ServerCPUList',
+    '1:Intel Nehalem Family:vmx,nx,model_Nehalem:Nehalem:x86_64; '
+        || '2:Secure Intel Nehalem Family:vmx,spec_ctrl,ssbd,model_Nehalem:Nehalem,+spec-ctrl,+ssbd:x86_64; '
+        || '3:Intel Westmere Family:aes,vmx,nx,model_Westmere:Westmere:x86_64; '
+        || '4:Secure Intel Westmere Family:aes,vmx,spec_ctrl,ssbd,model_Westmere:Westmere,+pcid,+spec-ctrl,+ssbd:x86_64; '
+        || '5:Intel SandyBridge Family:vmx,nx,model_SandyBridge:SandyBridge:x86_64; '
+        || '6:Secure Intel SandyBridge Family:vmx,spec_ctrl,ssbd,md_clear,model_SandyBridge:SandyBridge,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '7:Intel IvyBridge Family:vmx,nx,model_IvyBridge:IvyBridge:x86_64; '
+        || '8:Secure Intel IvyBridge Family:vmx,spec_ctrl,ssbd,md_clear,model_IvyBridge:IvyBridge,+pcid,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '9:Intel Haswell Family:vmx,nx,model_Haswell-noTSX:Haswell-noTSX:x86_64; '
+        || '10:Secure Intel Haswell Family:vmx,spec_ctrl,ssbd,md_clear,model_Haswell-noTSX:Haswell-noTSX,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '11:Intel Broadwell Family:vmx,nx,model_Broadwell-noTSX:Broadwell-noTSX:x86_64; '
+        || '12:Secure Intel Broadwell Family:vmx,spec_ctrl,ssbd,md_clear,model_Broadwell-noTSX:Broadwell-noTSX,+spec-ctrl,+ssbd,+md-clear:x86_64; '
+        || '13:Intel Skylake Client Family:vmx,nx,model_Skylake-Client:Skylake-Client,-hle,-rtm,-mpx:x86_64; '
+        || '14:Secure Intel Skylake Client Family:vmx,ssbd,md_clear,model_Skylake-Client-noTSX-IBRS:Skylake-Client-noTSX-IBRS,+ssbd,+md-clear,-mpx:x86_64; '
+        || '15:Intel Skylake Server Family:vmx,nx,model_Skylake-Server:Skylake-Server,-hle,-rtm,-mpx:x86_64; '
+        || '16:Secure Intel Skylake Server Family:vmx,ssbd,md_clear,model_Skylake-Server-noTSX-IBRS:Skylake-Server-noTSX-IBRS,+ssbd,+md-clear,-mpx:x86_64; '
+        || '17:Intel Cascadelake Server Family:vmx,model_Cascadelake-Server:Cascadelake-Server,-hle,-rtm,-mpx:x86_64; '
+        || '18:Secure Intel Cascadelake Server Family:vmx,model_Cascadelake-Server-noTSX:Cascadelake-Server-noTSX,-mpx:x86_64; '
+        || '19:Intel Icelake Server Family:vmx,model_Icelake-Server-noTSX:Icelake-Server-noTSX,-mpx:x86_64; '
+        || '20:Secure Intel Icelake Server Family:vmx,arch-capabilities,rdctl-no,ibrs-all,skip-l1dfl-vmentry,mds-no,pschange-mc-no,taa-no,model_Icelake-Server-noTSX:Icelake-Server-noTSX,+arch-capabilities,+rdctl-no,+ibrs-all,+skip-l1dfl-vmentry,+mds-no,+pschange-mc-no,+taa-no,-mpx:x86_64; '
+        || '1:AMD Opteron G4:svm,nx,model_Opteron_G4:Opteron_G4:x86_64; '
+        || '2:AMD Opteron G5:svm,nx,model_Opteron_G5:Opteron_G5:x86_64; '
+        || '3:AMD EPYC:svm,nx,model_EPYC:EPYC:x86_64; '
+        || '4:Secure AMD EPYC:svm,nx,ibpb,ssbd,model_EPYC:EPYC,+ibpb,+virt-ssbd:x86_64; '
+        || '1:IBM POWER8:powernv,model_POWER8:POWER8:ppc64; '
+        || '2:IBM POWER9:powernv,model_POWER9:POWER9:ppc64; '
+        || '1:IBM z114, z196:sie,model_z196-base:z196-base:s390x; '
+        || '2:IBM zBC12, zEC12:sie,model_zEC12-base:zEC12-base:s390x; '
+        || '3:IBM z13s, z13:sie,model_z13-base:z13-base:s390x; '
+        || '4:IBM z14:sie,model_z14-base:z14-base:s390x;',
+    '4.7');
 -- qemu-guest-agent is also a viable agent
 select fn_db_update_config_value('AgentAppName','ovirt-guest-agent-common,ovirt-guest-agent,qemu-guest-agent','general');
 
 select fn_db_update_config_value('CertExpirationAlertPeriodInDays', '30', 'general');
-select fn_db_update_config_value('CertExpirationWarnPeriodInDays', '120', 'general');
+select fn_db_update_config_value('CertExpirationWarnPeriodInDays', '365', 'general');
 
 ------------------------------------------------------------------------------------
 --   Update only if default not changed section
@@ -1411,6 +1457,9 @@ select fn_db_update_default_config_value('NvramPersistenceSupported', 'false', '
 -- Increase default ServerRebootTimeout from 5 to 10 minutes
 select fn_db_update_default_config_value('ServerRebootTimeout', '300', '600', 'general', false);
 
+-- Increase the lifetime of VDS certificates from 398 to 3650 days
+select fn_db_update_default_config_value('VdsCertificateValidityInDays', '398', '1827', 'general', false);
+
 ------------------------------------------------------------------------------------
 --                  Split config section
 -- The purpose of this section is to treat config option that was once
@@ -1446,4 +1495,4 @@ select fn_db_split_config_value('LiveSnapshotPerformFreezeInEngine', 'false', 'f
 --
 -- This must be the last section of the file!
 ------------------------------------------------------------------------------------
-select fn_db_change_column_null('vdc_options', 'default_value', false);
+select fn_db_change_column_null('vdc_options', 'default_value', false, 'text');

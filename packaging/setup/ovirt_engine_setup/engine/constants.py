@@ -234,22 +234,6 @@ class FileLocations(object):
         'nssdb',
     )
 
-    ANSIBLE_RUNNER_SERVICE_SELINUX = os.path.join(
-        OVIRT_ENGINE_DATADIR,
-        'selinux',
-    )
-
-    ANSIBLE_RUNNER_SERVICE_CONF = os.path.join(
-        SYSCONFDIR,
-        'ansible-runner-service',
-        'config.yaml',
-    )
-
-    ANSIBLE_RUNNER_SERVICE_PROJECT = os.path.join(
-        OVIRT_ENGINE_DATADIR,
-        'ansible-runner-service-project',
-    )
-
     DIR_HTTPD = os.path.join(
         SYSCONFDIR,
         'httpd',
@@ -258,12 +242,6 @@ class FileLocations(object):
     DIR_WWW = os.path.join(
         LOCALSTATEDIR,
         'www',
-    )
-
-    HTTPD_RUNNER_WSGI_SCRIPT = os.path.join(
-        DIR_WWW,
-        'runnner',
-        'runner.wsgi',
     )
 
     HTTPD_CONF_ANSIBLE_RUNNER_SERVICE = os.path.join(
@@ -367,8 +345,6 @@ class Defaults(object):
 
     DEFAULT_CLEAR_TASKS_WAIT_PERIOD = 20
 
-    DEFAULT_ANSIBLE_RUNNER_SERVICE_PORT = '50001'
-
     DEFAULT_DB_HOST = 'localhost'
     DEFAULT_DB_PORT = 5432
     DEFAULT_DB_DATABASE = 'engine'
@@ -419,6 +395,7 @@ class Stages(object):
     OVN_SERVICES_RESTART = 'osetup.ovn.services.restart'
     OVN_PROVIDER_SERVICE_RESTART = 'osetup.ovn.provider.service.restart'
     OVN_PROVIDER_OVN_DB = 'osetup.ovn.provider.db'
+    OVN_PROVIDER_CREDENTIALS_CUSTOMIZATION = 'osetup.ovn.provider.credentials'
 
     MAC_POOL_DB = 'osetup.macpool.db'
 
@@ -864,6 +841,8 @@ class OvnEnv(object):
 
     @osetupattrs(
         is_secret=True,
+        answerfile=True,
+        postinstallfile=True,
     )
     def OVIRT_PROVIDER_OVN_SECRET(self):
         return 'OVESETUP_OVN/ovirtProviderOvnSecret'

@@ -10,6 +10,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
+import java.util.stream.Collectors;
 
 import javax.inject.Inject;
 
@@ -35,6 +36,7 @@ import org.ovirt.engine.core.common.businessentities.StorageServerConnections;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VMStatus;
+import org.ovirt.engine.core.common.businessentities.VdsCpuUnit;
 import org.ovirt.engine.core.common.businessentities.VmDeviceId;
 import org.ovirt.engine.core.common.businessentities.VmStatic;
 import org.ovirt.engine.core.common.businessentities.network.Network;
@@ -49,6 +51,7 @@ import org.ovirt.engine.core.common.errors.EngineMessage;
 import org.ovirt.engine.core.common.job.Job;
 import org.ovirt.engine.core.common.job.JobExecutionStatus;
 import org.ovirt.engine.core.common.locks.LockingGroup;
+import org.ovirt.engine.core.common.utils.CpuPinningHelper;
 import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.common.vdscommands.StorageServerConnectionManagementVDSParameters;
 import org.ovirt.engine.core.common.vdscommands.VDSCommandType;
@@ -84,7 +87,7 @@ public abstract class RunVmCommandBase<T extends VmOperationParameterBase> exten
     @Inject
     protected SchedulingManager schedulingManager;
     @Inject
-    private ResourceManager resourceManager;
+    protected ResourceManager resourceManager;
     @Inject
     protected JobRepository jobRepository;
     @Inject
@@ -216,7 +219,7 @@ public abstract class RunVmCommandBase<T extends VmOperationParameterBase> exten
     protected void processVmOnDown() {
         ThreadPoolUtil.execute(() -> runInternalActionWithTasksContext(
                 ActionType.ProcessDownVm,
-                new ProcessDownVmParameters(getVm().getId())
+                new ProcessDownVmParameters(getVm().getId(), getVdsId())
         ));
     }
 
@@ -397,6 +400,24 @@ public abstract class RunVmCommandBase<T extends VmOperationParameterBase> exten
                     new VmDeviceId(iface.getId(), getVmId()), deviceProperties);
             }
         }
+    }
+
+    protected void addNumaPinningForDedicated(Guid vdsId) {
+        String numaPinningString = vmHandler.createNumaPinningForExclusiveCpuPinning(getVm(), vdsId);
+        getVm().setCurrentNumaPinning(numaPinningString);
+    }
+
+    protected void setExclusiveCpuPinning(VdsManager vdsManager) {
+        if (!getVm().getCpuPinningPolicy().isExclusive()) {
+            return;
+        }
+        getVm().setCurrentCpuPinning(getExclusiveCpuPinning(vdsManager));
+    }
+
+    protected String getExclusiveCpuPinning(VdsManager vdsManager) {
+        List<VdsCpuUnit> vdsCpuUnits = vdsManager.getCpuTopology().stream()
+                .filter(cpu -> cpu.getVmIds().contains(getVmId())).sorted().collect(Collectors.toList());
+        return CpuPinningHelper.createCpuPinningString(vdsCpuUnits, getVm().getCpuPinningPolicy());
     }
 
     protected VdsManager getVdsManager() {

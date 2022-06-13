@@ -39,8 +39,6 @@ public interface IVdsEventListener {
 
     void handleVdsVersion(Guid vdsId);
 
-    void handleVdsFips(Guid vdsId);
-
     void rerun(Guid vmId);
 
     void runningSucceded(Guid vmId);
@@ -82,7 +80,7 @@ public interface IVdsEventListener {
      */
     void updateSlaPolicies(List<Guid> vmIds, Guid vdsId);
 
-    void refreshHostIfAnyVmHasHostDevices(List<Guid> vmIds, Guid hostId);
+    void refreshHostIfAnyVmHasHostDevices(List<Guid> succeededToRunVms, List<Guid> movedToDownVms, Guid hostId);
 
     void refreshHostCapabilities(Guid hostId);
 

@@ -5,7 +5,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import javax.inject.Inject;
 
@@ -152,20 +151,9 @@ public class ImportVmTemplateCommand<T extends ImportVmTemplateParameters> exten
             // If we import from a Storage Domain, we'll need to use the image's Storage
             // Domain ID and not the target domain's.
             if (!getParameters().isImagesExistOnTargetStorageDomain()) {
-                updateDiskSizeByQcowImageInfo(image);
+                updateDiskSizeByQcowImageInfo(image, getParameters().getSourceDomainId());
             } else {
-                Set<Guid> storageDomains = getParameters().getImageToAvailableStorageDomains().get(image.getImageId());
-                Guid sdToUse;
-
-                // Try to use the target SD, otherwise fallback to one of the available SDs
-                // for the image
-                if (storageDomains.contains(getStorageDomainId())) {
-                    sdToUse = getStorageDomainId();
-                } else {
-                    sdToUse = storageDomains.stream().findFirst().get();
-                }
-
-                updateDiskSizeByQcowImageInfo(image, sdToUse);
+                updateDiskSizeByQcowImageInfo(image, image.getStorageIds().get(0));
             }
 
             if (getParameters().isImportAsNewEntity()) {
@@ -278,10 +266,6 @@ public class ImportVmTemplateCommand<T extends ImportVmTemplateParameters> exten
 
             getCompensationContext().snapshotNewEntity(diskDynamic);
         }
-    }
-
-    private void updateDiskSizeByQcowImageInfo(DiskImage diskImage) {
-        updateDiskSizeByQcowImageInfo(diskImage, getParameters().getSourceDomainId());
     }
 
     protected void updateDiskSizeByQcowImageInfo(DiskImage diskImage, Guid storageId) {

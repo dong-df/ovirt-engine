@@ -2,7 +2,6 @@ package org.ovirt.engine.core.bll.validator;
 
 import static java.util.stream.Collectors.toList;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doReturn;
@@ -29,6 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.ovirt.engine.core.bll.BaseCommandTest;
+import org.ovirt.engine.core.bll.utils.VmDeviceUtils;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.network.VmNetworkInterface;
@@ -78,6 +78,9 @@ public class VmValidatorTest extends BaseCommandTest {
         return Stream.of(
                 MockConfigDescriptor.of(ConfigValues.MaxNumOfVmCpus, COMPAT_VERSION_FOR_CPU_SOCKET_TEST,
                         createMaxNumberOfVmCpusMap()),
+                MockConfigDescriptor.of(ConfigValues.MaxNumOfCpusCoefficient, 2),
+                MockConfigDescriptor.of(ConfigValues.ManyVmCpus, 128),
+                MockConfigDescriptor.of(ConfigValues.UefiBigVmMemoryGB, 16),
                 MockConfigDescriptor.of(ConfigValues.MaxNumOfVmSockets,
                         COMPAT_VERSION_FOR_CPU_SOCKET_TEST,
                         MAX_NUM_SOCKETS),
@@ -101,6 +104,10 @@ public class VmValidatorTest extends BaseCommandTest {
     @Mock
     @InjectedMock
     public VnicProfileDao vnicProfileDao;
+
+    @Mock
+    @InjectedMock
+    private VmDeviceUtils vmDeviceUtils;
 
     @Mock
     private OsRepository osRepository;
@@ -128,7 +135,7 @@ public class VmValidatorTest extends BaseCommandTest {
 
     private void mockVmPropertiesUtils() throws InitializationException {
         VmPropertiesUtils utils = spy(new VmPropertiesUtils());
-        doReturn("mdev_type=^(,?[0-9A-Za-z-]+)+$").
+        doReturn("").
                 when(utils)
                 .getPredefinedVMProperties(any());
         doReturn("").
@@ -263,14 +270,15 @@ public class VmValidatorTest extends BaseCommandTest {
 
     @Test
     public void testVmNotUsingMdevTypeHook() {
-        assertNotNull(VmPropertiesUtils.getInstance());
+        doReturn(false).when(vmDeviceUtils).hasMdevDevice(any());
+        doReturn(vmDeviceUtils).when(validator).getVmDeviceUtils();
         assertThat(validator.vmNotUsingMdevTypeHook(), isValid());
     }
 
     @Test
     public void testVmUsingMdevTypeHook() {
-        vm.setCustomProperties("mdev_type=Test");
-        assertNotNull(VmPropertiesUtils.getInstance());
+        doReturn(true).when(vmDeviceUtils).hasMdevDevice(any());
+        doReturn(vmDeviceUtils).when(validator).getVmDeviceUtils();
         assertThat(validator.vmNotUsingMdevTypeHook(),
                 failsWith(EngineMessage.ACTION_TYPE_FAILED_VM_USES_MDEV_TYPE_HOOK));
     }

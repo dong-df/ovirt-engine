@@ -131,6 +131,10 @@ cinderlib_enabled() {
 	engine_setup_service_enabled "OVESETUP_CL_DB/enable"
 }
 
+keycloak_enabled() {
+	engine_setup_service_enabled "OVESETUP_CONFIG/keycloakEnable"
+}
+
 grafana_enabled() {
 	engine_setup_service_enabled "OVESETUP_GRAFANA_CORE/enable"
 }
@@ -155,9 +159,12 @@ BACKUP_PATHS="/etc/ovirt-engine
 /etc/pki/ovirt-engine
 /etc/pki/ovirt-vmconsole
 /etc/ovirt-engine-setup.conf.d
+/etc/httpd/conf.d/internalsso-openidc.conf
+/etc/httpd/conf.d/ovirt-engine-grafana-proxy.conf
 /etc/httpd/conf.d/ovirt-engine-root-redirect.conf
 /etc/httpd/conf.d/ssl.conf
 /etc/httpd/conf.d/z-ovirt-engine-proxy.conf
+/etc/httpd/conf.d/z-ovirt-engine-keycloak-proxy.conf
 /etc/httpd/http.keytab
 /etc/httpd/conf.d/ovirt-sso.conf
 /etc/yum/pluginconf.d/versionlock.list
@@ -173,7 +180,9 @@ BACKUP_PATHS="/etc/ovirt-engine
 # Add /var/lib/ovirt-engine except a few
 VAR_LIB_OVIRT_ENGINE_EXCLUSIONS="/var/lib/ovirt-engine/backups
 /var/lib/ovirt-engine/jboss_runtime
-/var/lib/ovirt-engine/ansible-runner-service.log"
+/var/lib/ovirt-engine/ansible-runner-service.log
+/var/lib/ovirt-engine/ansible-runner
+/var/lib/ovirt-engine/.ansible"
 for p in /var/lib/ovirt-engine/*; do
 	echo "${VAR_LIB_OVIRT_ENGINE_EXCLUSIONS}" | grep -q "^${p}\$" || BACKUP_PATHS="${BACKUP_PATHS}
 ${p}"
@@ -202,6 +211,7 @@ DB_BACKUP_FILE_NAME="engine_backup.db"
 DWHDB_BACKUP_FILE_NAME="dwh_backup.db"
 CINDERLIBDB_BACKUP_FILE_NAME="cinderlib_backup.db"
 GRAFANA_BACKUP_FILE_NAME="grafana.db"
+KEYCLOAKDB_BACKUP_FILE_NAME="keycloak_backup.db"
 
 PACKAGE_VERSION_FILENAME="version"
 OS_VERSION_FILENAME="os_version"
@@ -241,6 +251,7 @@ USAGE:
     db                              Engine database only
     dwhdb                           Data Warehouse database only
     cinderlibdb                     Cinderlib database only
+    keycloakdb                      Keycloak database only
     grafanadb                       Grafana database only
     The option --scope can be passed more than once, with different scopes.
  --file=FILE                        file to use during backup or restore.
@@ -316,6 +327,24 @@ USAGE:
  --cinderlib-db-secured                   set a secured connection for the Cinderlib database
  --cinderlib-db-secured-validation        validate host for Cinderlib database
 
+ --keycloak-db-compressor=COMPRESSOR     compress the Keycloak database, same options as --archive-compressor
+ --keycloak-db-dump-format=FORMAT        Keycloak database dump format, same options as --db-dump-format
+ --keycloak-db-restore-jobs=JOBS         for Keycloak database, same as --db-restore-jobs
+ --provision-keycloak-db                 create a PostgreSQL database for Keycloak on restore
+ --change-keycloak-db-credentials        activate the following options, to restore
+                                    the Keycloak database using credentials other
+                                    than those stored in the backup itself.
+                                    If used, existing credentials are ignored.
+ --keycloak-db-host=host                 set Keycloak database host
+ --keycloak-db-port=port                 set Keycloak database port
+ --keycloak-db-user=user                 set Keycloak database user
+ --keycloak-db-passfile=file             set Keycloak database password - read from file
+ --keycloak-db-password=pass             set Keycloak database password
+ --keycloak-db-password                  set Keycloak database password - interactively
+ --keycloak-db-name=name                 set Keycloak database name
+ --keycloak-db-secured                   set a secured connection for the Keycloak database
+ --keycloak-db-secured-validation        validate host for Keycloak database
+
  --no-restore-permissions           Affects only the custom dump format. Will pass
                                     to pg_restore '--no-owner --no-privileges'.
  --restore-permissions              Affects only the custom dump format. Will not
@@ -369,6 +398,8 @@ USAGE:
      Database password as if provided by --dwh-db-password=pass option.
  OVIRT_CINDERLIB_DATABASE_PASSWORD
      Database password as if provided by --cinderlib-db-password=pass option.
+ OVIRT_KEYCLOAK_DATABASE_PASSWORD
+     Database password as if provided by --keycloak-db-password=pass option.
 
  Documentation
 
@@ -410,6 +441,7 @@ SCOPE_FILES=
 SCOPE_ENGINE_DB=
 SCOPE_DWH_DB=
 SCOPE_CINDERLIB_DB=
+SCOPE_KEYCLOAK_DB=
 SCOPE_GRAFANA_DB=
 KEEP_TEMPORARY_DATA=
 ARCHIVE_COMPRESS_OPTION=z
@@ -458,12 +490,27 @@ MY_CINDERLIB_DB_DATABASE=
 MY_CINDERLIB_DB_SECURED=False
 MY_CINDERLIB_DB_SECURED_VALIDATION=False
 MY_CINDERLIB_DB_CREDS=
+KEYCLOAK_DB_DUMP_COMPRESSOR=
+KEYCLOAK_DB_DUMP_FORMAT=custom
+KEYCLOAK_DB_RESTORE_JOBS=2
+PROVISION_KEYCLOAK_DB=
+CHANGE_KEYCLOAK_DB_CREDENTIALS=
+MY_KEYCLOAK_DB_HOST=
+MY_KEYCLOAK_DB_PORT="${POSTGRESQL_DEFAULT_PORT}"
+MY_KEYCLOAK_DB_USER=
+ORIG_KEYCLOAK_DB_USER=
+MY_KEYCLOAK_DB_PASSWORD="${OVIRT_KEYCLOAK_DATABASE_PASSWORD}"
+MY_KEYCLOAK_DB_DATABASE=
+MY_KEYCLOAK_DB_SECURED=False
+MY_KEYCLOAK_DB_SECURED_VALIDATION=False
+MY_KEYCLOAK_DB_CREDS=
 GRAFANA_DB_FILENAME=/var/lib/grafana/grafana.db
 RESTORE_PERMISSIONS=
 PROVISION_ALL_DBS=
 HE_REMOVE_STORAGE_VM=
 HE_REMOVE_HOSTS=
-VALID_BACKUP_RESTORE_PAIRS="4.3 4.4"
+VALID_BACKUP_RESTORE_PAIRS="4.3 4.5
+4.4 4.5"
 # A newline-separated list of pair. E.g. if we want to allow 4.0->4.1,
 #VALID_BACKUP_RESTORE_PAIRS="3.6 4.0
 #4.0 4.1"
@@ -538,6 +585,7 @@ set_scope() {
 			SCOPE_ENGINE_DB=1
 			SCOPE_DWH_DB=1
 			SCOPE_CINDERLIB_DB=1
+			SCOPE_KEYCLOAK_DB=1
 			SCOPE_GRAFANA_DB=1
 			;;
 		files)
@@ -551,6 +599,9 @@ set_scope() {
 			;;
 		cinderlibdb)
 			SCOPE_CINDERLIB_DB=1
+			;;
+		keycloakdb)
+			SCOPE_KEYCLOAK_DB=1
 			;;
 		grafanadb)
 			SCOPE_GRAFANA_DB=1
@@ -753,6 +804,56 @@ parseArgs() {
 			--cinderlib-db-sec-validation)
 				MY_CINDERLIB_DB_SECURED_VALIDATION="True"
 			;;
+			--keycloak-db-compressor=*)
+				KEYCLOAK_DB_DUMP_COMPRESSOR=$(compressor_to_command "${v}")
+				[ $? != 0 ] && die "failed parsing compressor"
+			;;
+			--keycloak-db-dump-format=*)
+				KEYCLOAK_DB_DUMP_FORMAT=$(parse_dump_format "${v}")
+				[ $? != 0 ] && die "failed parsing dump format"
+			;;
+			--keycloak-db-restore-jobs=*)
+				KEYCLOAK_DB_RESTORE_JOBS=$(parse_jobs "${v}")
+				[ $? != 0 ] && die "failed parsing jobs"
+			;;
+			--provision-keycloak-db)
+				PROVISION_KEYCLOAK_DB=1
+				PROVISIONING=1
+			;;
+			--change-keycloak-db-credentials)
+				CHANGE_KEYCLOAK_DB_CREDENTIALS=1
+			;;
+			--keycloak-db-host=*)
+				MY_KEYCLOAK_DB_HOST="${v}"
+			;;
+			--keycloak-db-port=*)
+				MY_KEYCLOAK_DB_PORT="${v}"
+			;;
+			--keycloak-db-user=*)
+				MY_KEYCLOAK_DB_USER="${v}"
+				ORIG_KEYCLOAK_DB_USER="${KEYCLOAK_DB_USER}"
+			;;
+			--keycloak-db-passfile=*)
+				DB_PASSFILE="${v}"
+				[ -r "${DB_PASSFILE}" ] || \
+					die "Can not read password file ${DB_PASSFILE}"
+				read -r MY_KEYCLOAK_DB_PASSWORD < "${DB_PASSFILE}"
+			;;
+			--keycloak-db-password=*)
+				MY_KEYCLOAK_DB_PASSWORD="${v}"
+			;;
+			--keycloak-db-password)
+				MY_KEYCLOAK_DB_PASSWORD="$(readdbpassword KEYCLOAK)" || exit 1
+			;;
+			--keycloak-db-name=*)
+				MY_KEYCLOAK_DB_DATABASE="${v}"
+			;;
+			--keycloak-db-secured)
+				MY_KEYCLOAK_DB_SECURED="True"
+			;;
+			--keycloak-db-sec-validation)
+				MY_KEYCLOAK_DB_SECURED_VALIDATION="True"
+			;;
 			--restore-permissions)
 				RESTORE_PERMISSIONS=1
 			;;
@@ -896,9 +997,27 @@ verifyArgs() {
 		\) \
 	] && die "Please use --change-cinderlib-db-credentials to change cinderlib db credentials"
 
+	if [ -n "${CHANGE_KEYCLOAK_DB_CREDENTIALS}" ]; then
+		[ -n "${PROVISION_KEYCLOAK_DB}" -o -n "${PROVISION_ALL_DBS}" ] && die "Cannot change credentials if provisioning a database"
+		[ -n "${MY_KEYCLOAK_DB_HOST}" ] || die "--keycloak-db-host is missing"
+		[ -n "${MY_KEYCLOAK_DB_USER}" ] || die "--keycloak-db-user is missing"
+		[ -n "${MY_KEYCLOAK_DB_PASSWORD}" ] || \
+			die "--keycloak-db-passfile or --keycloak-db-password is missing"
+		[ -n "${MY_KEYCLOAK_DB_DATABASE}" ] || die "--keycloak-db-name is missing"
+	fi
+	[ -z "${CHANGE_KEYCLOAK_DB_CREDENTIALS}" -a \
+		\( \
+			-n "${MY_KEYCLOAK_DB_HOST}" \
+			-o -n "${MY_KEYCLOAK_DB_USER}" \
+			-o -n "${MY_KEYCLOAK_DB_PASSWORD}" \
+			-o -n "${MY_KEYCLOAK_DB_DATABASE}" \
+		\) \
+	] && die "Please use --change-keycloak-db-credentials to change keycloak db credentials"
+
 	if [ "${DB_DUMP_FORMAT}" = "plain" \
 		-o "${DWH_DB_DUMP_FORMAT}" = "plain" \
 		-o "${CINDERLIB_DB_DUMP_FORMAT}" = "plain" \
+		-o "${KEYCLOAK_DB_DUMP_FORMAT}" = "plain" \
 	]; then
 		output "#####################################################################################################"
 		output "Please note: permissions are not backed up with a plain dump format, thus not restored during restore"
@@ -920,6 +1039,7 @@ verifyArgsConfig() {
 				"${DB_DUMP_FORMAT}" = "custom" \
 				-o "${DWH_DB_DUMP_FORMAT}" = "custom" \
 				-o "${CINDERLIB_DB_DUMP_FORMAT}" = "custom" \
+				-o "${KEYCLOAK_DB_DUMP_FORMAT}" = "custom" \
 			\) \
 		] && die "Please pass one of --restore-permissions or --no-restore-permissions when restoring a backup with a custom dump format"
 	fi
@@ -975,6 +1095,11 @@ dobackup() {
 		output "- CINDERLIB database '"${CINDERLIB_DB_DATABASE}"'"
 		log "Backing up cinderlib database to ${tardir}/db/${CINDERLIBDB_BACKUP_FILE_NAME}"
 		backupDB "${tardir}/db/${CINDERLIBDB_BACKUP_FILE_NAME}" "${CINDERLIB_DB_USER}" "${CINDERLIB_DB_HOST}" "${CINDERLIB_DB_PORT}" "${CINDERLIB_DB_DATABASE}" "${CINDERLIB_DB_DUMP_COMPRESSOR}" "${CINDERLIB_DB_DUMP_FORMAT}"
+	fi
+	if keycloak_enabled && [ -n "${SCOPE_KEYCLOAK_DB}" -a -n "${KEYCLOAK_DB_USER}" ]; then
+		output "- KEYCLOAK database '"${KEYCLOAK_DB_DATABASE}"'"
+		log "Backing up keycloak database to ${tardir}/db/${KEYCLOAKDB_BACKUP_FILE_NAME}"
+		backupDB "${tardir}/db/${KEYCLOAKDB_BACKUP_FILE_NAME}" "${KEYCLOAK_DB_USER}" "${KEYCLOAK_DB_HOST}" "${KEYCLOAK_DB_PORT}" "${KEYCLOAK_DB_DATABASE}" "${KEYCLOAK_DB_DUMP_COMPRESSOR}" "${KEYCLOAK_DB_DUMP_FORMAT}"
 	fi
 	if grafana_enabled && [ -n "${SCOPE_GRAFANA_DB}" ]; then
 		output "- Grafana database '"${GRAFANA_DB_FILENAME}"'"
@@ -1137,6 +1262,12 @@ dorestore() {
 		generatePgPass
 		verifyConnection "${CINDERLIB_DB_USER}" "${CINDERLIB_DB_HOST}" "${CINDERLIB_DB_PORT}" "${CINDERLIB_DB_DATABASE}"
 	fi
+	if [ -n "${CHANGE_KEYCLOAK_DB_CREDENTIALS}" ]; then
+		output "- Setting credentials for Keycloak database '${MY_KEYCLOAK_DB_DATABASE}'"
+		setMyKeycloakDBCredentials
+		generatePgPass
+		verifyConnection "${KEYCLOAK_DB_USER}" "${KEYCLOAK_DB_HOST}" "${KEYCLOAK_DB_PORT}" "${KEYCLOAK_DB_DATABASE}"
+	fi
 
 	output "- Unpacking file '${FILE}'"
 	log "Opening tarball ${FILE} to ${TEMP_FOLDER}"
@@ -1154,10 +1285,11 @@ dorestore() {
 	[ -s "${TEMP_FOLDER}/db/${DB_BACKUP_FILE_NAME}" ] || SCOPE_ENGINE_DB=
 	[ -s "${TEMP_FOLDER}/db/${DWHDB_BACKUP_FILE_NAME}" ] || SCOPE_DWH_DB=
 	[ -s "${TEMP_FOLDER}/db/${CINDERLIBDB_BACKUP_FILE_NAME}" ] || SCOPE_CINDERLIB_DB=
+	[ -s "${TEMP_FOLDER}/db/${KEYCLOAKDB_BACKUP_FILE_NAME}" ] || SCOPE_KEYCLOAK_DB=
 	[ -s "${TEMP_FOLDER}/db/${GRAFANA_BACKUP_FILE_NAME}" ] || SCOPE_GRAFANA_DB=
 
 	log 'Scope after checking backup content:'
-	for v in SCOPE_FILES SCOPE_ENGINE_DB SCOPE_DWH_DB SCOPE_CINDERLIB_DB SCOPE_GRAFANA_DB; do
+	for v in SCOPE_FILES SCOPE_ENGINE_DB SCOPE_DWH_DB SCOPE_CINDERLIB_DB SCOPE_KEYCLOAK_DB SCOPE_GRAFANA_DB; do
 		log "$v:${!v}"
 	done
 
@@ -1165,6 +1297,7 @@ dorestore() {
 		[ -n "${SCOPE_ENGINE_DB}" ] && PROVISION_DB=1
 		[ -n "${SCOPE_DWH_DB}" ] && PROVISION_DWH_DB=1
 		[ -n "${SCOPE_CINDERLIB_DB}" ] && PROVISION_CINDERLIB_DB=1
+		[ -n "${SCOPE_KEYCLOAK_DB}" ] && PROVISION_KEYCLOAK_DB=1
 	fi
 
 	output "Restoring:"
@@ -1182,20 +1315,24 @@ dorestore() {
 	if [ \
 		-z "${CHANGE_DB_CREDENTIALS}" -a \
 		-z "${CHANGE_DWH_DB_CREDENTIALS}" -a \
+		-z "${CHANGE_KEYCLOAK_DB_CREDENTIALS}" -a \
 		-z "${CHANGE_CINDERLIB_DB_CREDENTIALS}" -a \
 		"${ENGINE_DB_HOST}" == "localhost" -a \
 		"${DWH_DB_HOST}" == "localhost" -a \
+		"${KEYCLOAK_DB_HOST}" == "localhost" -a \
 		"${CINDERLIB_DB_HOST}" == "localhost" \
 	] && \
 		! canConnectToDB "${ENGINE_DB_USER}" "${ENGINE_DB_HOST}" "${ENGINE_DB_PORT}" "${ENGINE_DB_DATABASE}" && \
 		! canConnectToDB "${DWH_DB_USER}" "${DWH_DB_HOST}" "${DWH_DB_PORT}" "${DWH_DB_DATABASE}" && \
 		! canConnectToDB "${CINDERLIB_DB_USER}" "${CINDERLIB_DB_HOST}" "${CINDERLIB_DB_PORT}" "${CINDERLIB_DB_DATABASE}" \
+		! canConnectToDB "${KEYCLOAK_DB_USER}" "${KEYCLOAK_DB_HOST}" "${KEYCLOAK_DB_PORT}" "${KEYCLOAK_DB_DATABASE}" \
 	; then
 		PROVISIONING=1
 		PROVISION_ALL_DBS=1
 		PROVISION_DB=1
 		PROVISION_DWH_DB=1
 		PROVISION_CINDERLIB_DB=1
+		PROVISION_KEYCLOAK_DB=1
 		[ -z "${RESTORE_PERMISSIONS}" ] && RESTORE_PERMISSIONS="1"
 	fi
 
@@ -1212,12 +1349,16 @@ dorestore() {
 		if [ -n "${PROVISION_CINDERLIB_DB}" -a -n "${SCOPE_CINDERLIB_DB}" ]; then
 			provisionDB "${CINDERLIB_DB_USER}" "${CINDERLIB_DB_HOST}" "${CINDERLIB_DB_PORT}" "${CINDERLIB_DB_DATABASE}" "${CINDERLIB_DB_PASSWORD}" "${CINDERLIB_DB_SECURED}" "${CINDERLIB_DB_SECURED_VALIDATION}" "${TEMP_FOLDER}/db/${CINDERLIBDB_BACKUP_FILE_NAME}" "${CINDERLIB_DB_DUMP_COMPRESSOR}" "${CINDERLIB_DB_DUMP_FORMAT}"
 		fi
+		if [ -n "${PROVISION_KEYCLOAK_DB}" -a -n "${SCOPE_KEYCLOAK_DB}" ]; then
+			provisionDB "${KEYCLOAK_DB_USER}" "${KEYCLOAK_DB_HOST}" "${KEYCLOAK_DB_PORT}" "${KEYCLOAK_DB_DATABASE}" "${KEYCLOAK_DB_PASSWORD}" "${KEYCLOAK_DB_SECURED}" "${KEYCLOAK_DB_SECURED_VALIDATION}" "${TEMP_FOLDER}/db/${KEYCLOAKDB_BACKUP_FILE_NAME}" "${KEYCLOAK_DB_DUMP_COMPRESSOR}" "${KEYCLOAK_DB_DUMP_FORMAT}"
+		fi
 		output "Restoring:"
 	fi
 
 	[ -n "${CHANGE_DB_CREDENTIALS}" ] && setMyEngineDBCredentials
 	[ -n "${CHANGE_DWH_DB_CREDENTIALS}" ] && setMyDwhDBCredentials
 	[ -n "${CHANGE_CINDERLIB_DB_CREDENTIALS}" ] && setMyCinderlibDBCredentials
+	[ -n "${CHANGE_KEYCLOAK_DB_CREDENTIALS}" ] && setMyKeycloakDBCredentials
 
 	log "Generating pgpass"
 	generatePgPass # Must run after configuration reload
@@ -1225,6 +1366,7 @@ dorestore() {
 	[ -n "${SCOPE_ENGINE_DB}" -a -n "${ENGINE_DB_USER}" ] && verifyConnection "${ENGINE_DB_USER}" "${ENGINE_DB_HOST}" "${ENGINE_DB_PORT}" "${ENGINE_DB_DATABASE}"
 	[ -n "${SCOPE_DWH_DB}" -a -n "${DWH_DB_USER}" ] && verifyConnection "${DWH_DB_USER}" "${DWH_DB_HOST}" "${DWH_DB_PORT}" "${DWH_DB_DATABASE}"
 	[ -n "${SCOPE_CINDERLIB_DB}" -a -n "${CINDERLIB_DB_USER}" ] && verifyConnection "${CINDERLIB_DB_USER}" "${CINDERLIB_DB_HOST}" "${CINDERLIB_DB_PORT}" "${CINDERLIB_DB_DATABASE}"
+	[ -n "${SCOPE_KEYCLOAK_DB}" -a -n "${KEYCLOAK_DB_USER}" ] && verifyConnection "${KEYCLOAK_DB_USER}" "${KEYCLOAK_DB_HOST}" "${KEYCLOAK_DB_PORT}" "${KEYCLOAK_DB_DATABASE}"
 
 	if [ -n "${SCOPE_ENGINE_DB}" -a -n "${ENGINE_DB_USER}" ]; then
 		output "- Engine database '"${ENGINE_DB_DATABASE}"'"
@@ -1262,6 +1404,11 @@ __EOF__
 		log "Restoring Cinderlib database backup at ${TEMP_FOLDER}/db/${CINDERLIBDB_BACKUP_FILE_NAME}"
 		restoreDB "${TEMP_FOLDER}/db/${CINDERLIBDB_BACKUP_FILE_NAME}" "${CINDERLIB_DB_USER}" "${CINDERLIB_DB_HOST}" "${CINDERLIB_DB_PORT}" "${CINDERLIB_DB_DATABASE}" "${ORIG_CINDERLIB_DB_USER}" "${CINDERLIB_DB_DUMP_COMPRESSOR}" "${CINDERLIB_DB_DUMP_FORMAT}" "${CINDERLIB_DB_RESTORE_JOBS}"
 	fi
+	if [ -n "${SCOPE_KEYCLOAK_DB}" -a -n "${KEYCLOAK_DB_USER}" ]; then
+		output "- KEYCLOAK database '"${KEYCLOAK_DB_DATABASE}"'"
+		log "Restoring KEYCLOAK database backup at ${TEMP_FOLDER}/db/${KEYCLOAKDB_BACKUP_FILE_NAME}"
+		restoreDB "${TEMP_FOLDER}/db/${KEYCLOAKDB_BACKUP_FILE_NAME}" "${KEYCLOAK_DB_USER}" "${KEYCLOAK_DB_HOST}" "${KEYCLOAK_DB_PORT}" "${KEYCLOAK_DB_DATABASE}" "${ORIG_KEYCLOAK_DB_USER}" "${KEYCLOAK_DB_DUMP_COMPRESSOR}" "${KEYCLOAK_DB_DUMP_FORMAT}" "${KEYCLOAK_DB_RESTORE_JOBS}"
+	fi
 	if [ -n "${SCOPE_GRAFANA_DB}" ]; then
 		output "- Grafana database '"${GRAFANA_DB_FILENAME}"'"
 		restoreSQLiteDB "${TEMP_FOLDER}/db/${GRAFANA_BACKUP_FILE_NAME}" "${GRAFANA_DB_FILENAME}" "grafana:grafana"
@@ -1269,6 +1416,7 @@ __EOF__
 	[ -n "${CHANGE_DB_CREDENTIALS}" ] && changeEngineDBConf
 	[ -n "${CHANGE_DWH_DB_CREDENTIALS}" -o -n "${CHANGE_DB_CREDENTIALS}" -a "${DWH_DB_USER}" ] && changeDwhDBConf
 	[ -n "${CHANGE_CINDERLIB_DB_CREDENTIALS}" -o -n "${CHANGE_DB_CREDENTIALS}" -a "${CINDERLIB_DB_USER}" ] && changeCinderlibDBConf
+	[ -n "${CHANGE_KEYCLOAK_DB_CREDENTIALS}" -o -n "${CHANGE_DB_CREDENTIALS}" -a "${KEYCLOAK_DB_USER}" ] && changeKeycloakDBConf
 	source_d dorestore
 	output "You should now run engine-setup."
 }
@@ -1871,6 +2019,36 @@ __EOF__
 	eval "${MY_CINDERLIB_DB_CREDS}"
 }
 
+setMyKeycloakDBCredentials() {
+	local options
+
+	[ "${MY_KEYCLOAK_DB_SECURED}" = "True" ] && \
+		options="${options}&ssl=true"
+	[ "${MY_KEYCLOAK_DB_SECURED_VALIDATION}" != "True" ] && \
+		options="${options}&sslfactory=org.postgresql.ssl.NonValidatingFactory"
+
+	[ -n "${options}" ] && options="${options#&}"
+
+	local encpass="$(sed 's;\(["\$]\);\\\1;g' << __EOF__
+${MY_KEYCLOAK_DB_PASSWORD}
+__EOF__
+)"
+
+	MY_KEYCLOAK_DB_CREDS="$(cat << __EOF__
+KEYCLOAK_DB_HOST="${MY_KEYCLOAK_DB_HOST}"
+KEYCLOAK_DB_PORT="${MY_KEYCLOAK_DB_PORT}"
+KEYCLOAK_DB_USER="${MY_KEYCLOAK_DB_USER}"
+KEYCLOAK_DB_PASSWORD="${encpass}"
+KEYCLOAK_DB_DATABASE="${MY_KEYCLOAK_DB_DATABASE}"
+KEYCLOAK_DB_SECURED="${MY_KEYCLOAK_DB_SECURED}"
+KEYCLOAK_DB_SECURED_VALIDATION="${MY_KEYCLOAK_DB_SECURED_VALIDATION}"
+KEYCLOAK_DB_DRIVER="org.postgresql.Driver"
+KEYCLOAK_DB_URL="jdbc:postgresql://\${KEYCLOAK_DB_HOST}:\${KEYCLOAK_DB_PORT}/\${KEYCLOAK_DB_DATABASE}?${options}"
+__EOF__
+)"
+	eval "${MY_KEYCLOAK_DB_CREDS}"
+}
+
 changeEngineDBConf() {
 	local conf="${ENGINE_ETC}/engine.conf.d/10-setup-database.conf"
 	[ -f "${conf}" ] || logdie "Can not find ${conf}"
@@ -1925,11 +2103,23 @@ changeCinderlibDBConf() {
 	printf "%s\n" "${MY_CINDERLIB_DB_CREDS}" > "${conf}"
 }
 
+changeKeycloakDBConf() {
+	local conf="${ENGINE_ETC}/engine.conf.d/12-setup-keycloak.conf"
+	[ -f "${conf}" ] || logdie "Can not find ${conf}"
+
+	local backup="${conf}.$(date +"%Y%m%d%H%M%S")"
+	log "Backing up ${conf} to ${backup}"
+	cp -a "${conf}" "${backup}" || logdie "Failed to backup ${conf}"
+	output "Rewriting ${conf}"
+	printf "%s\n" "${MY_KEYCLOAK_DB_CREDS}" > "${conf}"
+}
+
 generatePgPass() {
 	local password="${ENGINE_DB_PASSWORD}"
 	local dwh_password="${DWH_DB_PASSWORD}"
 	local cinderlib_password="${CINDERLIB_DB_PASSWORD}"
 	local cinderlib_password="${CINDERLIB_DB_PASSWORD}"
+	local keycloak_password="${KEYCLOAK_DB_PASSWORD}"
 	MYPGPASS="${TEMP_FOLDER}/.pgpass"
 
 	touch "${MYPGPASS}" || logdie "Can't touch ${MYPGPASS}"
@@ -1947,6 +2137,7 @@ generatePgPass() {
 		password="$(printf "%s" "${password}" | sed -e 's/\\/\\\\/g' -e 's/:/\\:/g')"
 		dwh_password="$(printf "%s" "${dwh_password}" | sed -e 's/\\/\\\\/g' -e 's/:/\\:/g')"
 		cinderlib_password="$(printf "%s" "${cinderlib_password}" | sed -e 's/\\/\\\\/g' -e 's/:/\\:/g')"
+		keycloak_password="$(printf "%s" "${keycloak_password}" | sed -e 's/\\/\\\\/g' -e 's/:/\\:/g')"
 	fi
 
 	cat > "${MYPGPASS}" << __EOF__
@@ -1957,6 +2148,9 @@ ${DWH_DB_HOST}:${DWH_DB_PORT}:${DWH_DB_DATABASE}:${DWH_DB_USER}:${dwh_password}
 __EOF__
 	[ -n "${CINDERLIB_DB_USER}" ] && cat >> "${MYPGPASS}" << __EOF__
 ${CINDERLIB_DB_HOST}:${CINDERLIB_DB_PORT}:${CINDERLIB_DB_DATABASE}:${CINDERLIB_DB_USER}:${cinderlib_password}
+__EOF__
+	[ -n "${KEYCLOAK_DB_USER}" ] && cat >> "${MYPGPASS}" << __EOF__
+${KEYCLOAK_DB_HOST}:${KEYCLOAK_DB_PORT}:${KEYCLOAK_DB_DATABASE}:${KEYCLOAK_DB_USER}:${keycloak_password}
 __EOF__
 }
 
@@ -2010,6 +2204,8 @@ dump_config_for_restore() {
 DB_DUMP_FORMAT
 DWH_DB_DUMP_COMPRESSOR
 DWH_DB_DUMP_FORMAT
+KEYCLOAK_DB_DUMP_COMPRESSOR
+KEYCLOAK_DB_DUMP_FORMAT
 CINDERLIB_DB_DUMP_COMPRESSOR
 CINDERLIB_DB_DUMP_FORMAT"
 	echo "${VARS_TO_SAVE}" | while read -r var; do
@@ -2042,6 +2238,7 @@ notify_engine() {
 	[ -n "${SCOPE_ENGINE_DB}" ] && do_notify 'db'
 	[ -n "${SCOPE_DWH_DB}" ] && do_notify 'dwhdb'
 	[ -n "${SCOPE_CINDERLIB_DB}" ] && do_notify 'cinderlib'
+	[ -n "${SCOPE_KEYCLOAK_DB}" ] && do_notify 'keycloak'
 	[ -n "${SCOPE_GRAFANA_DB}" ] && do_notify 'grafanadb'
 
 	unset -f do_notify
@@ -2066,6 +2263,7 @@ doverify() {
 	[ -s "${TEMP_FOLDER}/db/${DB_BACKUP_FILE_NAME}" ] || SCOPE_ENGINE_DB=
 	[ -s "${TEMP_FOLDER}/db/${DWHDB_BACKUP_FILE_NAME}" ] || SCOPE_DWH_DB=
 	[ -s "${TEMP_FOLDER}/db/${CINDERLIBDB_BACKUP_FILE_NAME}" ] || SCOPE_CINDERLIB_DB=
+	[ -s "${TEMP_FOLDER}/db/${KEYCLOAKDB_BACKUP_FILE_NAME}" ] || SCOPE_KEYCLOAK_DB=
 	[ -s "${TEMP_FOLDER}/db/${GRAFANA_BACKUP_FILE_NAME}" ] || SCOPE_GRAFANA_DB=
 
 	if [ -n "${SCOPE_ENGINE_DB}" -a -n "${ENGINE_DB_USER}" ]; then

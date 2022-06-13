@@ -205,8 +205,6 @@ getent passwd %1 >/dev/null || useradd -r -u %2 -g %3 -c %5 -s /sbin/nologin -d 
 %global extra_backend_requires Requires: rhvm-branding-rhv >= 4.3.0
 %global extra_setup_requires Requires: rhvm-setup-plugins >= 4.5.0-0.1
 %global spice_version 8.0
-%else
-%global ovirt_dependencies ovirt-dependencies/4.4
 %endif
 
 %if !%{rhv_build}
@@ -264,7 +262,7 @@ BuildArch:	noarch
 BuildRequires:  perl
 %else
 BuildRequires:	assertj-core >= 2.2.0
-BuildRequires:	maven >= 3.5.0
+BuildRequires:	maven >= 3.6.0
 BuildRequires:  maven-enforcer-plugin
 %endif
 
@@ -306,22 +304,25 @@ Requires:	%{name}-websocket-proxy >= %{version}-%{release}
 Requires:	%{name}-vmconsole-proxy-helper >= %{version}-%{release}
 Requires:	%{name}-ui-extensions >= 1.0.4
 
-# engine works only with ansible 2.9
-Requires:	ansible >= 2.9.21, ansible < 2.10.0
-Conflicts:	ansible-core >= 2.10.0
+# From ovirt-engine-4.5.0 ansible-core and ansible-runner are required,
+# ansible-runner-service is obsoleted
+Requires:	ansible-core >= 2.12.0
+Requires:	ansible-runner >= 2.1.3
+%if 0%{?rhel} < 9
+Obsoletes:	ansible-runner-service < 1.1.0
+Obsoletes:	python3-ansible-runner < 2.0.0
+%endif
 
-Requires:	ansible-runner-service >= 1.0.6
 Requires:	apache-commons-compress
 Requires:	apache-commons-configuration
 Requires:	apache-commons-jxpath
 Requires:	java-11-openjdk-headless >= %{openjdk_version}
 Requires:	javapackages-tools
 Requires:	ovirt-imageio-daemon >= 2.0.10-1
-Requires:	python3-mod_wsgi >= 4.6.4
 Requires:	slf4j >= 1.7.0
 Requires:	ws-commons-util
 Requires:	xmlrpc-client
-Requires:	ovirt-ansible-collection >= 1.2.0
+Requires:	ovirt-ansible-collection >= 2.0.0
 Requires:	ovirt-web-ui
 Requires:	ovirt-cockpit-sso
 %if 0%{?rhel} < 9
@@ -342,13 +343,13 @@ Requires:	fapolicyd
 Requires:	scap-security-guide >= 0.1.60-4
 
 # Metrics stuff
-Requires:	collectd
-Requires:	collectd-postgresql
-Requires:	collectd-disk
-Requires:	collectd-write_http
+Requires:	collectd >= 5.12.0-7
+Requires:	collectd-postgresql >= 5.12.0-7
+Requires:	collectd-disk >= 5.12.0-7
+Requires:	collectd-write_http >= 5.12.0-7
 %if 0%{?rhel}
 # collectd-write_syslog is available only on EL
-Requires:	collectd-write_syslog
+Requires:	collectd-write_syslog >= 5.12.0-7
 %endif
 
 
@@ -361,7 +362,7 @@ Requires:	libfastjson
 Requires:	liblognorm
 Requires:	libestr
 
-Requires:	postgresql-jdbc >= 42.2.3
+Requires:	postgresql-jdbc >= 42.2.14
 
 Requires:	postgresql-server >= 12.0
 Requires:	postgresql-contrib >= 12.0
@@ -382,7 +383,7 @@ Requires:	ed25519-java >= 0.3.0
 Requires:	slf4j-jdk14 >= 1.7.0
 Requires:	jcl-over-slf4j >= 1.7.0
 Requires:	snmp4j >= 3.6.4
-Requires:	ovirt-dependencies >= 4.5.0
+Requires:	ovirt-dependencies >= 4.5.2
 
 # cinderlib integration
 # https://bugzilla.redhat.com/1955375
@@ -564,6 +565,9 @@ Requires:	%{name}-setup-plugin-vmconsole-proxy-helper = %{version}-%{release}
 Requires:	%{name}-setup-plugin-cinderlib = %{version}-%{release}
 Requires:	%{name}-setup-plugin-imageio = %{version}-%{release}
 Requires:	%{name}-dwh-setup >= 4.4.1.2
+%if !%{rhv_build}
+Requires:	ovirt-engine-keycloak-setup
+%endif
 Requires:	ovirt-engine-extension-aaa-jdbc >= 1.2.0
 Requires:	openssh
 Requires:       postgresql-server >= 12.0
@@ -806,7 +810,7 @@ make %{make_common_opts} install DESTDIR="%{buildroot}"
 #
 install -dm 750 "%{buildroot}/%{engine_state}"
 install -dm 700 "%{buildroot}/%{engine_state}/.ssh"
-install -dm 755 "%{buildroot}/%{engine_state}"/{content,setup/answers}
+install -dm 755 "%{buildroot}/%{engine_state}"/{content,setup/answers,ansible-runner}
 # see also relevant %%dir line to set permissions
 install -dm 700 "%{buildroot}/%{engine_log}"
 install -dm 700 "%{buildroot}/%{engine_log}"/{ova,host-deploy,setup,notifier,dump,ansible,db-manual,brick-setup,cinderlib}
@@ -1016,6 +1020,14 @@ OVESETUP_CONFIG/jbossHome=str:/opt/rh/eap7/root/usr/share/wildfly
 OVESETUP_CONFIG/pkiRenewalDocUrl=str:https://access.redhat.com/solutions/1572983
 __EOF__
 
+# Disable automatic keycloak integration in RHV.
+# Manual integration of RHV with Red Hat Single Sign On, aka RHSSO, is documented at
+# "Installing and Configuring Red Hat Single Sign-On" in:
+# https://access.redhat.com/documentation/en-us/red_hat_virtualization/4.4/html/administration_guide
+cat >> "%{buildroot}%{_sysconfdir}/ovirt-engine-setup.conf.d/10-packaging.conf" << __EOF__
+OVESETUP_CONFIG/keycloakSupported=bool:False
+__EOF__
+
 cat > "%{buildroot}%{_sysconfdir}/ovirt-engine-setup.conf.d/10-packaging-wsp.conf" << __EOF__
 [environment:default]
 __EOF__
@@ -1134,6 +1146,7 @@ fi
 %attr(-, %{engine_user}, %{engine_group}) %{engine_log}/ansible
 %attr(-, %{engine_user}, %{engine_group}) %{engine_log}/db-manual
 %attr(-, %{engine_user}, %{engine_group}) %{engine_log}/ova
+%attr(-, %{engine_user}, %{engine_group}) %{engine_state}/ansible-runner
 %attr(-, %{engine_user}, %{engine_group}) %{engine_state}/content
 %attr(700, %{engine_user}, %{engine_group}) %{engine_state}/.ssh/
 %attr(600, %{engine_user}, %{engine_group}) %{engine_state}/.ssh/config
@@ -1198,7 +1211,6 @@ fi
 %license LICENSE
 %config %{_sysconfdir}/logrotate.d/ovirt-engine-setup
 %dir %{engine_data}/firewalld
-%dir %{engine_data}/selinux
 %dir %{engine_data}/setup
 %dir %{engine_data}/setup/bin/
 %dir %{engine_data}/setup/ovirt_engine_setup
@@ -1234,7 +1246,7 @@ fi
 %config %{_sysconfdir}/ovirt-engine-setup.conf.d/10-packaging.conf
 %{_bindir}/engine-upgrade-check
 %{engine_data}/conf/ovirt-engine-proxy.conf.v2.in
-%{engine_data}/conf/fapolicyd-55-allow-ovirt-jboss.rules.in
+%{engine_data}/conf/fapolicyd-55-allow-ovirt.rules.in
 %{engine_data}/conf/ovirt-engine-root-redirect.conf.in
 %{engine_data}/firewalld/ovirt-engine/
 %{engine_data}/setup/bin/ovirt-engine-upgrade-check
@@ -1326,9 +1338,6 @@ fi
 %{_bindir}/ovirt-register-sso-client-tool
 %{_bindir}/engine-vacuum
 %{_mandir}/man8/engine-config.*
-%dir %attr(-, %{engine_user}, %{engine_group}) %{engine_data}/ansible-runner-service-project/env
-%dir %attr(-, %{engine_user}, %{engine_group}) %{engine_data}/ansible-runner-service-project/inventory
-%verify(not md5 size mtime) %config %attr(-, %{engine_user}, %{engine_group}) %{engine_data}/ansible-runner-service-project/inventory/hosts
 %{engine_data}/ansible-runner-service-project/project/ansible.cfg
 %{engine_data}/ansible-runner-service-project/project/create-brick.yml
 %{engine_data}/ansible-runner-service-project/project/ovirt-fetch-he-config.yml
@@ -1364,7 +1373,6 @@ fi
 %{engine_data}/conf/jaas.conf
 %{engine_data}/conf/notifier-logging.properties
 %{engine_data}/conf/tools-logging.properties
-%{engine_data}/selinux/ansible-runner-service.cil
 %{engine_data}/services/ovirt-engine-notifier
 %{engine_data}/services/ovirt-fence-kdump-listener/
 %{engine_etc}/ansible/ovirt-host-deploy-post-tasks.yml.example
@@ -1393,6 +1401,18 @@ fi
 %{engine_data}/setup/bin/ovirt-engine-health
 
 %changelog
+* Thu Jun 09 2022 Lev Veyde <lveyde@redhat.com> - 4.5.1.1
+- Bump version to 4.5.1.1
+
+* Wed Jun 01 2022 Martin Perina <mperina@redhat.com> - 4.5.1
+- Bump version to 4.5.1
+
+* Fri Apr 08 2022 Sandro Bonazzola <sbonazzo@redhat.com> - 4.5.0.2
+- Bump version to 4.5.0.2
+
+* Mon Mar 28 2022 Sandro Bonazzola <sbonazzo@redhat.com> - 4.5.0.1
+- Bump version to 4.5.0.1
+
 * Fri Mar 11 2022 Sandro Bonazzola <sbonazzo@redhat.com> - 4.5.0
 - Bump version to 4.5.0
 

@@ -81,6 +81,7 @@ class Plugin(plugin.PluginBase):
             ),
             'extract_key': True,
             'extra_action': _apache_extra_action,
+            'shortLife': True,
         },
     )
 
@@ -231,7 +232,8 @@ class Plugin(plugin.PluginBase):
                         self.environment[osetupcons.RenameEnv.FQDN],
                     ),
                 ),
-            ),
+            )
+            + (('--days=398',) if entity['shortLife'] else ())
         )
 
         self.uninstall_files.extend(

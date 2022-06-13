@@ -52,7 +52,7 @@ import org.ovirt.engine.core.bll.scheduling.policyunits.VmAffinityFilterPolicyUn
 import org.ovirt.engine.core.bll.scheduling.policyunits.VmAffinityWeightPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.policyunits.VmToHostAffinityWeightPolicyUnit;
 import org.ovirt.engine.core.bll.scheduling.selector.SelectorInstance;
-import org.ovirt.engine.core.bll.scheduling.utils.NumaPinningHelper;
+import org.ovirt.engine.core.bll.scheduling.utils.HostCpuLoadHelper;
 import org.ovirt.engine.core.bll.scheduling.utils.VdsCpuUnitPinningHelper;
 import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.BackendService;
@@ -67,6 +67,7 @@ import org.ovirt.engine.core.common.businessentities.VdsCpuUnit;
 import org.ovirt.engine.core.common.businessentities.VdsNumaNode;
 import org.ovirt.engine.core.common.businessentities.VmNumaNode;
 import org.ovirt.engine.core.common.businessentities.VmStatic;
+import org.ovirt.engine.core.common.businessentities.comparators.VmsCpuPinningPolicyComparator;
 import org.ovirt.engine.core.common.config.Config;
 import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.errors.EngineMessage;
@@ -78,6 +79,7 @@ import org.ovirt.engine.core.common.scheduling.PolicyUnit;
 import org.ovirt.engine.core.common.scheduling.PolicyUnitType;
 import org.ovirt.engine.core.common.scheduling.VmOverheadCalculator;
 import org.ovirt.engine.core.common.utils.HugePageUtils;
+import org.ovirt.engine.core.common.utils.NumaPinningHelper;
 import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.common.utils.VmCpuCountHelper;
 import org.ovirt.engine.core.compat.Guid;
@@ -423,16 +425,21 @@ public class SchedulingManager implements BackendService {
                 }
 
                 VDS host = hostsMap.get(bestHostId);
+                // For dedicate VMs we are going to miss adding up the pending resources for NUMA.
+                // We will update the pending resources per VM below and then the overall
                 Map<Guid, Map<Integer, NumaNodeMemoryConsumption>> numaConsumptionPerVm = vmNumaRequirements(vmGroup, host);
                 Map<Integer, NumaNodeMemoryConsumption> numaConsumption = numaConsumptionPerVm.values().stream()
                         .flatMap(m -> m.entrySet().stream())
                         .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, NumaNodeMemoryConsumption::merge));
                 updateHostNumaNodes(host, numaConsumption);
 
-
                 for (VM vm : vmsNotOnHost) {
-                    List<VdsCpuUnit> dedicatedCpuPinning = vdsCpuUnitPinningHelper.allocateDedicatedCpus(vm,
-                            PendingCpuPinning.collectForHost(getPendingResourceManager(), host.getId()), host);
+                    vmHandler.updateCpuAndNumaPinning(vm, host.getId());
+                    vmHandler.setCpuPinningByNumaPinning(vm, host.getId());
+                    List<VdsCpuUnit> dedicatedCpuPinning = vdsCpuUnitPinningHelper.updatePhysicalCpuAllocations(vm,
+                            PendingCpuPinning.collectForHost(getPendingResourceManager(), host.getId()), host.getId());
+                    String numaPinningString = vmHandler.createNumaPinningForExclusiveCpuPinning(vm, dedicatedCpuPinning);
+                    updateDedicatedNumaMemoryConsumption(vm, host, numaPinningString, numaConsumptionPerVm);
                     addPendingResources(vm, host, numaConsumptionPerVm.getOrDefault(vm.getId(), Collections.emptyMap()), dedicatedCpuPinning);
                     hostsToNotifyPending.add(bestHostId);
                     vfsUpdates.add(() -> markVfsAsUsedByVm(vm, bestHostId));
@@ -452,6 +459,28 @@ public class SchedulingManager implements BackendService {
 
             log.debug("Scheduling ended, correlation Id: {}", correlationId);
         }
+    }
+
+    private void updateDedicatedNumaMemoryConsumption(VM vm, VDS host, String numaPinningString,
+            Map<Guid, Map<Integer, NumaNodeMemoryConsumption>> numaConsumptionPerVm) {
+        if (vm.getCpuPinningPolicy().isExclusive()) {
+            var currentNumaPinning = NumaPinningHelper.parseNumaMapping(numaPinningString);
+            for (VmNumaNode vmNumaNode : vm.getvNumaNodeList()) {
+                var vdsNumaNodesPinned = currentNumaPinning.get(vmNumaNode.getIndex());
+                vmNumaNode.setVdsNumaNodeList(new ArrayList<>(vdsNumaNodesPinned));
+            }
+            var vmNumaConsumption = vmNumaRequirements(vm, Optional.empty());
+            numaConsumptionPerVm.putAll(vmNumaConsumption);
+            updateNumaConsumptionOnHost(host, numaConsumptionPerVm);
+        }
+    }
+
+    private void updateNumaConsumptionOnHost(VDS host,
+            Map<Guid, Map<Integer, NumaNodeMemoryConsumption>> numaConsumptionPerVm) {
+        Map<Integer, NumaNodeMemoryConsumption> numaConsumption = numaConsumptionPerVm.values().stream()
+                .flatMap(m -> m.entrySet().stream())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, NumaNodeMemoryConsumption::merge));
+        updateHostNumaNodes(host, numaConsumption);
     }
 
     private Optional<Guid> selectHost(ClusterPolicy policy,
@@ -557,7 +586,7 @@ public class SchedulingManager implements BackendService {
 
 
         boolean considerCpuPinning = filteredVms.stream()
-                .anyMatch(vm -> !StringUtils.isEmpty(VmCpuCountHelper.isDynamicCpuPinning(vm) ? vm.getCurrentCpuPinning() : vm.getCpuPinning()));
+                .anyMatch(vm -> !StringUtils.isEmpty(vm.getVmPinning()));
 
         Optional<Map<Guid, Integer>> nodeAssignment = Optional.empty();
         if (considerCpuPinning) {
@@ -572,31 +601,44 @@ public class SchedulingManager implements BackendService {
             return Collections.emptyMap();
         }
 
-        Map<Guid, Map<Integer, NumaNodeMemoryConsumption>> result = new HashMap<>();
+        Map<Guid, Map<Integer, NumaNodeMemoryConsumption>> numaConsumptionPerVm = new HashMap<>();
         for (VM vm : filteredVms) {
-            if (vm.getvNumaNodeList().isEmpty()) {
-                continue;
-            }
+            var vmNumaConsumption = vmNumaRequirements(vm, nodeAssignment);
+            numaConsumptionPerVm.putAll(vmNumaConsumption);
+        }
+        return numaConsumptionPerVm;
+    }
 
-            Map<Integer, NumaNodeMemoryConsumption> hostNumaMemRequirements = new HashMap<>();
-            Optional<Integer> hugePageSize = HugePageUtils.getHugePageSize(vm.getStaticData());
+    private Map<Guid, Map<Integer, NumaNodeMemoryConsumption>> vmNumaRequirements(
+            VM vm, Optional<Map<Guid, Integer>> nodeAssignment) {
+        if (vm.getvNumaNodeList().isEmpty()) {
+            return Collections.emptyMap();
+        }
 
-            for (VmNumaNode vmNode : vm.getvNumaNodeList()) {
+        Map<Integer, NumaNodeMemoryConsumption> hostNumaMemRequirements = new HashMap<>();
+        Optional<Integer> hugePageSize = HugePageUtils.getHugePageSize(vm.getStaticData());
+
+        for (VmNumaNode vmNode : vm.getvNumaNodeList()) {
+            if (nodeAssignment.isPresent()) {
                 Integer hostNodeIndex = nodeAssignment.get().get(vmNode.getId());
                 // Ignore unpinned numa nodes
                 if (hostNodeIndex == null) {
                     continue;
                 }
-
                 hostNumaMemRequirements.merge(
                         hostNodeIndex,
                         new NumaNodeMemoryConsumption(vmNode.getMemTotal(), hugePageSize),
                         NumaNodeMemoryConsumption::merge);
+            } else if (!vmNode.getVdsNumaNodeList().isEmpty()) {
+                for (Integer vdsNumaIndex : vmNode.getVdsNumaNodeList()) {
+                    hostNumaMemRequirements.merge(
+                            vdsNumaIndex,
+                            new NumaNodeMemoryConsumption(vmNode.getMemTotal(), hugePageSize),
+                            NumaNodeMemoryConsumption::merge);
+                }
             }
-            result.put(vm.getId(), hostNumaMemRequirements);
         }
-
-        return result;
+        return Collections.singletonMap(vm.getId(), hostNumaMemRequirements);
     }
 
     private void releaseCluster(Guid cluster) {
@@ -659,6 +701,7 @@ public class SchedulingManager implements BackendService {
         if (vms.size() < 2) {
             return Collections.singletonList(vms);
         }
+        vms.sort(new VmsCpuPinningPolicyComparator().reversed());
 
         if (context.isDoNotGroupVms() || context.isIgnoreHardVmToVmAffinity()) {
             return vms.stream()
@@ -1402,12 +1445,17 @@ public class SchedulingManager implements BackendService {
      * * CPU load duration interval over/under policy threshold
      */
     public void updateHostSchedulingStats(VDS vds) {
-        if (vds.getUsageCpuPercent() != null) {
+        HostCpuLoadHelper cpuLoadHelper = new HostCpuLoadHelper(vds,
+                resourceManager,
+                vdsCpuUnitPinningHelper);
+
+        if (cpuLoadHelper.hostStatisticsPresent()) {
             Cluster cluster = clusterDao.get(vds.getClusterId());
-            if (vds.getUsageCpuPercent() >= NumberUtils.toInt(cluster.getClusterPolicyProperties()
+            double effectiveSharedCpuLoad = cpuLoadHelper.getEffectiveSharedCpuLoad();
+            if (effectiveSharedCpuLoad >= NumberUtils.toInt(cluster.getClusterPolicyProperties()
                     .get(HIGH_UTILIZATION),
                     Config.<Integer> getValue(ConfigValues.HighUtilizationForEvenlyDistribute))
-                    || vds.getUsageCpuPercent() <= NumberUtils.toInt(cluster.getClusterPolicyProperties()
+                    || effectiveSharedCpuLoad <= NumberUtils.toInt(cluster.getClusterPolicyProperties()
                             .get(LOW_UTILIZATION),
                             Config.<Integer> getValue(ConfigValues.LowUtilizationForEvenlyDistribute))) {
                 if (vds.getCpuOverCommitTimestamp() == null) {

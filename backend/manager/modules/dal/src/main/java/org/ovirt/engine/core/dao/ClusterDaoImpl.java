@@ -1,5 +1,6 @@
 package org.ovirt.engine.core.dao;
 
+import java.sql.Types;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -187,12 +188,31 @@ public class ClusterDaoImpl extends BaseDao implements ClusterDao {
     }
 
     @Override
-    public boolean setUpgradeRunning(Guid clusterId) {
+    public boolean setUpgradeRunning(Guid clusterId, String correlationId) {
         MapSqlParameterSource parameterSource = getCustomMapSqlParameterSource()
-                .addValue("cluster_id", clusterId);
+                .addValue("cluster_id", clusterId)
+                .addValue("correlation_id", correlationId);
 
         Map<String, Object> results =
-                getCallsHandler().executeModification("SetClusterUpgradeRunning", parameterSource);
+                getCallsHandler().executeModification("SetClusterUpgradeRunning",
+                        parameterSource,
+                        "updated",
+                        Types.BIT);
+
+        return (Boolean) results.get("updated");
+    }
+
+    @Override
+    public boolean setUpgradePercentComplete(Guid clusterId, int upgradePercentComplete) {
+        MapSqlParameterSource parameterSource = getCustomMapSqlParameterSource()
+                .addValue("cluster_id", clusterId)
+                .addValue("upgrade_percent_complete", upgradePercentComplete);
+
+        Map<String, Object> results =
+                getCallsHandler().executeModification("UpdateClusterUpgradeProgress",
+                        parameterSource,
+                        "updated",
+                        Types.BIT);
 
         return (Boolean) results.get("updated");
     }
@@ -203,7 +223,10 @@ public class ClusterDaoImpl extends BaseDao implements ClusterDao {
                 .addValue("cluster_id", clusterId);
 
         Map<String, Object> results =
-                getCallsHandler().executeModification("ClearClusterUpgradeRunning", parameterSource);
+                getCallsHandler().executeModification("ClearClusterUpgradeRunning",
+                        parameterSource,
+                        "updated",
+                        Types.BIT);
         return (Boolean) results.get("updated");
     }
 
@@ -237,17 +260,14 @@ public class ClusterDaoImpl extends BaseDao implements ClusterDao {
                 .addValue("cpu_flags", cluster.getCpuFlags())
                 .addValue("cpu_verb", cluster.getCpuVerb())
                 .addValue("storage_pool_id", cluster.getStoragePoolId())
-                .addValue("max_vds_memory_over_commit",
-                        cluster.getMaxVdsMemoryOverCommit())
+                .addValue("max_vds_memory_over_commit", cluster.getMaxVdsMemoryOverCommit())
                 .addValue("smt_disabled", cluster.getSmtDisabled())
-                .addValue("count_threads_as_cores",
-                        cluster.getCountThreadsAsCores())
-                .addValue("upgrade_running",
-                        cluster.isUpgradeRunning())
-                .addValue("transparent_hugepages",
-                        cluster.getTransparentHugepages())
-                .addValue("compatibility_version",
-                        cluster.getCompatibilityVersion())
+                .addValue("count_threads_as_cores", cluster.getCountThreadsAsCores())
+                .addValue("upgrade_running", cluster.isUpgradeRunning())
+                .addValue("upgrade_percent_complete", cluster.getUpgradePercentComplete())
+                .addValue("upgrade_correlation_id", cluster.getUpgradeCorrelationId())
+                .addValue("transparent_hugepages", cluster.getTransparentHugepages())
+                .addValue("compatibility_version", cluster.getCompatibilityVersion())
                 .addValue("migrate_on_error", cluster.getMigrateOnError())
                 .addValue("virt_service", cluster.supportsVirtService())
                 .addValue("gluster_service", cluster.supportsGlusterService())
@@ -319,6 +339,8 @@ public class ClusterDaoImpl extends BaseDao implements ClusterDao {
         entity.setSmtDisabled(rs.getBoolean("smt_disabled"));
         entity.setCountThreadsAsCores(rs.getBoolean("count_threads_as_cores"));
         entity.setUpgradeRunning(rs.getBoolean("upgrade_running"));
+        entity.setUpgradePercentComplete(rs.getInt("upgrade_percent_complete"));
+        entity.setUpgradeCorrelationId(rs.getString("upgrade_correlation_id"));
         entity.setTransparentHugepages(rs.getBoolean("transparent_hugepages"));
         entity.setCompatibilityVersion(new VersionRowMapper("compatibility_version").mapRow(rs, rowNum));
         entity.setMigrateOnError(MigrateOnErrorOptions.forValue(rs.getInt("migrate_on_error")));

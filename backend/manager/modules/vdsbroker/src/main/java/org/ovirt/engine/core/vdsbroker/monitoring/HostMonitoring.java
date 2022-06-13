@@ -30,6 +30,7 @@ import org.ovirt.engine.core.common.businessentities.network.VdsNetworkInterface
 import org.ovirt.engine.core.common.businessentities.network.VdsNetworkStatistics;
 import org.ovirt.engine.core.common.config.Config;
 import org.ovirt.engine.core.common.config.ConfigValues;
+import org.ovirt.engine.core.common.utils.HugePageUtils;
 import org.ovirt.engine.core.common.utils.NetworkCommonUtils;
 import org.ovirt.engine.core.common.vdscommands.BrokerCommandCallback;
 import org.ovirt.engine.core.common.vdscommands.SetVdsStatusVDSCommandParameters;
@@ -202,7 +203,9 @@ public class HostMonitoring implements HostMonitoringInterface {
             try {
                 final AtomicBoolean processHardwareNeededAtomic = new AtomicBoolean();
                 VDSReturnValue caps = (VDSReturnValue) response.get("result");
-                vdsManager.invokeGetHardwareInfo(vds, caps);
+                if (caps.getSucceeded()) {
+                    vdsManager.getHardwareInfo(vds);
+                }
                 VDSStatus refreshReturnStatus = vdsManager.processRefreshCapabilitiesResponse(processHardwareNeededAtomic,
                         vds,
                         oldVds,
@@ -313,7 +316,7 @@ public class HostMonitoring implements HostMonitoringInterface {
      */
     private void checkVdsMemoryThreshold(Cluster cluster, VdsStatistics stat) {
 
-        if (stat.getMemFree() == null || stat.getUsageMemPercent() == null) {
+        if (stat.getMemFree() == null || vds.getPhysicalMemMb() == null) {
             return;
         }
 
@@ -326,8 +329,12 @@ public class HostMonitoring implements HostMonitoringInterface {
 
     private void checkVdsMemoryThresholdPercentage(Cluster cluster, VdsStatistics stat) {
         Integer maxUsedPercentageThreshold = cluster.getLogMaxMemoryUsedThreshold();
+        int memTotal = vds.getPhysicalMemMb() - HugePageUtils.totalHugePageMemMb(vds);
+        long memFree = stat.getMemFree();
+        // usage for the normal memory (hugepages are excluded)
+        long memUsage = 100 - Math.round(100 * memFree / (double) memTotal);
 
-        if (stat.getUsageMemPercent() > maxUsedPercentageThreshold) {
+        if (memUsage > maxUsedPercentageThreshold) {
             logMemoryAuditLog(vds, cluster, stat, AuditLogType.VDS_HIGH_MEM_USE, maxUsedPercentageThreshold);
         }
     }
@@ -449,7 +456,6 @@ public class HostMonitoring implements HostMonitoringInterface {
 
             if (refreshedCapabilities) {
                 getVdsEventListener().handleVdsVersion(vds.getId());
-                getVdsEventListener().handleVdsFips(vds.getId());
                 markIsSetNonOperationalExecuted();
             }
 
@@ -805,7 +811,9 @@ public class HostMonitoring implements HostMonitoringInterface {
             try {
                 final AtomicBoolean processHardwareCapsNeededTemp = new AtomicBoolean();
                 VDSReturnValue caps = (VDSReturnValue) response.get("result");
-                vdsManager.invokeGetHardwareInfo(vds, caps);
+                if (caps.getSucceeded()) {
+                    vdsManager.getHardwareInfo(vds);
+                }
                 vdsManager.processRefreshCapabilitiesResponse(processHardwareCapsNeededTemp,
                         vds,
                         oldVds,
@@ -884,6 +892,8 @@ public class HostMonitoring implements HostMonitoringInterface {
 
         int memCommited = host.getGuestOverhead();
         int vmsCoresCount = 0;
+        int maxSharedCpus = 0;
+        int vmsSharedCpusCount = 0;
 
         for (Map.Entry<Guid, VMStatus> entry : vmIdToStatus.entrySet()) {
             VMStatus status = entry.getValue();
@@ -894,9 +904,18 @@ public class HostMonitoring implements HostMonitoringInterface {
                 if (vmManager != null) {
                     memCommited += vmManager.getVmMemoryWithOverheadInMB();
                     vmsCoresCount += vmManager.getNumOfCpus();
+                    int sharedCpus = vmManager.getCpuPinningPolicy() != null && !vmManager.getCpuPinningPolicy().isExclusive()
+                            ? vmManager.getNumOfCpus() : 0;
+                    maxSharedCpus = Math.max(maxSharedCpus, sharedCpus);
+
+                    if (!vmManager.getCpuPinningPolicy().isExclusive()) {
+                        vmsSharedCpusCount += vmManager.getNumOfCpus();
+                    }
                 }
             }
         }
+
+        resourceManager.getVdsManager(host.getId()).setMinRequiredSharedCpusCount(maxSharedCpus);
 
         if (memCommited != host.getMemCommited()) {
             host.setMemCommited(memCommited);
@@ -906,6 +925,8 @@ public class HostMonitoring implements HostMonitoringInterface {
             host.setVmsCoresCount(vmsCoresCount);
             memoryUpdated = true;
         }
+
+        resourceManager.getVdsManager(host.getId()).setVmsSharedCpusCount(vmsSharedCpusCount);
 
         return memoryUpdated;
     }

@@ -1597,7 +1597,7 @@ public interface UIConstants extends Constants {
 
     String cpuPinningUnavailable();
 
-    String cpuChangesConflictWithAutoPin();
+    String changesConflictWithAutoPin();
 
     String portMirroringNotSupportedExternalNetworks();
 
@@ -1935,6 +1935,8 @@ public interface UIConstants extends Constants {
 
     String numaDisabledInfoMessage();
 
+    String numaDisabledForDedicatedCpusInfoMessage();
+
     String numaInfoMessage();
 
     String eitherTotalOrReadWriteCanHaveValues();
@@ -2231,6 +2233,8 @@ public interface UIConstants extends Constants {
 
     String cpuPinningDedicatedDescription();
 
+    String cpuPinningIsolateThreadsDescription();
+
     String cpuPinningDedicatedDisabled();
 
     String accountSettings();
@@ -2244,4 +2248,6 @@ public interface UIConstants extends Constants {
     String confirmSuspendingVm();
 
     String homePageCustom();
+
+    String statelessVmFieldDisabledReason();
 }

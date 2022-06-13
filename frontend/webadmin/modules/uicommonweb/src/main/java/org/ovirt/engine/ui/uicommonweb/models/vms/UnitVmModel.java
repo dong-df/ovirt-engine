@@ -70,6 +70,7 @@ import org.ovirt.engine.ui.uicommonweb.models.HasValidatedTabs;
 import org.ovirt.engine.ui.uicommonweb.models.ListModel;
 import org.ovirt.engine.ui.uicommonweb.models.Model;
 import org.ovirt.engine.ui.uicommonweb.models.ModelWithMigrationsOptions;
+import org.ovirt.engine.ui.uicommonweb.models.OvirtSelectionModel;
 import org.ovirt.engine.ui.uicommonweb.models.SortedListModel;
 import org.ovirt.engine.ui.uicommonweb.models.TabName;
 import org.ovirt.engine.ui.uicommonweb.models.ValidationCompleteEvent;
@@ -1622,8 +1623,6 @@ public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMig
 
     private EntityModel<Boolean> numaEnabled;
 
-    private int initialsNumaNodeCount;
-
     private NotChangableForVmInPoolEntityModel<Integer> numaNodeCount;
 
     public EntityModel<Integer> getNumaNodeCount() {
@@ -1632,6 +1631,16 @@ public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMig
 
     public void setNumaNodeCount(NotChangableForVmInPoolEntityModel<Integer> numaNodeCount) {
         this.numaNodeCount = numaNodeCount;
+    }
+
+    private List<VmNumaNode> initialVmNumaNodes = new ArrayList<>();
+
+    public List<VmNumaNode> getInitialVmNumaNodes() {
+        return initialVmNumaNodes;
+    }
+
+    public void setInitialVmNumaNodes(List<VmNumaNode> vmNumaNodes) {
+        this.initialVmNumaNodes = new ArrayList<>(vmNumaNodes);
     }
 
     private List<VmNumaNode> vmNumaNodes;
@@ -1823,7 +1832,9 @@ public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMig
         setCustomProperties(new NotChangableForVmInPoolEntityModel<String>());
         setCustomPropertySheet(new NotChangableForVmInPoolKeyValueModel());
         getCustomPropertySheet().setShowInvalidKeys(true);
-        setDisplayType(new NotChangableForVmInPoolListModel<DisplayType>());
+        // Do not use selection model. The selection model causes synchronization problems
+        // when we use setSelectedItem() and setItems(items, selectedItem) together
+        setDisplayType(new NotChangableForVmInPoolListModel<DisplayType>(OvirtSelectionModel.Mode.NO_SELECTION));
         setGraphicsType(new NotChangableForVmInPoolListModel<GraphicsTypes>());
         setSecondBootDevice(new NotChangableForVmInPoolListModel<EntityModel<BootSequence>>());
         setBootMenuEnabled(new NotChangableForVmInPoolEntityModel<Boolean>());
@@ -2296,9 +2307,11 @@ public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMig
                 updateResumeBehavior();
             } else if (sender == getBiosType()) {
                 updateDisplayAndGraphics();
+                behavior.assignDefaultDisplayType();
                 updateTpmEnabled();
             } else if (sender == getCpuPinningPolicy()) {
                 cpuPinningPolicyChanged();
+                behavior.updateNumaEnabled();
             } else if (sender == getConsoleDisconnectAction()){
                 consoleDisconnectActionSelectedItemChanged();
             }
@@ -2367,15 +2380,16 @@ public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMig
     }
 
     private void disableCpuFields() {
-        getTotalCPUCores().setIsChangeable(false, constants.cpuChangesConflictWithAutoPin());
-        getNumOfSockets().setIsChangeable(false, constants.cpuChangesConflictWithAutoPin());
-        getCoresPerSocket().setIsChangeable(false, constants.cpuChangesConflictWithAutoPin());
-        getThreadsPerCore().setIsChangeable(false, constants.cpuChangesConflictWithAutoPin());
+        getTotalCPUCores().setIsChangeable(false, constants.changesConflictWithAutoPin());
+        getNumOfSockets().setIsChangeable(false, constants.changesConflictWithAutoPin());
+        getCoresPerSocket().setIsChangeable(false, constants.changesConflictWithAutoPin());
+        getThreadsPerCore().setIsChangeable(false, constants.changesConflictWithAutoPin());
     }
 
     private void compatibilityVersionChanged(Object sender, EventArgs args) {
         dataCenterWithClusterSelectedItemChanged(sender, args);
         updateDisplayAndGraphics();
+        behavior.assignDefaultDisplayType();
         behavior.updateNumOfIoThreads();
         initUsbPolicy();
         updateMultiQueues();
@@ -2597,13 +2611,10 @@ public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMig
     }
 
     public void initDisplayModels(Set<DisplayType> displayTypes, DisplayType selectedDisplayType) {
-        // set items and set selected one
         if (displayTypes.contains(selectedDisplayType)) {
-            getDisplayType().setItems(displayTypes);
-            getDisplayType().setSelectedItem(selectedDisplayType);
+            getDisplayType().setItems(displayTypes, selectedDisplayType);
         } else if (displayTypes.size() > 0) {
-            getDisplayType().setItems(displayTypes);
-            getDisplayType().setSelectedItem(displayTypes.iterator().next());
+            getDisplayType().setItems(displayTypes, displayTypes.iterator().next());
         }
     }
 
@@ -3568,6 +3579,15 @@ public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMig
     }
 
     private class NotChangableForVmInPoolListModel<T> extends ListModel<T> {
+
+        public NotChangableForVmInPoolListModel() {
+            super();
+        }
+
+        public NotChangableForVmInPoolListModel(OvirtSelectionModel.Mode selectionMode) {
+            super(selectionMode);
+        }
+
         @Override
         public ListModel<T> setIsChangeable(boolean value) {
             if (!isVmAttachedToPool()) {
@@ -3808,6 +3828,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMig
         model.getVm().setvNumaNodeList(getVmNumaNodes());
 
         behavior.useNumaPinningChanged(getVmNumaNodes());
+        updateCpuPinningPolicy();
     }
 
     public void setNumaChanged(boolean numaChanged) {
@@ -3815,11 +3836,10 @@ public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMig
     }
 
     public boolean isNumaChanged() {
-        return numaChanged || initialsNumaNodeCount != getNumaNodeCount().getEntity();
+        return numaChanged || initialVmNumaNodes.size() != getNumaNodeCount().getEntity();
     }
 
     public void updateNodeCount(int size) {
-        initialsNumaNodeCount = size;
         getNumaNodeCount().setEntity(size);
     }
 
@@ -3983,7 +4003,7 @@ public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMig
         if (ParallelMigrationsType.CUSTOM.equals(parallelMigrationsType.getSelectedItem())) {
             getCustomParallelMigrations().setIsChangeable(true);
             if (getCustomParallelMigrations().getEntity() == null) {
-                getCustomParallelMigrations().setEntity(0);
+                getCustomParallelMigrations().setEntity(ParallelMigrationsType.MIN_PARALLEL_CONNECTIONS);
             }
         } else {
             getCustomParallelMigrations().setIsChangeable(false, constants.customParallelMigrationsDisabledReason());
@@ -4068,12 +4088,22 @@ public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMig
             isDedicatedCpusSupported = AsyncDataProvider.getInstance()
                     .isDedicatedPolicySupportedByVersion(getCompatibilityVersion());
         }
+
+        boolean numaNodesUnpinned =
+                getNumaEnabled() == null
+                        || getNumaEnabled().getEntity() == null
+                        || !getNumaEnabled().getEntity()
+                        || getVmNumaNodes() == null
+                        || getVmNumaNodes().stream().allMatch(numa -> numa.getVdsNumaNodeList().isEmpty());
+
         cpuPinningPolicy.setCpuPolicyEnabled(CpuPinningPolicy.MANUAL, defaultHostSelected);
-        cpuPinningPolicy.setCpuPolicyEnabled(CpuPinningPolicy.DEDICATED, isDedicatedCpusSupported);
+        cpuPinningPolicy.setCpuPolicyEnabled(CpuPinningPolicy.DEDICATED, isDedicatedCpusSupported && numaNodesUnpinned);
+        cpuPinningPolicy.setCpuPolicyEnabled(CpuPinningPolicy.ISOLATE_THREADS, isDedicatedCpusSupported && numaNodesUnpinned);
     }
 
     protected void cpuPinningPolicyChanged() {
         updateCpuFields();
+        updateNumaCountField();
         behavior.updateCpuPinningVisibility();
     }
 
@@ -4083,6 +4113,11 @@ public class UnitVmModel extends Model implements HasValidatedTabs, ModelWithMig
         } else {
             enableCpuFields();
         }
+    }
+
+    protected void updateNumaCountField() {
+        boolean enable = getCpuPinningPolicy().getSelectedItem().getPolicy() != CpuPinningPolicy.RESIZE_AND_PIN_NUMA;
+        getNumaNodeCount().setIsChangeable(enable, constants.changesConflictWithAutoPin());
     }
 
     protected void cpuPinningChanged() {

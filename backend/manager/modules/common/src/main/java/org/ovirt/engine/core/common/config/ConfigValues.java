@@ -206,6 +206,10 @@ public enum ConfigValues {
     @TypeConverterAttribute(Integer.class)
     MaxNumOfCpusCoefficient(ClientAccessLevel.User),
     @TypeConverterAttribute(Integer.class)
+    ManyVmCpus(ClientAccessLevel.User),
+    @TypeConverterAttribute(Integer.class)
+    UefiBigVmMemoryGB(ClientAccessLevel.User),
+    @TypeConverterAttribute(Integer.class)
     NumberVmRefreshesBeforeSave,
     @TypeConverterAttribute(Integer.class)
     NumberVdsRefreshesBeforeTryToStartUnknownVms,
@@ -1436,6 +1440,12 @@ public enum ConfigValues {
     @TypeConverterAttribute(Integer.class)
     VMConsoleTicketTolerance,
 
+    @TypeConverterAttribute(Double.class)
+    AnsibleRunnerArtifactsCleanupCheckTimeInHours,
+
+    @TypeConverterAttribute(Integer.class)
+    AnsibleRunnerArtifactsLifetimeInDays,
+
     /**
      * In 4.1 gluster libgfapi is supported.
      */
@@ -1573,6 +1583,9 @@ public enum ConfigValues {
 
     @TypeConverterAttribute(Integer.class)
     LiveSnapshotFreezeTimeout,
+
+    @TypeConverterAttribute(Integer.class)
+    VolumeUtilizationChunkInMB,
 
     @TypeConverterAttribute(Boolean.class)
     IsIncrementalBackupSupported,

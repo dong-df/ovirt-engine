@@ -256,6 +256,7 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
 
     public void templateWithVersion_SelectedItemChanged() {
         updateSeal();
+        updateStateless();
     }
 
     public void postDataCenterWithClusterSelectedItemChanged() {
@@ -1406,9 +1407,6 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
 
         if (vmType == VmType.Server) {
             getModel().getIoThreadsEnabled().setEntity(true);
-            if (getModel().getDisplayType().getItems().contains(DisplayType.bochs)) {
-                getModel().getDisplayType().setSelectedItem(DisplayType.bochs);
-            }
         }
 
         // Configuration relevant only for High Performance
@@ -1440,6 +1438,8 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
         } else {
             getModel().getHostCpu().setEntity(false);
         }
+
+        assignDefaultDisplayType();
 
         // Configuration relevant for either High Performance or VMs with pinned configuration
         if (isVmHpOrPinningConfigurationEnabled()) {
@@ -1632,7 +1632,7 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
     protected void updateNumaEnabled() {
     }
 
-    protected final void updateNumaEnabledHelper() {
+    protected final void updateNumaEnabledHelper(boolean resetNumaCount) {
         boolean enabled = true;
         if (getModel().getIsAutoAssign().getEntity() == null) {
             return;
@@ -1640,15 +1640,23 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
 
         if (getModel().getIsAutoAssign().getEntity() ||
                 getModel().getDefaultHost().getSelectedItems() == null ||
+                getModel().getDefaultHost().getSelectedItems().isEmpty() ||
                 getModel().getDefaultHost().getSelectedItems().stream().anyMatch(x -> !x.isNumaSupport())) {
             enabled = false;
         }
+
+        if (getModel().getCpuPinningPolicy().getSelectedItem().getPolicy() == CpuPinningPolicy.RESIZE_AND_PIN_NUMA) {
+            enabled = false;
+        }
+
         if (enabled) {
             getModel().getNumaEnabled().setMessage(constants.numaInfoMessage());
         } else {
             getModel().getNumaEnabled().setMessage(constants.numaDisabledInfoMessage());
-            getModel().getNumaNodeCount().setEntity(0);
 
+            if (resetNumaCount) {
+                getModel().getNumaNodeCount().setEntity(0);
+            }
         }
         getModel().getNumaEnabled().setEntity(enabled);
     }
@@ -1722,6 +1730,12 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
         }
         VmTemplate template = selectedTemplateWithVersion.getTemplateVersion();
         getModel().getIsSealed().setEntity(isSealByDefault(template));
+    }
+
+    protected void updateStateless() {
+            getModel().getIsStateless()
+                    .setIsChangeable(!isLatestTemplateSelected(),
+                            constants.statelessVmFieldDisabledReason());
     }
 
     protected boolean isSealByDefault(VmTemplate template) {
@@ -1835,4 +1849,19 @@ public abstract class VmModelBehaviorBase<TModel extends UnitVmModel> {
      protected List<Integer> getOsValues(ArchitectureType architectureType, Version version) {
          return AsyncDataProvider.getInstance().getOsIds(architectureType);
      }
+
+     protected boolean isLatestTemplateSelected() {
+         return getModel().getTemplateWithVersion() != null
+                 && getModel().getTemplateWithVersion().getSelectedItem() != null
+                 && getModel().getTemplateWithVersion().getSelectedItem().isLatest();
+     }
+
+    protected void assignDefaultDisplayType() {
+        if (getModel().getVmType() != null && getModel().getVmType().getSelectedItem() == VmType.Server
+                && getModel().getDisplayType().getItems() != null
+                && getModel().getDisplayType().getItems().contains(DisplayType.bochs)) {
+            getModel().getDisplayType().setSelectedItem(DisplayType.bochs);
+        }
+    }
+
 }

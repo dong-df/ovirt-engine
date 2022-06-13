@@ -1755,7 +1755,6 @@ public abstract class AbstractVmPopupWidget extends AbstractModeSwitchingPopupWi
     }
 
     private void enableNumaFields(boolean enabled) {
-        numaNodeCount.setEnabled(enabled);
         numaSupportButton.setEnabled(enabled);
     }
 

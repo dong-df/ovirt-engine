@@ -32,7 +32,6 @@ import org.apache.commons.lang.exception.ExceptionUtils;
 import org.ovirt.engine.core.bll.context.CompensationContext;
 import org.ovirt.engine.core.bll.interfaces.BackendInternal;
 import org.ovirt.engine.core.bll.network.macpool.MacPool;
-import org.ovirt.engine.core.bll.scheduling.utils.NumaPinningHelper;
 import org.ovirt.engine.core.bll.snapshots.SnapshotVmConfigurationHelper;
 import org.ovirt.engine.core.bll.snapshots.SnapshotsManager;
 import org.ovirt.engine.core.bll.storage.disk.DiskHandler;
@@ -55,6 +54,7 @@ import org.ovirt.engine.core.common.businessentities.BiosType;
 import org.ovirt.engine.core.common.businessentities.ChipsetType;
 import org.ovirt.engine.core.common.businessentities.Cluster;
 import org.ovirt.engine.core.common.businessentities.CopyOnNewVersion;
+import org.ovirt.engine.core.common.businessentities.CpuPinningPolicy;
 import org.ovirt.engine.core.common.businessentities.DisplayType;
 import org.ovirt.engine.core.common.businessentities.EditableDeviceOnVmStatusField;
 import org.ovirt.engine.core.common.businessentities.EditableVmField;
@@ -71,7 +71,9 @@ import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.common.businessentities.VDSStatus;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VMStatus;
+import org.ovirt.engine.core.common.businessentities.VdsCpuUnit;
 import org.ovirt.engine.core.common.businessentities.VdsDynamic;
+import org.ovirt.engine.core.common.businessentities.VdsNumaNode;
 import org.ovirt.engine.core.common.businessentities.VmBase;
 import org.ovirt.engine.core.common.businessentities.VmDevice;
 import org.ovirt.engine.core.common.businessentities.VmDeviceGeneralType;
@@ -103,6 +105,7 @@ import org.ovirt.engine.core.common.queries.NameQueryParameters;
 import org.ovirt.engine.core.common.queries.QueryReturnValue;
 import org.ovirt.engine.core.common.queries.QueryType;
 import org.ovirt.engine.core.common.utils.CompatibilityVersionUtils;
+import org.ovirt.engine.core.common.utils.NumaPinningHelper;
 import org.ovirt.engine.core.common.utils.Pair;
 import org.ovirt.engine.core.common.utils.VmCommonUtils;
 import org.ovirt.engine.core.common.utils.VmDeviceType;
@@ -144,6 +147,7 @@ import org.ovirt.engine.core.utils.transaction.TransactionSupport;
 import org.ovirt.engine.core.vdsbroker.ResourceManager;
 import org.ovirt.engine.core.vdsbroker.VmManager;
 import org.ovirt.engine.core.vdsbroker.builder.vminfo.VmInfoBuildUtils;
+import org.ovirt.engine.core.vdsbroker.vdsbroker.NumaSettingFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -235,6 +239,9 @@ public class VmHandler implements BackendService {
 
     @Inject
     private DiskHandler diskHandler;
+
+    @Inject
+    VmInfoBuildUtils vmInfoBuildUtils;
 
     @Inject
     @ThreadPools(ThreadPools.ThreadPoolType.EngineScheduledThreadPool)
@@ -1302,8 +1309,58 @@ public class VmHandler implements BackendService {
     }
 
     public void updateCpuAndNumaPinning(VM vm, Guid vdsId) {
-        VdsDynamic host = vdsDynamicDao.get(vdsId);
-        NumaPinningHelper.applyAutoPinningPolicy(vm, host, vdsNumaNodeDao.getAllVdsNumaNodeByVdsId(host.getId()));
+        if (vm.getCpuPinningPolicy() == CpuPinningPolicy.RESIZE_AND_PIN_NUMA && vm.getCurrentCpuPinning() == null) {
+            VdsDynamic host = vdsDynamicDao.get(vdsId);
+            NumaPinningHelper.applyAutoPinningPolicy(vm, host, vdsNumaNodeDao.getAllVdsNumaNodeByVdsId(host.getId()));
+        }
+    }
+
+    public void setCpuPinningByNumaPinning(VM vm, Guid vdsId) {
+        String cpuPinning = vm.getVmPinning();
+        if (StringUtils.isNotEmpty(cpuPinning)) {
+            return;
+        }
+        List<VmNumaNode> vmNumaNodes = vmInfoBuildUtils.getVmNumaNodes(vm);
+        List<VdsNumaNode> vdsNumaNodes = vdsNumaNodeDao.getAllVdsNumaNodeByVdsId(vdsId);
+        boolean numaEnabled = vmInfoBuildUtils.isNumaEnabled(vdsNumaNodes, vmNumaNodes, vm);
+        if (!numaEnabled) {
+            return;
+        }
+        Map <String, Object> pinningMap = NumaSettingFactory.buildCpuPinningWithNumaSetting(
+                vmNumaNodes,
+                vdsNumaNodes);
+        if (pinningMap.isEmpty()) {
+            return;
+        }
+        String res = pinningMap.entrySet()
+                .stream()
+                .map(pin -> String.format("%s#%s", pin.getKey(), pin.getValue()))
+                .collect(Collectors.joining("_"));
+        vm.setCurrentCpuPinning(res);
+    }
+
+    public String createNumaPinningForExclusiveCpuPinning(VM vm, Guid vdsId) {
+        List<VdsCpuUnit> cpuUnits = resourceManager.getVdsManager(vdsId)
+                .getCpuTopology()
+                .stream()
+                .filter(cpuUnit -> cpuUnit.getVmIds().contains(vm.getId()))
+                .collect(Collectors.toList());
+
+        return createNumaPinningForExclusiveCpuPinning(vm, cpuUnits);
+    }
+
+    public String createNumaPinningForExclusiveCpuPinning(VM vm, List<VdsCpuUnit> cpuUnits) {
+        if (!vm.getCpuPinningPolicy().isExclusive()
+                || vm.getvNumaNodeList() == null
+                || vm.getvNumaNodeList().isEmpty()
+                || cpuUnits == null) {
+            return null;
+        }
+
+        return NumaPinningHelper.createNumaPinningAccordingToCpuPinning(
+                vm.getvNumaNodeList(),
+                cpuUnits,
+                vm.getCpuPinningPolicy());
     }
 
     public void autoSelectResumeBehavior(VmBase vmBase) {
@@ -1558,21 +1615,27 @@ public class VmHandler implements BackendService {
         }
     }
 
-    public ValidationResult validateCpuPinningPolicy(VmBase vmBase, boolean numaSet, Version version) {
+    public ValidationResult validateCpuPinningPolicy(VmBase vmFromParams, Version version) {
+        return validateCpuPinningPolicy(vmFromParams, null, version);
+    }
+
+    public ValidationResult validateCpuPinningPolicy(VmBase vmFromParams, VmBase vmFromDb, Version version) {
         ValidationResult result = ValidationResult.VALID;
 
-        switch (vmBase.getCpuPinningPolicy()) {
+        switch (vmFromParams.getCpuPinningPolicy()) {
         case MANUAL:
-            if (StringUtils.isBlank(vmBase.getCpuPinning())) {
+            if (StringUtils.isBlank(vmFromParams.getCpuPinning())) {
                 result = new ValidationResult(EngineMessage.ACTION_TYPE_CANNOT_SET_MANUAL_PINNING);
             }
             break;
         case RESIZE_AND_PIN_NUMA:
-            if (numaSet) {
+            if (vmFromDb != null
+                    && (vmFromDb.getNumOfCpus() != vmFromParams.getNumOfCpus()
+                            || !vmFromDb.getvNumaNodeList().equals(vmFromParams.getvNumaNodeList()))) {
                 result = new ValidationResult(EngineMessage.ACTION_TYPE_CANNOT_RESIZE_AND_PIN_AND_NUMA_SET);
                 break;
             }
-            boolean singleCoreHostFound = vmBase.getDedicatedVmForVdsList()
+            boolean singleCoreHostFound = vmFromParams.getDedicatedVmForVdsList()
                     .stream()
                     .map(vdsId -> vdsDynamicDao.get(vdsId))
                     .anyMatch(vdsDynamic -> vdsDynamic.getCpuCores() / vdsDynamic.getCpuSockets() == 1);
@@ -1583,6 +1646,13 @@ public class VmHandler implements BackendService {
         case DEDICATED:
             if (!FeatureSupported.isDedicatePolicySupported(version)) {
                 result = new ValidationResult(EngineMessage.ACTION_TYPE_FAILED_DEDICATED_IS_NOT_SUPPORTED);
+                break;
+            }
+
+            boolean anyNodePinned =
+                vmFromParams.getvNumaNodeList().stream().anyMatch(numa -> !numa.getVdsNumaNodeList().isEmpty());
+            if (anyNodePinned) {
+                result = new ValidationResult(EngineMessage.ACTION_TYPE_CANNOT_SET_DEDICATED_PINNING_WITH_NUMA_NODES_PINNED);
             }
             break;
         default:

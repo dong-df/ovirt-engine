@@ -653,7 +653,7 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String ActionType___SetupNetworks();
 
-    String ActionType___CreateAllSnapshotsFromVm();
+    String ActionType___CreateSnapshotForVm();
 
     String ActionType___DetachActionFromRole();
 
@@ -1269,6 +1269,8 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String CpuPinningPolicy___DEDICATED();
 
+    String CpuPinningPolicy___ISOLATE_THREADS();
+
     String SerialNumberPolicy___HOST_ID();
 
     String SerialNumberPolicy___VM_ID();
@@ -1393,6 +1395,8 @@ public interface LocalizedEnums extends ConstantsWithLookup {
 
     String NfsVersion___V4_1();
 
+    String NfsVersion___V4_2();
+
     String NfsVersion___AUTO();
 
     String StorageFormatType___V1();
@@ -1484,6 +1488,8 @@ public interface LocalizedEnums extends ConstantsWithLookup {
     String DisplayType___cirrus();
 
     String DisplayType___vga();
+
+    String DisplayType___bochs();
 
     String DisplayType___none();
 

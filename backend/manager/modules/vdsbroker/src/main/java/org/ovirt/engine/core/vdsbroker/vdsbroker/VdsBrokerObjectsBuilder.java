@@ -106,6 +106,7 @@ import org.ovirt.engine.core.common.config.Config;
 import org.ovirt.engine.core.common.config.ConfigValues;
 import org.ovirt.engine.core.common.network.SwitchType;
 import org.ovirt.engine.core.common.utils.EnumUtils;
+import org.ovirt.engine.core.common.utils.HugePageUtils;
 import org.ovirt.engine.core.common.utils.NetworkCommonUtils;
 import org.ovirt.engine.core.common.utils.SizeConverter;
 import org.ovirt.engine.core.common.utils.VmDeviceCommonUtils;
@@ -1268,9 +1269,6 @@ public class VdsBrokerObjectsBuilder {
     }
 
     public void updateVDSStatisticsData(VDS vds, Map<String, Object> struct) {
-        // ------------- vds memory usage ---------------------------
-        vds.setUsageMemPercent(assignIntValue(struct, VdsProperties.mem_usage));
-
         // ------------- vds network statistics ---------------------
         Map<String, Object> interfaces = (Map<String, Object>) struct.get(VdsProperties.NETWORK);
         if (interfaces != null) {
@@ -1408,8 +1406,22 @@ public class VdsBrokerObjectsBuilder {
 
         vds.setBootTime(assignLongValue(struct, VdsProperties.bootTime));
 
+        // this method needs to be called after the free memory and hugepages are set to vds
+        updateMemoryUsage(vds);
         updateNumaStatisticsData(vds, struct);
         updateV2VJobs(vds, struct);
+    }
+
+    private void updateMemoryUsage(VDS vds) {
+        if (vds.getPhysicalMemMb() == null || vds.getMemFree() == null || vds.getHugePages() == null) {
+            return;
+        }
+        int memTotal = vds.getPhysicalMemMb();
+        long memFree = vds.getMemFree() + HugePageUtils.totalHugePageFreeMemMb(vds);
+        // usage for the memory (hugepages are included)
+        long memUsage = 100 - Math.round(100 * memFree / (double) memTotal);
+
+        vds.setUsageMemPercent((int) memUsage);
     }
 
     private static void extractInterfaceStatistics(Map<String, Object> dict, NetworkInterface<?> iface) {
@@ -1602,6 +1614,12 @@ public class VdsBrokerObjectsBuilder {
                         acquired = (Boolean)internalValue.get(VdsProperties.acquired);
                     }
                     data.setAcquired(acquired);
+
+                    Boolean valid = Boolean.FALSE;
+                    if (internalValue.containsKey(VdsProperties.valid)) {
+                        valid = (Boolean)internalValue.get(VdsProperties.valid);
+                    }
+                    data.setValid(valid);
                     domainsData.add(data);
                 } catch (Exception e) {
                     log.error("failed building domains: {}", e.getMessage());
@@ -1789,9 +1807,9 @@ public class VdsBrokerObjectsBuilder {
             if (!StringUtils.isEmpty(imageGroupIdString)) {
                 Guid imageGroupIdGuid = new Guid(imageGroupIdString);
                 diskData.setId(imageGroupIdGuid);
-                diskData.setReadRate(assignIntValue(disk, VdsProperties.vm_disk_read_rate));
+                diskData.setReadRate(assignLongValue(disk, VdsProperties.vm_disk_read_rate));
                 diskData.setReadOps(assignLongValue(disk, VdsProperties.vm_disk_read_ops));
-                diskData.setWriteRate(assignIntValue(disk, VdsProperties.vm_disk_write_rate));
+                diskData.setWriteRate(assignLongValue(disk, VdsProperties.vm_disk_write_rate));
                 diskData.setWriteOps(assignLongValue(disk, VdsProperties.vm_disk_write_ops));
 
                 if (disk.containsKey(VdsProperties.disk_true_size)) {
@@ -2587,10 +2605,11 @@ public class VdsBrokerObjectsBuilder {
             Object[] cpuTopology = (Object[]) struct.get(VdsProperties.cpu_topology);
             for (Object cpuCapabilityObject : cpuTopology) {
                 Map<String, Object> cpuCapability = (Map<String, Object>) cpuCapabilityObject;
+                int numa = (Integer) cpuCapability.get(VdsProperties.numa_id);
                 int socket = (Integer) cpuCapability.get(VdsProperties.socket_id);
                 int core = (Integer) cpuCapability.get(VdsProperties.core_id);
                 int cpuId = (Integer) cpuCapability.get(VdsProperties.cpu_id);
-                VdsCpuUnit vdsCpuUnit = new VdsCpuUnit(socket, core, cpuId);
+                VdsCpuUnit vdsCpuUnit = new VdsCpuUnit(numa, socket, core, cpuId);
                 vdsCpuTopology.add(vdsCpuUnit);
             }
             vds.setCpuTopology(vdsCpuTopology);

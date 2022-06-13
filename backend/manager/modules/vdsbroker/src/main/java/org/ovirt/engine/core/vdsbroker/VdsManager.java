@@ -182,6 +182,8 @@ public class VdsManager {
     private HostConnectionRefresherInterface hostRefresher;
     private volatile boolean inServerRebootTimeout;
     private List<VdsCpuUnit> cpuTopology;
+    private int minRequiredSharedCpusCount;
+    private int vmsSharedCpusCount;
 
     VdsManager(VDS vds, ResourceManager resourceManager) {
         this.resourceManager = resourceManager;
@@ -189,6 +191,7 @@ public class VdsManager {
         refreshIteration = new AtomicInteger(NUMBER_HOST_REFRESHES_BEFORE_SAVE - 1);
         log.info("Entered VdsManager constructor");
         cachedVds = vds;
+        vmsSharedCpusCount = cachedVds.getVmsCoresCount();
         vdsId = vds.getId();
         unrespondedAttempts = new AtomicInteger();
         autoStartVmsWithLeasesLock = new ReentrantLock();
@@ -544,6 +547,12 @@ public class VdsManager {
     public void updateStatisticsData(VdsStatistics statisticsData) {
         vdsStatisticsDao.update(statisticsData);
         cachedVds.setStatisticsData(statisticsData);
+
+        statisticsData.getCpuCoreStatistics().stream().forEach(statistics -> {
+            cpuTopology.stream()
+                .filter(cpu -> cpu.getCpu() == statistics.getCpuId())
+                .forEach(cpu -> cpu.setCpuUsagePercent(statistics.getCpuUsagePercent()));
+        });
     }
 
     /**
@@ -635,32 +644,23 @@ public class VdsManager {
 
     private void handleRefreshCapabilitiesResponse(VDS vds, VDSReturnValue caps) {
         try {
-            invokeGetHardwareInfo(vds, caps);
             processRefreshCapabilitiesResponse(new AtomicBoolean(), vds, vds.clone(), caps);
         } catch (Throwable t) {
             logRefreshCapabilitiesFailure(t);
             throw t;
-        } finally {
-            if (vds != null) {
-                updateDynamicData(vds.getDynamicData());
-                updateNumaData(vds);
-
-                // Update VDS after testing special hardware capabilities
-                monitoringStrategy.processHardwareCapabilities(vds);
-
-                // Always check VdsVersion
-                resourceManager.getEventListener().handleVdsVersion(vds.getId());
-
-                // Check FIPS compatibility
-                resourceManager.getEventListener().handleVdsFips(vds.getId());
-            }
         }
-    }
 
-    public void invokeGetHardwareInfo(VDS vds, VDSReturnValue caps) {
-        if (caps.getSucceeded()) {
+        try {
             getHardwareInfo(vds);
+        } catch (Throwable t) {
+            log.error("Failed to get hardware information: {}", ExceptionUtils.getRootCauseMessage(t));
+            log.debug("Exception", t);
         }
+
+        updateDynamicData(vds.getDynamicData());
+        updateNumaData(vds);
+        monitoringStrategy.processHardwareCapabilities(vds);
+        resourceManager.getEventListener().handleVdsVersion(vds.getId());
     }
 
     public void getHardwareInfo(VDS vds) {
@@ -913,7 +913,7 @@ public class VdsManager {
         }
         if (cachedVds.getStatus() != VDSStatus.Down) {
             unrespondedAttempts.incrementAndGet();
-            if (isHostInGracePeriod(false)) {
+            if (isHostInGracePeriod()) {
                 if (cachedVds.getStatus() != VDSStatus.Connecting
                         && cachedVds.getStatus() != VDSStatus.PreparingForMaintenance
                         && cachedVds.getStatus() != VDSStatus.NonResponsive) {
@@ -972,31 +972,16 @@ public class VdsManager {
     }
 
     /**
-     * Checks if host is in grace period from last successful communication to fencing attempt
+     * Checks if host is in grace period from last successful communication
      *
-     * @param sshSoftFencingExecuted
-     *            if SSH Soft Fencing was already executed we need to raise default timeout to determine if SSH Soft
-     *            Fencing was successful and host became Up
      * @return <code>true</code> if host is still in grace period, otherwise <code>false</code>
      */
-    public boolean isHostInGracePeriod(boolean sshSoftFencingExecuted) {
-        long timeoutToFence = calcTimeoutToFence(cachedVds.getVmCount(), cachedVds.getSpmStatus());
+    public boolean isHostInGracePeriod() {
         int unrespondedAttemptsBarrier = Config.<Integer>getValue(ConfigValues.VDSAttemptsToResetCount);
-
-        if (sshSoftFencingExecuted) {
-            // SSH Soft Fencing has already been executed, increase timeout to see if host is OK
-            timeoutToFence = timeoutToFence * 2;
-            unrespondedAttemptsBarrier = unrespondedAttemptsBarrier * 2;
-        }
-        // return when either attempts reached or timeout passed, the sooner takes
-        if (unrespondedAttempts.get() > unrespondedAttemptsBarrier) {
-            // too many unresponded attempts
-            return false;
-        } else if ((lastUpdate + timeoutToFence) > System.currentTimeMillis()) {
-            // timeout since last successful communication attempt passed
-            return false;
-        }
-        return true;
+        long timeToFence = calcTimeoutToFence(cachedVds.getVmCount(),
+                cachedVds.getSpmStatus());
+        return unrespondedAttempts.get() <= unrespondedAttemptsBarrier || lastUpdate + timeToFence >=
+                System.currentTimeMillis();
     }
 
     private void logHostFailToRespond(VDSNetworkException ex) {
@@ -1270,14 +1255,35 @@ public class VdsManager {
      */
     private void recoverCpuPinning(List<VM> vms) {
         for (VM vm : vms) {
-            String pinning = CpuPinningHelper.getVmPinning(vm);
+            String pinning = vm.getVmPinning();
             if (pinning != null) {
                 Set<Integer> pinnedCpus = CpuPinningHelper.getAllPinnedPCpus(pinning);
                 synchronized (this) {
-                    cpuTopology.stream()
-                            .filter(cpu -> pinnedCpus.contains(cpu.getCpu()))
-                            .forEach(cpu -> cpu.pinVm(vm.getId(), vm.getCpuPinningPolicy()));
+                    List<VdsCpuUnit> vdsCpuUnits = new ArrayList<>();
+                    for (int pCpu : pinnedCpus) {
+                        VdsCpuUnit cpu = cpuTopology.stream()
+                                .filter(vdsCpu -> vdsCpu.getCpu() == pCpu)
+                                .findFirst().orElse(null);
+                        if (cpu == null) {
+                            return;
+                        }
+                        if (vm.getCpuPinningPolicy() == CpuPinningPolicy.ISOLATE_THREADS) {
+                            addWithThreadSiblings(vdsCpuUnits, cpu);
+                        } else {
+                            vdsCpuUnits.add(cpu);
+                        }
+                    }
+                    vdsCpuUnits.forEach(cpu -> cpu.pinVm(vm.getId(), vm.getCpuPinningPolicy()));
                 }
+            }
+        }
+    }
+
+    private void addWithThreadSiblings(List<VdsCpuUnit> vdsCpuUnits, VdsCpuUnit cpu) {
+        for (VdsCpuUnit vdsCpuUnit : cpuTopology) {
+            if (vdsCpuUnit.getSocket() == cpu.getSocket() &&
+                    vdsCpuUnit.getCore() == cpu.getCore()) {
+                vdsCpuUnits.add(vdsCpuUnit);
             }
         }
     }
@@ -1338,6 +1344,7 @@ public class VdsManager {
             return;
         }
         this.cpuTopology = cpuTopology;
+        Collections.sort(this.cpuTopology);
         this.cpuTopology.stream().filter(cpu -> cpu.getCpu() == vdsmCpu)
                 .forEach(cpu -> cpu.pinVm(Guid.SYSTEM, CpuPinningPolicy.MANUAL));
     }
@@ -1351,5 +1358,21 @@ public class VdsManager {
     public void unpinVmCpus(Guid vmId) {
         cpuTopology.stream().filter(cpu -> cpu.getVmIds().contains(vmId))
                 .forEach(cpu -> cpu.unPinVm(vmId));
+    }
+
+    public void setMinRequiredSharedCpusCount(int minSharedCpusCount) {
+        this.minRequiredSharedCpusCount = minSharedCpusCount;
+    }
+
+    public int getMinRequiredSharedCpusCount() {
+        return minRequiredSharedCpusCount < 1 ? 1 : minRequiredSharedCpusCount;
+    }
+
+    public void setVmsSharedCpusCount(int sharedCpuCount) {
+        this.vmsSharedCpusCount = sharedCpuCount;
+    }
+
+    public int getVmsSharedCpusCount() {
+        return vmsSharedCpusCount;
     }
 }

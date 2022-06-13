@@ -283,12 +283,13 @@ public class LibvirtVmXmlBuilder {
         writeClock();
         writePowerEvents();
         writeFeatures();
-        boolean numaEnabled = vmInfoBuildUtils.isNumaEnabled(hostNumaNodesSupplier, vmNumaNodesSupplier, vm);
+        boolean numaEnabled = vmInfoBuildUtils.isNumaEnabled(hostNumaNodesSupplier.get(), vmNumaNodesSupplier.get(), vm);
         if (numaEnabled) {
             writeNumaTune();
         }
         writeCpu(numaEnabled || vm.isHostedEngine() && !vmNumaNodesSupplier.get().isEmpty());
-        writeCpuTune(numaEnabled);
+        writeCpuTune();
+        writeMemtune();
         writeQemuCapabilities();
         writeDevices();
         writePowerManagement();
@@ -399,7 +400,8 @@ public class LibvirtVmXmlBuilder {
     private void writevCpu() {
         writer.writeStartElement("vcpu");
         writer.writeAttributeString("current", String.valueOf(VmCpuCountHelper.getDynamicNumOfCpu(vm)));
-        writer.writeRaw(String.valueOf(VmCpuCountHelper.isResizeAndPinPolicy(vm) ?
+        writer.writeRaw(String.valueOf(VmCpuCountHelper.isResizeAndPinPolicy(vm) ||
+                vm.getCpuPinningPolicy().isExclusive() ?
                 VmCpuCountHelper.getDynamicNumOfCpu(vm) : VmInfoBuildUtils.maxNumberOfVcpus(vm)));
         writer.writeEndElement();
     }
@@ -517,15 +519,9 @@ public class LibvirtVmXmlBuilder {
         });
     }
 
-    private void writeCpuTune(boolean numaEnabled) {
+    private void writeCpuTune() {
         writer.writeStartElement("cputune");
-        Map<String, Object> cpuPinning = vmInfoBuildUtils.parseCpuPinning(VmCpuCountHelper.isDynamicCpuPinning(vm) ?
-                vm.getCurrentCpuPinning() : vm.getCpuPinning());
-        if (cpuPinning.isEmpty() && numaEnabled) {
-            cpuPinning = NumaSettingFactory.buildCpuPinningWithNumaSetting(
-                    vmNumaNodesSupplier.get(),
-                    hostNumaNodesSupplier.get());
-        }
+        Map<String, Object> cpuPinning = vmInfoBuildUtils.parseCpuPinning(vm.getVmPinning());
         cpuPinning.forEach((vcpu, cpuset) -> {
             writer.writeStartElement("vcpupin");
             writer.writeAttributeString("vcpu", vcpu);
@@ -614,7 +610,7 @@ public class LibvirtVmXmlBuilder {
 
     private Map<String, Object> getNumaTuneSetting() {
         Map<String, Object> numaTuneSetting = NumaSettingFactory.buildVmNumatuneSetting(
-                vmNumaNodesSupplier.get());
+                vm, vmNumaNodesSupplier.get());
         if (numaTuneSetting.isEmpty()) {
             return null;
         }
@@ -782,7 +778,8 @@ public class LibvirtVmXmlBuilder {
         boolean acpiEnabled = vm.getAcpiEnable();
         boolean kaslrEnabled = vmInfoBuildUtils.isKASLRDumpEnabled(vm.getVmOsId());
         boolean secureBootEnabled = vm.getBiosType() == BiosType.Q35_SECURE_BOOT;
-        if (!acpiEnabled && !hypervEnabled && !kaslrEnabled && !secureBootEnabled) {
+        Integer tsegSize = vmInfoBuildUtils.tsegSizeMB(vm, hostDevicesSupplier);
+        if (!acpiEnabled && !hypervEnabled && !kaslrEnabled && !secureBootEnabled && tsegSize == null) {
             return;
         }
 
@@ -862,9 +859,15 @@ public class LibvirtVmXmlBuilder {
             writer.writeElement("vmcoreinfo");
         }
 
-        if (secureBootEnabled) {
+        if (secureBootEnabled || tsegSize != null) {
             writer.writeStartElement("smm");
             writer.writeAttributeString("state", "on");
+            if (tsegSize != null) {
+                writer.writeStartElement("tseg");
+                writer.writeAttributeString("unit", "MiB");
+                writer.writeRaw(tsegSize.toString());
+                writer.writeEndElement();
+            }
             writer.writeEndElement();
         }
 
@@ -1042,7 +1045,7 @@ public class LibvirtVmXmlBuilder {
     }
 
     private void writeCpuPinningPolicyMetadata() {
-        writer.writeElement(OVIRT_VM_URI, "cpuPolicy", vm.getCpuPinningPolicy().name().toLowerCase());
+        writer.writeElement(OVIRT_VM_URI, "cpuPolicy", vmInfoBuildUtils.getVdsmCpuPinningPolicy(vm));
     }
 
     private void writePowerEvents() {
@@ -1376,11 +1379,10 @@ public class LibvirtVmXmlBuilder {
                 mdevTypeMeta = mdevTypeMeta + "|" + vgpuPlacementString;
             }
             metadata.put("mdevType", mdevTypeMeta);
-            String mdevDriverParameters = (String) mdevSpecParams.get(MDevTypesUtils.DRIVER_PARAMETERS);
-            if (mdevDriverParameters != null) {
-                metadata.put("mdevDriverParameters", mdevDriverParameters);
-                if (!FeatureSupported.isVgpuDriverParametersSupported(compatibilityVersion)) {
-                    log.warn("vGPU driver parameters not supported in cluster version {}", compatibilityVersion);
+            if (FeatureSupported.isVgpuDriverParametersSupported(compatibilityVersion)) {
+                String mdevDriverParameters = (String) mdevSpecParams.get(MDevTypesUtils.DRIVER_PARAMETERS);
+                if (mdevDriverParameters != null) {
+                    metadata.put("mdevDriverParameters", mdevDriverParameters);
                 }
             }
             mdevMetadata.put(address, metadata);
@@ -1558,6 +1560,17 @@ public class LibvirtVmXmlBuilder {
             if (vmInfoBuildUtils.needsIommuCachingMode(vm, hostDevicesSupplier, vmDevicesSupplier)) {
                 writer.writeAttributeString("caching_mode", "on");
             }
+            writer.writeEndElement();
+            writer.writeEndElement();
+        }
+    }
+
+    private void writeMemtune() {
+        if (VmInfoBuildUtils.needsMemtune(vm)) {
+            writer.writeStartElement("memtune");
+            writer.writeStartElement("hard_limit");
+            writer.writeAttributeString("unit", "TiB");
+            writer.writeRaw("1024");
             writer.writeEndElement();
             writer.writeEndElement();
         }
@@ -2436,21 +2449,22 @@ public class LibvirtVmXmlBuilder {
         case MANAGED_BLOCK_STORAGE:
             ManagedBlockStorageDisk managedBlockStorageDisk = (ManagedBlockStorageDisk) disk;
             Map<String, String> metadata = new HashMap<>();
-            String path = (String) managedBlockStorageDisk.getDevice().get(DeviceInfoReturn.PATH);
+            String path;
+            if (Version.v4_7.lessOrEquals(vm.getCompatibilityVersion())) {
+                path = (String) managedBlockStorageDisk.getDevice().get(DeviceInfoReturn.MANAGED_PATH);
+            } else {
+                path = (String) managedBlockStorageDisk.getDevice().get(DeviceInfoReturn.PATH);
+            }
 
             if (managedBlockStorageDisk.getCinderVolumeDriver() == CinderVolumeDriver.RBD) {
-                // For rbd we need to pass the entire path since we rely on more than a single
-                // variable e.g: /dev/rbd/<pool-name>/<vol-name>
-                metadata = Collections.singletonMap("RBD", path);
+                metadata.put("RBD", path);
             } else if (managedBlockStorageDisk.getCinderVolumeDriver() == CinderVolumeDriver.BLOCK) {
                 Map<String, Object> attachment =
                         (Map<String, Object>) managedBlockStorageDisk.getDevice().get(DeviceInfoReturn.ATTACHMENT);
-                metadata = Map.of(
-                        "GUID", (String)attachment.get(DeviceInfoReturn.SCSI_WWN),
-                        "managed", "true"
-                );
+                metadata.put("GUID", (String)attachment.get(DeviceInfoReturn.SCSI_WWN));
             }
 
+            metadata.put("managed", "true");
             writer.writeAttributeString("dev", path);
             diskMetadata.put(dev, metadata);
 

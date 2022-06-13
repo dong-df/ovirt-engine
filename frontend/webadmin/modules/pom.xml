@@ -4,7 +4,7 @@
   <parent>
     <groupId>org.ovirt.engine.ui</groupId>
     <artifactId>webadmin-all</artifactId>
-    <version>4.5.0.1-SNAPSHOT</version>
+    <version>4.5.1.2-SNAPSHOT</version>
   </parent>
   <artifactId>webadmin-modules</artifactId>
   <packaging>pom</packaging>
@@ -203,7 +203,7 @@
     <profile>
       <id>all-langs</id>
       <properties>
-        <gwt.locale>en_US,es_ES,fr_FR,ja_JP,pt_BR,zh_CN,de_DE,ko_KR,it_IT,cs_CZ</gwt.locale>
+        <gwt.locale>en_US,es_ES,fr_FR,ja_JP,pt_BR,zh_CN,de_DE,ko_KR,it_IT,cs_CZ,ka_GE</gwt.locale>
       </properties>
     </profile>
     <profile>

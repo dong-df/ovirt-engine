@@ -67,6 +67,7 @@ import org.ovirt.engine.core.dao.network.VmNicDao;
 import org.ovirt.engine.core.utils.transaction.TransactionSuccessListener;
 import org.ovirt.engine.core.utils.transaction.TransactionSupport;
 import org.ovirt.engine.core.vdsbroker.ResourceManager;
+import org.ovirt.engine.core.vdsbroker.VdsManager;
 import org.ovirt.engine.core.vdsbroker.VmManager;
 import org.ovirt.engine.core.vdsbroker.builder.vminfo.VmInfoBuildUtils;
 
@@ -544,9 +545,8 @@ public abstract class VmCommand<T extends VmOperationParameterBase> extends Comm
         VmLeaseParameters params = new VmLeaseParameters(getStoragePoolId(), leaseStorageDomainId, vmId);
         params.setParentCommand(getActionType());
         params.setParentParameters(getParameters());
-        if (getParameters().getEntityInfo() == null) {
-            getParameters().setEntityInfo(new EntityInfo(VdcObjectType.VM, vmId));
-        }
+        params.setEntityInfo(getParameters().getEntityInfo() != null ? getParameters().getEntityInfo()
+                : new EntityInfo(VdcObjectType.VM, vmId));
         ActionReturnValue returnValue = runInternalActionWithTasksContext(ActionType.RemoveVmLease, params);
         if (returnValue.getSucceeded()) {
             getTaskIdList().addAll(returnValue.getInternalVdsmTaskIdList());
@@ -575,9 +575,8 @@ public abstract class VmCommand<T extends VmOperationParameterBase> extends Comm
         }
         params.setParentCommand(getActionType());
         params.setParentParameters(getParameters());
-        if (getParameters().getEntityInfo() == null) {
-            getParameters().setEntityInfo(new EntityInfo(VdcObjectType.VM, vmId));
-        }
+        params.setEntityInfo(getParameters().getEntityInfo() != null ? getParameters().getEntityInfo()
+                : new EntityInfo(VdcObjectType.VM, vmId));
         ActionReturnValue returnValue = runInternalActionWithTasksContext(ActionType.AddVmLease, params);
         if (returnValue.getSucceeded()) {
             getTaskIdList().addAll(returnValue.getInternalVdsmTaskIdList());
@@ -646,5 +645,9 @@ public abstract class VmCommand<T extends VmOperationParameterBase> extends Comm
 
     private boolean shouldBlockDuringBackup() {
         return getParentParameters() == null || getParentParameters().getCommandType() != ActionType.HybridBackup;
+    }
+
+    protected VdsManager getVdsManager(Guid vdsId) {
+        return resourceManager.getVdsManager(vdsId);
     }
 }

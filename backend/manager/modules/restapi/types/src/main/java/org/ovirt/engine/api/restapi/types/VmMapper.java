@@ -131,6 +131,7 @@ public class VmMapper extends VmBaseMapper {
         staticVm.setBiosType(entity.getBiosType());
         staticVm.setCustomCpuName(entity.getCustomCpuName());
         staticVm.setConsoleDisconnectAction(entity.getConsoleDisconnectAction());
+        staticVm.setConsoleDisconnectActionDelay(entity.getConsoleDisconnectActionDelay());
         staticVm.setSmallIconId(entity.getSmallIconId());
         staticVm.setLargeIconId(entity.getLargeIconId());
         staticVm.setQuotaId(entity.getQuotaId());
@@ -300,7 +301,7 @@ public class VmMapper extends VmBaseMapper {
                 Boot boot = map(entity.getBootSequence(), null);
                 model.getOs().setBoot(boot);
             }
-            if (VmCpuCountHelper.isDynamicCpuPinning(entity)) {
+            if (entity.getCurrentCpuPinning() != null) {
                 model.setDynamicCpu(new DynamicCpu());
                 model.getDynamicCpu().setCpuTune(stringToCpuTune(entity.getCurrentCpuPinning()));
                 if (VmCpuCountHelper.isResizeAndPinPolicy(entity)) {
@@ -402,6 +403,7 @@ public class VmMapper extends VmBaseMapper {
         model.getDisplay().setCopyPasteEnabled(entity.isSpiceCopyPasteEnabled());
         model.getDisplay().setProxy(getEffectiveSpiceProxy(entity));
         model.getDisplay().setDisconnectAction(map(entity.getConsoleDisconnectAction(), null).toString());
+        model.getDisplay().setDisconnectActionDelay(entity.getConsoleDisconnectActionDelay());
 
         model.setStateless(entity.isStateless());
         model.setDeleteProtected(entity.isDeleteProtected());

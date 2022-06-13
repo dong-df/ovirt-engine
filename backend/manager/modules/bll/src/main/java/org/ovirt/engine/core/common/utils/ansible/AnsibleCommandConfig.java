@@ -5,17 +5,33 @@
 
 package org.ovirt.engine.core.common.utils.ansible;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang.StringUtils;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.utils.CorrelationIdTracker;
+import org.ovirt.engine.core.utils.EngineLocalConfig;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 
 public class AnsibleCommandConfig implements LogFileConfig, PlaybookConfig {
+
+    public static final String ANSIBLE_COMMAND = "ansible-runner";
+    public static final String ANSIBLE_EXECUTION_METHOD = "start";
 
     private String cluster;
     private List<String> hostnames;
@@ -27,11 +43,14 @@ public class AnsibleCommandConfig implements LogFileConfig, PlaybookConfig {
     private boolean checkMode;
     private String correlationId;
     private String playAction;
+    private Path inventoryFile;
+    private UUID uuid;
     // Logging
     private String logFileDirectory;
     private String logFileName;
     private String logFilePrefix;
     private String logFileSuffix;
+    private ObjectMapper mapper;
 
     public AnsibleCommandConfig() {
         this.playAction = "Ansible Runner.";
@@ -39,6 +58,29 @@ public class AnsibleCommandConfig implements LogFileConfig, PlaybookConfig {
         // By default we want to pass correlationId to Ansible playbook to allow tracking of the whole process
         this.correlationId = CorrelationIdTracker.getCorrelationId();
         this.logFileSuffix = this.correlationId;
+        this.mapper = JsonMapper
+                .builder()
+                .findAndAddModules()
+                .build()
+                .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
+        this.uuid = UUID.randomUUID();
+    }
+
+    public void setUUID(UUID uuid) {
+        this.uuid = uuid;
+    }
+
+    public UUID getUuid() {
+        return this.uuid;
+    }
+
+    public AnsibleCommandConfig inventoryFile(Path inventoryFile) {
+        this.inventoryFile = inventoryFile;
+        return this;
+    }
+
+    public Path getInventoryFile() {
+        return this.inventoryFile;
     }
 
     @Override
@@ -211,5 +253,91 @@ public class AnsibleCommandConfig implements LogFileConfig, PlaybookConfig {
     public AnsibleCommandConfig logFileSuffix(String logFileSuffix) {
         this.logFileSuffix = logFileSuffix;
         return this;
+    }
+
+    public List<String> build() {
+        List<String> ansibleCommand = new ArrayList<>();
+        String artifactsDir = String.format("%1$s/%2$s/artifacts/", AnsibleConstants.ANSIBLE_RUNNER_PATH, this.uuid);
+        String projectDir = String.format("%1$s/project", AnsibleConstants.RUNNER_SERVICE_PROJECT_PATH);
+        try {
+            File ansibleRunnerExecutionDir = setupAnsibleRunnerExecutionDir();
+            ansibleCommand.add(ANSIBLE_COMMAND);
+            ansibleCommand.add(ANSIBLE_EXECUTION_METHOD);
+            ansibleCommand.add(ansibleRunnerExecutionDir.toString());
+            ansibleCommand.add("-p");
+            ansibleCommand.add(playbook);
+            ansibleCommand.add("--project-dir");
+            ansibleCommand.add(projectDir);
+            ansibleCommand.add("--artifact-dir");
+            ansibleCommand.add(artifactsDir);
+            ansibleCommand.add("-i");
+            ansibleCommand.add(String.valueOf(this.uuid));
+        } catch(Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+        return ansibleCommand;
+    }
+
+    private File setupAnsibleRunnerExecutionDir() throws IOException {
+        File tempProject = new File(String.format("%1$s/%2$s/", AnsibleConstants.ANSIBLE_RUNNER_PATH, this.uuid));
+        tempProject.mkdirs();
+
+        File env = new File(String.format("%1$s/%2$s/env", AnsibleConstants.ANSIBLE_RUNNER_PATH, this.uuid));
+        env.mkdir();
+
+        // Create a link to engine private ssh key
+        Path engineSshKey = Paths.get(
+            EngineLocalConfig.getInstance().getPKIDir().toString(),
+            "/keys/engine_id_rsa");
+        Path linkToEngineSshKey = Paths.get(
+            tempProject.toString(),
+            "/env/ssh_key");
+        Files.createSymbolicLink(linkToEngineSshKey, engineSshKey);
+
+        // Create a variable file in project env/extravars, which will be passed to the playbook by ansible-runner.
+        createExtraVarsFile(env);
+
+        File inventory = new File(String.format("%1$s/%2$s/inventory", AnsibleConstants.ANSIBLE_RUNNER_PATH, this.uuid));
+        inventory.mkdir();
+
+        // Create a host inventory file in project inventory/host, which will be passed to the playbook by ansible-runner.
+        createHostFile(inventory);
+
+        return tempProject;
+    }
+
+    private void createHostFile(File inventory) {
+        File hostsFile = new File(String.format("%1$s/hosts", inventory));
+        if (CollectionUtils.isNotEmpty(hostnames())) {
+            try {
+                hostsFile.createNewFile();
+                Files.write(hostsFile.toPath(), StringUtils.join(hostnames(), System.lineSeparator()).getBytes());
+            } catch (IOException ex) {
+                throw new AnsibleRunnerCallException(
+                    String.format("Failed to create inventory file '%s':", hostsFile.toString()), ex);
+            }
+        }
+    }
+
+    private void createExtraVarsFile(File env) {
+        String vars = getFormattedVariables();
+        File extraVars = new File(String.format("%1$s/extravars", env));
+        try {
+            extraVars.createNewFile();
+            Files.writeString(extraVars.toPath(), vars);
+        } catch(IOException ex) {
+            throw new AnsibleRunnerCallException(
+                String.format("Failed to create host variables file '%s':", extraVars.toString()), ex);
+        }
+    }
+
+    private String getFormattedVariables() {
+        String result;
+        try {
+            result = this.mapper.writeValueAsString(this.variables);
+        } catch (IOException ex) {
+            throw new AnsibleRunnerCallException("Failed to create host deploy variables mapper", ex);
+        }
+        return result;
     }
 }
