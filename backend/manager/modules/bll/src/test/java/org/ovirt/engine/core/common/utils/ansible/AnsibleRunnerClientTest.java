@@ -22,7 +22,7 @@ import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-public class AnsibleRunnerHttpClientTest {
+public class AnsibleRunnerClientTest {
     private static Instant dateTime =
             LocalDateTime.of(1989, 11, 17, 16, 0, 0).atOffset(ZoneOffset.UTC).toInstant();
 
@@ -30,7 +30,7 @@ public class AnsibleRunnerHttpClientTest {
     HttpClient httpClient;
 
     @InjectMocks
-    AnsibleRunnerHttpClient client;
+    AnsibleRunnerClient client;
 
 
     @ParameterizedTest

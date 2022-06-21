@@ -28,6 +28,7 @@ import org.ovirt.engine.core.common.action.MeasureVolumeParameters;
 import org.ovirt.engine.core.common.businessentities.StorageDomainStatic;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.Image;
+import org.ovirt.engine.core.common.businessentities.storage.StorageType;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeFormat;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeType;
 import org.ovirt.engine.core.common.utils.SizeConverter;
@@ -184,16 +185,43 @@ public class CloneImageGroupVolumesStructureCommand<T extends CloneImageGroupVol
         runInternalActionWithTasksContext(ActionType.CreateVolumeContainer, parameters);
     }
 
+    /**
+     * Method's calculation logic is described by the following table.
+     *
+     * type             src type        dst type        vol format          initial size
+     * =======================================================================================
+     * active           file            file            qcow2               null
+     * active           block           file            qcow2               null
+     * active           file            block           qcow2               3 chunks
+     * active           block           block           qcow2               3 chunks
+     * ---------------------------------------------------------------------------------------
+     * internal         file            file            raw                 null
+     * internal         file            file            qcow2               null
+     * internal         file            block           raw                 null
+     * internal         file            block           qcow2               measure
+     * internal         block           block           raw                 null
+     * internal         block           block           qcow2               measure
+     *
+     * Notes:
+     *  1. "chunks" stands for {@link org.ovirt.engine.core.common.config.ConfigValues#VolumeUtilizationChunkInMB}
+     *  2. "measure" stands for {@link ActionType#MeasureVolume} command's return value.
+     */
     private Long determineImageInitialSize(Image sourceImage,
             VolumeFormat destFormat,
             Guid storagePoolId,
             Guid srcDomain,
             Guid dstDomain,
             Guid imageGroupID) {
+        StorageType srcDomainStorageType = storageDomainDao.get(srcDomain).getStorageType();
+        StorageType dstDomainStorageType = storageDomainDao.get(dstDomain).getStorageType();
+        if (getParameters().isLiveMigration() && sourceImage.isActive() && dstDomainStorageType.isBlockDomain()) {
+            return ImagesHandler.computeImageInitialSizeInBytes(sourceImage);
+        }
+
         Guid hostId = imagesHandler.getHostForMeasurement(storagePoolId, imageGroupID);
         if (hostId != null) {
-            if ((storageDomainDao.get(srcDomain).getStorageType().isBlockDomain() || !sourceImage.isActive()) &&
-                    storageDomainDao.get(dstDomain).getStorageType().isBlockDomain()) {
+            if ((srcDomainStorageType.isBlockDomain() || !sourceImage.isActive()) &&
+                    dstDomainStorageType.isBlockDomain()) {
                 MeasureVolumeParameters parameters = new MeasureVolumeParameters(storagePoolId,
                         srcDomain,
                         imageGroupID,

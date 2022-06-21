@@ -63,8 +63,18 @@ public class OvfOvaVmWriter extends OvfOvaWriter {
     }
 
     @Override
+    protected void startNUMASection() {
+        _writer.writeStartElement("NumaNodeSection");
+    }
+
+    @Override
     protected Integer maxNumOfVcpus() {
         return VmCpuCountHelper.calcMaxVCpu(vm, getVersion());
     }
 
+    @Override
+    protected void writeHardware() {
+        super.writeHardware();
+        writeNumaSection();
+    }
 }

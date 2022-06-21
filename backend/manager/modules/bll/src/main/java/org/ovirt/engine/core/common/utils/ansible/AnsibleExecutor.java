@@ -151,7 +151,7 @@ public class AnsibleExecutor {
 
         String playUuid = null;
         String msg = "";
-        AnsibleRunnerHttpClient runnerClient = null;
+        AnsibleRunnerClient runnerClient = null;
         try {
             runnerClient = ansibleClientFactory.create(commandConfig);
             playUuid = commandConfig.getUuid().toString();
@@ -160,7 +160,7 @@ public class AnsibleExecutor {
             List<String> command = commandConfig.build();
 
             // Run the playbook:
-            runnerClient.runPlaybook(command, timeout);
+            runnerClient.runPlaybook(command, timeout, playUuid);
 
             if (async) {
                 ret.setPlayUuid(playUuid);

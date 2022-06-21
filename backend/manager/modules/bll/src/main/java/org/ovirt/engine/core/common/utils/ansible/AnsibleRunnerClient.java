@@ -36,16 +36,15 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 
 @Singleton
-public class AnsibleRunnerHttpClient {
-    private static Logger log = LoggerFactory.getLogger(AnsibleRunnerHttpClient.class);
+public class AnsibleRunnerClient {
+    private static Logger log = LoggerFactory.getLogger(AnsibleRunnerClient.class);
     private ObjectMapper mapper;
     private AnsibleRunnerLogger runnerLogger;
     private String lastEvent = "";
     private static final int POLL_INTERVAL = 3000;
     private AnsibleReturnValue returnValue;
-    private String artifactsDir = "";
 
-    public AnsibleRunnerHttpClient() {
+    public AnsibleRunnerClient() {
         this.mapper = JsonMapper
                 .builder()
                 .findAndAddModules()
@@ -66,14 +65,9 @@ public class AnsibleRunnerHttpClient {
         return res.contains("playbook_on_stats");
     }
 
-    private void setArtifactsDir(UUID uuid) {
-        this.artifactsDir = String.format("%1$s/%2$s/artifacts/%2$s/", AnsibleConstants.ANSIBLE_RUNNER_PATH, uuid);
-    }
-
     public AnsibleReturnValue artifactHandler(UUID uuid, int lastEventID, int timeout, BiConsumer<String, String> fn)
             throws Exception {
         int executionTime = 0;
-        setArtifactsDir(uuid);
         setReturnValue(uuid);
         while (!playHasEnded(uuid)) {
             lastEventID = processEvents(uuid.toString(), lastEventID, fn, "", Paths.get(""));
@@ -209,9 +203,10 @@ public class AnsibleRunnerHttpClient {
     }
 
     public void cancelPlaybook(UUID uuid, int timeout) throws Exception {
+        File privateDataDir = new File(String.format("%1$s/%2$s/", AnsibleConstants.ANSIBLE_RUNNER_PATH, uuid));
+        File output = new File(String.format("%1$s/output.log", privateDataDir));
+        String command = String.format("ansible-runner stop %1$s", privateDataDir);
         Process ansibleProcess;
-        File output = File.createTempFile("output", ".log");
-        String command = String.format("ansible-runner stop %1$s", uuid);
         ProcessBuilder ansibleProcessBuilder = new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(output);
         try {
             ansibleProcess = ansibleProcessBuilder.start();
@@ -233,31 +228,27 @@ public class AnsibleRunnerHttpClient {
         }
     }
 
-    public void runPlaybook(List<String> command, int timeout) throws Exception {
-        final Object executeLock = new Object();
-        Process ansibleProcess;
-        File output = File.createTempFile("output", ".log");
-        synchronized (executeLock) {
-            ProcessBuilder ansibleProcessBuilder =
-                    new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(output);
-            ansibleProcess = ansibleProcessBuilder.start();
-            String playCommand = String.join(" ", command);
-            log.debug(String.format("%1$s started executing command %2$s", Thread.currentThread().getName(), playCommand));
-            if (!ansibleProcess.waitFor(timeout, TimeUnit.MINUTES)) {
-                throw new AnsibleRunnerCallException("Timeout occurred while executing Ansible playbook.");
+    public void runPlaybook(List<String> command, int timeout, String uuid) throws Exception {
+        File output = new File(String.format("%1$s/%2$s/output.log", AnsibleConstants.ANSIBLE_RUNNER_PATH, uuid));
+        ProcessBuilder ansibleProcessBuilder =
+                new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(output);
+        Process ansibleProcess = ansibleProcessBuilder.start();
+        String playCommand = String.join(" ", command);
+        log.debug(String.format("%1$s started executing command %2$s", Thread.currentThread().getName(), playCommand));
+        if (!ansibleProcess.waitFor(timeout, TimeUnit.MINUTES)) {
+            throw new AnsibleRunnerCallException("Timeout occurred while executing Ansible playbook.");
+        }
+        if (ansibleProcess.exitValue() != 0) {
+            String errorOutput = null;
+            try {
+                errorOutput = Files.readString(output.toPath());
+            } catch (IOException ex) {
+                log.error("Error reading output from ansible-runner execution: {}", ex.getMessage());
+                log.debug("Exception", ex);
             }
-            if (ansibleProcess.exitValue() != 0) {
-                String errorOutput = null;
-                try {
-                    errorOutput = Files.readString(output.toPath());
-                } catch (IOException ex) {
-                    log.error("Error reading output from ansible-runner execution: {}", ex.getMessage());
-                    log.debug("Exception", ex);
-                }
-                throw new AnsibleRunnerCallException(
-                        "Failed to execute call to start playbook. %1$s",
-                        errorOutput);
-            }
+            throw new AnsibleRunnerCallException(
+                    "Failed to execute call to start playbook. %1$s",
+                    errorOutput);
         }
     }
 

@@ -45,8 +45,10 @@ import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.BackendService;
 import org.ovirt.engine.core.common.FeatureSupported;
 import org.ovirt.engine.core.common.VdcObjectType;
+import org.ovirt.engine.core.common.action.ActionReturnValue;
 import org.ovirt.engine.core.common.action.ActionType;
 import org.ovirt.engine.core.common.action.VmManagementParametersBase;
+import org.ovirt.engine.core.common.action.VmNumaNodeOperationParameters;
 import org.ovirt.engine.core.common.backendinterfaces.BaseHandler;
 import org.ovirt.engine.core.common.businessentities.ActionGroup;
 import org.ovirt.engine.core.common.businessentities.ArchitectureType;
@@ -1041,6 +1043,19 @@ public class VmHandler implements BackendService {
         vm.setvNumaNodeList(nodes);
     }
 
+    public void addVmNumaNodes(VM vm) {
+        List<VmNumaNode> numaNodes = vm.getvNumaNodeList();
+        if (numaNodes.isEmpty()) {
+            return;
+        }
+        VmNumaNodeOperationParameters params = new VmNumaNodeOperationParameters(vm, numaNodes);
+
+        ActionReturnValue returnValueBase = backend.runInternalAction(ActionType.AddVmNumaNodes, params);
+        if (!returnValueBase.getSucceeded()) {
+            auditLogDirector.log(new AuditLogableImpl(), AuditLogType.NUMA_ADD_VM_NUMA_NODE_FAILED);
+        }
+    }
+
     public static List<PermissionSubject> getPermissionsNeededToChangeCluster(Guid vmId, Guid clusterId) {
         List<PermissionSubject> permissionList = new ArrayList<>();
         permissionList.add(new PermissionSubject(vmId, VdcObjectType.VM, ActionGroup.EDIT_VM_PROPERTIES));
@@ -1435,10 +1450,19 @@ public class VmHandler implements BackendService {
 
         if (defaultDisplayType == null) {
             if (!displayGraphicsSupport.isEmpty()) {// when not found otherwise, let's take osinfo's record as the default
-                Map.Entry<DisplayType, Set<GraphicsType>> entry = displayGraphicsSupport.entrySet().iterator().next();
-                defaultDisplayType = entry.getKey();
+                for (Map.Entry<DisplayType, Set<GraphicsType>> entry : displayGraphicsSupport.entrySet()) {
+                    if (defaultDisplayType == null) {
+                        // prioritize first display type based on osinfo
+                        defaultDisplayType = entry.getKey();
+                    }
+                    if (entry.getKey() != DisplayType.qxl) {
+                        // since QXL is deprecated, the first non-QXL display type we see, take it and stop iterating
+                        defaultDisplayType = entry.getKey();
+                        break;
+                    }
+                }
             } else {// no osinfo record
-                defaultDisplayType = DisplayType.qxl;
+                defaultDisplayType = DisplayType.vga;
             }
         }
 

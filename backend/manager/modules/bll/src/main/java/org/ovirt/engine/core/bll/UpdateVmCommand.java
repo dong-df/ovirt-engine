@@ -1398,6 +1398,15 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
                 getEffectiveCompatibilityVersion()))) {
             return false;
         }
+
+        if (!validate(VmValidator.isParallelMigrationsValid(vmFromParams.getParallelMigrations()))) {
+            return false;
+        }
+
+        if (getParameters().getVmStaticData().getConsoleDisconnectActionDelay() < 0) {
+            return failValidation(EngineMessage.ACTION_TYPE_FAILED_ILLEGAL_CONSOLE_DISCONNECT_ACTION_DELAY);
+        }
+
         return true;
     }
 
