@@ -14,7 +14,6 @@ import org.ovirt.engine.core.common.businessentities.Quota;
 import org.ovirt.engine.core.common.businessentities.QuotaEnforcementTypeEnum;
 import org.ovirt.engine.core.common.businessentities.StorageDomain;
 import org.ovirt.engine.core.common.businessentities.profiles.DiskProfile;
-import org.ovirt.engine.core.common.businessentities.storage.DiskBackup;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskStorageType;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeFormat;
@@ -241,7 +240,7 @@ public class DisksAllocationModel extends EntityModel {
     }
 
     private void updateQuota(Guid storageDomainId, final ListModel<Quota> isItem, final Guid diskQuotaId) {
-        if (getQuotaEnforcementType() != QuotaEnforcementTypeEnum.DISABLED && storageDomainId != null) {
+        if (isQuotaEnforced() && storageDomainId != null) {
             AsyncDataProvider.getInstance().getAllRelevantQuotasForStorageSorted(new AsyncQuery<>(
                     list -> {
                         if (list == null) {
@@ -332,6 +331,7 @@ public class DisksAllocationModel extends EntityModel {
             diskModel.getVolumeFormat().setIsAvailable(isVolumeFormatAvailable);
             diskModel.getVolumeFormat().setIsChangeable(isVolumeFormatChangeable);
             diskModel.getAlias().setIsChangeable(isAliasChangeable);
+            diskModel.getQuota().setIsAvailable(isQuotaEnforced());
 
             if (isThinProvisioning) {
                 diskModel.getVolumeFormat().setSelectedItem(VolumeFormat.COW);
@@ -367,9 +367,8 @@ public class DisksAllocationModel extends EntityModel {
             } else if (diskModel.getVolumeType().getIsAvailable()) {
                 VolumeType volumeType = diskModel.getVolumeType().getSelectedItem();
                 diskImage.setVolumeType(volumeType);
-                diskImage.setVolumeFormat(diskImage.getBackup() == DiskBackup.Incremental ? VolumeFormat.COW :
-                        AsyncDataProvider.getInstance().getDiskVolumeFormat(
-                                volumeType, storageDomain.getStorageType()));
+                diskImage.setVolumeFormat(AsyncDataProvider.getInstance().getDiskVolumeFormat(
+                        volumeType, storageDomain.getStorageType(), diskImage.getBackup()));
             }
 
             imageToDestinationDomainMap.put(diskImage.getId(), diskImage);
@@ -388,7 +387,7 @@ public class DisksAllocationModel extends EntityModel {
     private void updateQuotaAvailability() {
         if (disks != null) {
             for (DiskModel diskModel : disks) {
-                diskModel.getQuota().setIsAvailable(quotaEnforcementType != QuotaEnforcementTypeEnum.DISABLED);
+                diskModel.getQuota().setIsAvailable(isQuotaEnforced());
             }
         }
     }
@@ -514,6 +513,10 @@ public class DisksAllocationModel extends EntityModel {
 
     public boolean isSourceAvailable() {
         return isSourceStorageDomainAvailable || isSourceStorageDomainNameAvailable;
+    }
+
+    public boolean isQuotaEnforced() {
+        return getQuotaEnforcementType() != QuotaEnforcementTypeEnum.DISABLED;
     }
 
     public void initializeAutoSelectTarget(boolean changeable, boolean value) {

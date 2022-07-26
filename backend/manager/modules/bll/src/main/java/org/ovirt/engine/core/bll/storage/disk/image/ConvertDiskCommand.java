@@ -35,6 +35,7 @@ import org.ovirt.engine.core.common.asynctasks.EntityInfo;
 import org.ovirt.engine.core.common.businessentities.StorageDomain;
 import org.ovirt.engine.core.common.businessentities.VM;
 import org.ovirt.engine.core.common.businessentities.VdsmImageLocationInfo;
+import org.ovirt.engine.core.common.businessentities.storage.DiskBackup;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.ImageStatus;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeFormat;
@@ -249,6 +250,7 @@ public class ConvertDiskCommand<T extends ConvertDiskCommandParameters> extends 
         parameters.setParentParameters(getParameters());
         parameters.setEndProcedure(ActionParametersBase.EndProcedure.COMMAND_MANAGED);
         parameters.setParentCommand(getActionType());
+        parameters.setBackup(getBackup(diskImage));
         parameters.setEntityInfo(new EntityInfo(VdcObjectType.Disk, diskImage.getId()));
         return parameters;
     }
@@ -298,6 +300,8 @@ public class ConvertDiskCommand<T extends ConvertDiskCommandParameters> extends 
         DiskImage newImage = DiskImage.copyOf(getDiskImage());
         newImage.setImageId(getParameters().getNewVolGuid());
         newImage.setSize(info.getSize());
+        newImage.setActualSize(info.getActualSize());
+        newImage.setActualSizeInBytes(info.getActualSizeInBytes());
         if (getParameters().getVolumeFormat() != null) {
             if (info.getVolumeFormat() != getParameters().getVolumeFormat()) {
                 log.error("Requested format '{}' doesn't match format on storage '{}'",
@@ -323,7 +327,6 @@ public class ConvertDiskCommand<T extends ConvertDiskCommandParameters> extends 
         TransactionSupport.executeInNewTransaction(() -> {
             addDiskImageToDb(newImage, getCompensationContext(), true);
             imageDao.update(getDiskImage().getImage());
-
             return null;
         });
 
@@ -343,6 +346,11 @@ public class ConvertDiskCommand<T extends ConvertDiskCommandParameters> extends 
     private VolumeFormat getVolumeFormat(DiskImage diskImage) {
         return getParameters().getVolumeFormat() == null ? diskImage.getVolumeFormat() :
                 getParameters().getVolumeFormat();
+    }
+
+    private DiskBackup getBackup(DiskImage diskImage) {
+        return getParameters().getBackup() == null ? diskImage.getBackup() :
+                getParameters().getBackup();
     }
 
     private VdsmImageLocationInfo getLocationInfo() {

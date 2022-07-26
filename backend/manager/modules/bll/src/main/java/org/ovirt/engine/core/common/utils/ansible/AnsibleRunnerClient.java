@@ -40,7 +40,6 @@ public class AnsibleRunnerClient {
     private static Logger log = LoggerFactory.getLogger(AnsibleRunnerClient.class);
     private ObjectMapper mapper;
     private AnsibleRunnerLogger runnerLogger;
-    private String lastEvent = "";
     private static final int POLL_INTERVAL = 3000;
     private AnsibleReturnValue returnValue;
 
@@ -53,23 +52,18 @@ public class AnsibleRunnerClient {
         this.returnValue = new AnsibleReturnValue(AnsibleReturnCode.ERROR);
     }
 
-    public Boolean playHasEnded(UUID uuid) {
-        String jobEvents = getJobEventsDir(uuid.toString());
-        File lastEventFile = new File(jobEvents + lastEvent);
-        String res = "";
-        try {
-                res = Files.readString(lastEventFile.toPath());
-            } catch (IOException e) {
-                return false;
-            }
-        return res.contains("playbook_on_stats");
+    public Boolean playHasEnded(String uuid, int lastEventId) {
+        // get current status, but new events might have appeared since last processing
+        PlaybookStatus currentPlaybookStatus = getPlaybookStatus(uuid);
+        String msg = currentPlaybookStatus.getMsg();
+        return !msg.equalsIgnoreCase("running") && !(lastEventId < getTotalEvents(uuid));
     }
 
     public AnsibleReturnValue artifactHandler(UUID uuid, int lastEventID, int timeout, BiConsumer<String, String> fn)
             throws Exception {
         int executionTime = 0;
         setReturnValue(uuid);
-        while (!playHasEnded(uuid)) {
+        while (!playHasEnded(uuid.toString(), lastEventID)) {
             lastEventID = processEvents(uuid.toString(), lastEventID, fn, "", Paths.get(""));
             if (lastEventID == -1) {
                 return returnValue;
@@ -90,9 +84,10 @@ public class AnsibleRunnerClient {
     public void setReturnValue(UUID uuid) {
         returnValue.setPlayUuid(uuid.toString());
         returnValue.setLogFile(runnerLogger.getLogFile());
+        returnValue.setStdout(Paths.get(this.getJobEventsDir(uuid.toString()), "../stdout").toString());
     }
 
-    public String getNextEvent(String playUuid, int lastEventId) {
+    public String getEventFileName(String playUuid, int eventId) {
         String jobEvents = getJobEventsDir(playUuid);
         if (!Files.exists(Paths.get(jobEvents))) {
             return null;
@@ -102,13 +97,9 @@ public class AnsibleRunnerClient {
                 .map(File::getName)
                 .filter(item -> !item.contains("partial"))
                 .filter(item -> !item.endsWith(".tmp"))
-                .filter(item -> item.startsWith((lastEventId + 1) + "-"))
+                .filter(item -> item.startsWith(eventId + "-"))
                 .findFirst()
                 .orElse(null);
-    }
-
-    public int getLastEventId() {
-        return Integer.valueOf(lastEvent.split("-")[0]);
     }
 
     public String getJobEventsDir(String playUuid) {
@@ -122,7 +113,8 @@ public class AnsibleRunnerClient {
             Path logFile) {
         String jobEvents = getJobEventsDir(playUuid);
         while(true){
-            String event = getNextEvent(playUuid, lastEventId);
+            // get next event
+            String event = getEventFileName(playUuid, lastEventId + 1);
             if (event == null) {
                 break;
             }
@@ -143,6 +135,7 @@ public class AnsibleRunnerClient {
                 }
             }
 
+            log.debug("Current node event: {} lastEventId: {} ", currentNode.get("event").textValue(), lastEventId);
             // want to log only these kind of events:
             if (RunnerJsonNode.isEventStart(currentNode) || RunnerJsonNode.isEventOk(currentNode)
                     || RunnerJsonNode.playbookStats(currentNode) || RunnerJsonNode.isEventFailed(currentNode)) {
@@ -185,11 +178,10 @@ public class AnsibleRunnerClient {
                     }
                 }
             }
-            lastEvent = event;
-            returnValue.setLastEventId(getLastEventId());
-            lastEventId++;
+            lastEventId = Integer.valueOf(event.split("-")[0]);
+            returnValue.setLastEventId(lastEventId);
         }
-        return lastEvent.isEmpty() ? lastEventId : getLastEventId();
+        return lastEventId;
     }
 
     private Boolean jsonIsValid(String content) {
@@ -265,14 +257,24 @@ public class AnsibleRunnerClient {
     public PlaybookStatus getPlaybookStatus(String playUuid) {
         String status = "";
         String rc = "";
+        String privateRunDir = String.format("%1$s/%2$s/", AnsibleConstants.ANSIBLE_RUNNER_PATH, playUuid);
         String playData = String.format("%1$s/%2$s/artifacts/%2$s/", AnsibleConstants.ANSIBLE_RUNNER_PATH, playUuid);
         try {
-            if (!Files.exists(Paths.get(String.format("%1$s/status", playData)))) {
+            // regardless if we run sync or async playbook we launch ansible-runner the same way,
+            // "status" and "rc" are created only once the playbook finishes
+            if (Files.exists(Paths.get(String.format("%1$s/status", playData)))) {
+                status = Files.readString(Paths.get(String.format("%1$s/status", playData)));
+                rc = Files.readString(Paths.get(String.format("%1$s/rc", playData)));
+            // we call ansible-runner synchronously and "damon.log" is crated by the main process before
+            // going to background. So we can rely on its existence if ansible managed to start and still runs
+            } else if (Files.exists(Paths.get(String.format("%1$s/daemon.log", privateRunDir)))) {
                 // artifacts are not yet present, try to fetch them in the next polling round
-                return new PlaybookStatus("unknown", "");
+                return new PlaybookStatus("", "running");
+            // ansible-runner didn't manage to start the background process so we know it failed right away
+            } else {
+                log.warn(String.format("The playbook failed with unknow error at: %1$s", playData));
+                return new PlaybookStatus("", "failed");
             }
-            status = Files.readString(Paths.get(String.format("%1$s/status", playData)));
-            rc = Files.readString(Paths.get(String.format("%1$s/rc", playData)));
         } catch (Exception e) {
             throw new AnsibleRunnerCallException(
                 String.format("Failed to read playbook result at: %1$s", playData), e);

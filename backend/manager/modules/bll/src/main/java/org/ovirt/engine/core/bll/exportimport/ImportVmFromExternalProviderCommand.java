@@ -60,6 +60,7 @@ import org.ovirt.engine.core.common.job.Step;
 import org.ovirt.engine.core.common.job.StepEnum;
 import org.ovirt.engine.core.common.queries.IdQueryParameters;
 import org.ovirt.engine.core.common.queries.QueryType;
+import org.ovirt.engine.core.common.utils.ValidationUtils;
 import org.ovirt.engine.core.common.vdscommands.VDSCommandType;
 import org.ovirt.engine.core.common.vdscommands.VdsAndVmIDVDSParametersBase;
 import org.ovirt.engine.core.compat.Guid;
@@ -75,6 +76,8 @@ implements SerialChildExecutingCommand, QuotaStorageDependent {
 
     private static final Pattern VMWARE_DISK_NAME_PATTERN = Pattern.compile("\\[.*?\\] .*/(.*).vmdk");
     private static final Pattern DISK_NAME_PATTERN = Pattern.compile(".*/([^.]+).*");
+    private static final Pattern DISK_ALIAS_ILLEGAL_CHARS_PATTERN =
+            Pattern.compile("[^" + ValidationUtils.NO_SPECIAL_CHARACTER_CLASS_I18N + "]");
 
     private static final String VDSM_COMPAT_VERSION_1_1 = "1.1";
 
@@ -369,7 +372,7 @@ implements SerialChildExecutingCommand, QuotaStorageDependent {
     }
 
     private static String replaceInvalidDiskAliasChars(String alias) {
-        return alias.replace(' ', '_');
+        return DISK_ALIAS_ILLEGAL_CHARS_PATTERN.matcher(alias).replaceAll("_");
     }
 
     protected static String renameDiskAlias(OriginType originType, String alias) {

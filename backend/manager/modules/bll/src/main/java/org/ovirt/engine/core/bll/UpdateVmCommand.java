@@ -28,6 +28,8 @@ import org.ovirt.engine.core.bll.quota.QuotaClusterConsumptionParameter;
 import org.ovirt.engine.core.bll.quota.QuotaConsumptionParameter;
 import org.ovirt.engine.core.bll.quota.QuotaSanityParameter;
 import org.ovirt.engine.core.bll.quota.QuotaVdsDependent;
+import org.ovirt.engine.core.bll.scheduling.SlaValidator;
+import org.ovirt.engine.core.bll.scheduling.utils.VdsCpuUnitPinningHelper;
 import org.ovirt.engine.core.bll.snapshots.SnapshotVmConfigurationHelper;
 import org.ovirt.engine.core.bll.storage.domain.IsoDomainListSynchronizer;
 import org.ovirt.engine.core.bll.tasks.interfaces.CommandCallback;
@@ -189,6 +191,8 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
     private AffinityValidator affinityValidator;
     @Inject
     private SnapshotVmConfigurationHelper snapshotVmConfigurationHelper;
+    @Inject
+    private VdsCpuUnitPinningHelper vdsCpuUnitPinningHelper;
 
     private VM oldVm;
     private boolean quotaSanityOnly = false;
@@ -953,6 +957,14 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
             getVm().setvNumaNodeList(vNumaNodeList);
         }
 
+        if (VmCpuCountHelper.isResizeAndPinPolicy(getParameters().getVm())) {
+            getParameters().setUpdateNuma(false);
+        }
+
+        if (getParameters().isUpdateNuma() == null) {
+            getParameters().setUpdateNuma(!vNumaNodeList.equals(getParameters().getVm().getvNumaNodeList()));
+        }
+
         // we always need to verify new or existing numa nodes with the updated VM configuration
         if (!getParameters().isUpdateNuma()) {
             getParameters().getVm().setvNumaNodeList(vNumaNodeList);
@@ -1195,8 +1207,14 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
             return failValidation(EngineMessage.USE_HOST_CPU_REQUESTED_ON_UNSUPPORTED_ARCH);
         }
 
-        if (isHotSetEnabled() && !validateCPUHotplug(getParameters().getVmStaticData())) {
-            return failValidation(EngineMessage.CPU_HOTPLUG_TOPOLOGY_INVALID);
+        if (isHotSetEnabled() && getVm().isRunningOrPaused()) {
+            if (!validateCPUHotplug(getParameters().getVmStaticData())) {
+                return failValidation(EngineMessage.CPU_HOTPLUG_TOPOLOGY_INVALID);
+            }
+            if (!validateCpuPinningPolicyWithHotplug(getParameters().getVmStaticData())) {
+                return failValidation(EngineMessage.HOT_PLUG_CPU_IS_NOT_SUPPORTED_DEDICATED,
+                        String.format("$policy %1$s", getVm().getCpuPinningPolicy().name()));
+            }
         }
 
         if (!validateMemoryAlignment(getParameters().getVmStaticData())) {
@@ -1275,7 +1293,8 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
             return failValidation(EngineMessage.TPM_DEVICE_REQUIRED_BY_OS);
         }
 
-        if (!validate(getNumaValidator().checkVmNumaNodesIntegrity(
+        if (!VmCpuCountHelper.isResizeAndPinPolicy(getParameters().getVm()) &&
+                !validate(getNumaValidator().checkVmNumaNodesIntegrity(
                 getParameters().getVm(),
                 getParameters().getVm().getvNumaNodeList()))) {
             return false;
@@ -1394,7 +1413,6 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
             return failValidation(EngineMessage.ERROR_CANNOT_FIND_ISO_IMAGE_PATH);
         }
         if (!validate(vmHandler.validateCpuPinningPolicy(getParameters().getVmStaticData(),
-                getVm().getStaticData(),
                 getEffectiveCompatibilityVersion()))) {
             return false;
         }
@@ -1407,6 +1425,26 @@ public class UpdateVmCommand<T extends VmManagementParametersBase> extends VmMan
             return failValidation(EngineMessage.ACTION_TYPE_FAILED_ILLEGAL_CONSOLE_DISCONNECT_ACTION_DELAY);
         }
 
+        return true;
+    }
+
+    private boolean validateCPUHotplug(VmStatic vmStaticData) {
+        // Can't set more CPUs than available on the host where VM is running.
+        boolean countThreadsAsCores = getCluster().getCountThreadsAsCores();
+        int availableCpus = SlaValidator.getEffectiveCpuCores(getVds(), countThreadsAsCores) -
+                vdsCpuUnitPinningHelper.countUnavailableCpus(
+                        getVdsManager(getVdsId()).getCpuTopology(),  countThreadsAsCores);
+        if (vmStaticData.getNumOfCpus(false) > availableCpus) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean validateCpuPinningPolicyWithHotplug(VmStatic vmStaticData) {
+        if (getVm().getCpuPinningPolicy().isExclusive()
+                && vmStaticData.getNumOfCpus(false) != getVm().getNumOfCpus(false)) {
+            return false;
+        }
         return true;
     }
 

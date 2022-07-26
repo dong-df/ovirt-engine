@@ -98,6 +98,7 @@ import org.ovirt.engine.core.common.businessentities.network.VnicProfileView;
 import org.ovirt.engine.core.common.businessentities.pm.FenceAgent;
 import org.ovirt.engine.core.common.businessentities.qos.QosType;
 import org.ovirt.engine.core.common.businessentities.storage.Disk;
+import org.ovirt.engine.core.common.businessentities.storage.DiskBackup;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskInterface;
 import org.ovirt.engine.core.common.businessentities.storage.Image;
@@ -290,9 +291,6 @@ public class AsyncDataProvider {
     // cached architecture support for live migration
     private Map<ArchitectureType, Map<Version, Boolean>> migrationSupport;
 
-    // cached architecture support for memory snapshot
-    private Map<ArchitectureType, Map<Version, Boolean>> memorySnapshotSupport;
-
     // cached architecture support for memory hot unplug
     private Map<ArchitectureType, Map<Version, Boolean>> memoryHotUnplugSupport;
 
@@ -347,7 +345,6 @@ public class AsyncDataProvider {
         initDefaultOSes();
         initGet64BitOss();
         initMigrationSupportMap();
-        initMemorySnapshotSupportMap();
         initMemoryHotUnplugSupportMap();
         initTpmDeviceSupportMap();
         initCustomPropertiesList();
@@ -476,10 +473,6 @@ public class AsyncDataProvider {
         return migrationSupport.get(architecture).get(version);
     }
 
-    public Boolean isMemorySnapshotSupportedByArchitecture(ArchitectureType architecture, Version version) {
-        return memorySnapshotSupport.get(architecture).get(version);
-    }
-
     public Boolean isMemoryHotUnplugSupportedByArchitecture(ArchitectureType architecture, Version version) {
         return memoryHotUnplugSupport.get(architecture).get(version);
     }
@@ -510,12 +503,6 @@ public class AsyncDataProvider {
                 new AsyncQuery<QueryReturnValue>(returnValue -> migrationSupport = returnValue.getReturnValue()));
     }
 
-    private void initMemorySnapshotSupportMap() {
-        Frontend.getInstance().runQuery(QueryType.GetArchitectureCapabilities,
-                new ArchCapabilitiesParameters(ArchCapabilitiesVerb.GetMemorySnapshotSupport),
-                new AsyncQuery<QueryReturnValue>(returnValue -> memorySnapshotSupport = returnValue.getReturnValue()));
-    }
-
     private void initMemoryHotUnplugSupportMap() {
         Frontend.getInstance().runQuery(QueryType.GetArchitectureCapabilities,
                 new ArchCapabilitiesParameters(ArchCapabilitiesVerb.GetMemoryHotUnplugSupport),
@@ -526,19 +513,6 @@ public class AsyncDataProvider {
         Frontend.getInstance().runQuery(QueryType.GetArchitectureCapabilities,
                 new ArchCapabilitiesParameters(ArchCapabilitiesVerb.GetTpmDeviceSupport),
                 new AsyncQuery<QueryReturnValue>(returnValue -> tpmDeviceSupport = returnValue.getReturnValue()));
-    }
-
-    /**
-     * Check if memory snapshot is supported
-     */
-    public boolean isMemorySnapshotSupported(VM vm) {
-        if (vm == null) {
-            return false;
-        }
-
-        return isMemorySnapshotSupportedByArchitecture(
-                vm.getClusterArch(),
-                vm.getCompatibilityVersion());
     }
 
     public void initNicHotplugSupportMap() {
@@ -1127,7 +1101,10 @@ public class AsyncDataProvider {
     }
 
     // NOTE: This logic is duplicated in ovirt-web-ui for disk and VM creation.  Any changes here should also be made there.
-    public VolumeFormat getDiskVolumeFormat(VolumeType volumeType, StorageType storageType) {
+    public VolumeFormat getDiskVolumeFormat(VolumeType volumeType, StorageType storageType, DiskBackup backup) {
+        if (backup == DiskBackup.Incremental) {
+            return VolumeFormat.COW;
+        }
         if (storageType.isFileDomain()) {
             return VolumeFormat.RAW;
         } else if (storageType.isBlockDomain()) {

@@ -27,6 +27,7 @@ import org.ovirt.engine.core.bll.tasks.interfaces.CommandCallback;
 import org.ovirt.engine.core.bll.utils.PermissionSubject;
 import org.ovirt.engine.core.bll.validator.storage.DiskImagesValidator;
 import org.ovirt.engine.core.bll.validator.storage.DiskValidator;
+import org.ovirt.engine.core.bll.validator.storage.ManagedBlockStorageDomainValidator;
 import org.ovirt.engine.core.bll.validator.storage.StorageDomainValidator;
 import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.VdcObjectType;
@@ -47,6 +48,7 @@ import org.ovirt.engine.core.common.businessentities.VmBackup;
 import org.ovirt.engine.core.common.businessentities.VmBackupPhase;
 import org.ovirt.engine.core.common.businessentities.storage.DiskBackupMode;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
+import org.ovirt.engine.core.common.businessentities.storage.DiskStorageType;
 import org.ovirt.engine.core.common.businessentities.storage.ImageStatus;
 import org.ovirt.engine.core.common.businessentities.storage.ImageTicket;
 import org.ovirt.engine.core.common.businessentities.storage.ImageTicketInformation;
@@ -162,6 +164,11 @@ public class TransferDiskImageCommand<T extends TransferDiskImageParameters> ext
     }
 
     protected boolean validateCreateImage() {
+        StorageDomain storageDomain = storageDomainDao.get(getParameters().getStorageDomainId());
+        if (!isSupportedByManagedBlockStorageDomain(storageDomain)) {
+            return false;
+        }
+
         ActionReturnValue returnValue = CommandHelper.validate(ActionType.AddDisk, getAddDiskParameters(),
                 getContext().clone());
         getReturnValue().setValidationMessages(returnValue.getValidationMessages());
@@ -193,6 +200,11 @@ public class TransferDiskImageCommand<T extends TransferDiskImageParameters> ext
                 validate(diskValidator.isDiskExists())
                 && validate(diskImagesValidator.diskImagesNotIllegal())
                 && validate(storageDomainValidator.isDomainExistAndActive());
+
+        if (diskImage.getDiskStorageType() == DiskStorageType.MANAGED_BLOCK_STORAGE) {
+            return validate(ManagedBlockStorageDomainValidator.isOperationSupportedByManagedBlockStorage(getActionType()));
+        }
+
         if (isBackup()) {
             if (isHybridBackup()) {
                 if (!snapshotDao.exists(getBackup().getVmId(), getBackup().getSnapshotId())) {
@@ -299,14 +311,10 @@ public class TransferDiskImageCommand<T extends TransferDiskImageParameters> ext
         boolean tearDownFailed = false;
 
         if (getTransferBackend() == ImageTransferBackend.FILE) {
-            if (!Guid.Empty.equals(image.getImageTemplateId())) {
-                LockInfo lockInfo =
-                        lockManager.getLockInfo(getImage().getImageTemplateId() + LockingGroup.TEMPLATE.toString());
+            if (isTemplateBeingUsed(image)) {
+                log.info("Transfer '{}': The template image is being used, skipping teardown", getCommandId());
 
-                if (lockInfo != null) {
-                    log.info("The template image is used for image transfer '{}', skipping teardown", getCommandId());
-                    return;
-                }
+                return;
             }
 
             VDSReturnValue teardownImageVdsRetVal = runVdsCommand(VDSCommandType.TeardownImage,
@@ -324,6 +332,18 @@ public class TransferDiskImageCommand<T extends TransferDiskImageParameters> ext
             addCustomValue("DiskAlias", image.getDiskAlias());
             auditLogDirector.log(this, AuditLogType.TRANSFER_IMAGE_TEARDOWN_FAILED);
         }
+    }
+
+    private boolean isTemplateBeingUsed(DiskImage image) {
+        if (!Guid.Empty.equals(image.getImageTemplateId())) {
+            LockInfo lockInfo =
+                    lockManager.getLockInfo(getDiskImage().getImageTemplateId() + LockingGroup.TEMPLATE.toString());
+            if (lockInfo != null) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private boolean stopNbdServer(Guid vdsId) {
@@ -436,10 +456,16 @@ public class TransferDiskImageCommand<T extends TransferDiskImageParameters> ext
             // StartVmBackup should handle locks
             return locks;
         }
+
         if (!Guid.isNullOrEmpty(getParameters().getImageId()) && getDiskImage() != null) {
             List<VM> vms = vmDao.getVmsListForDisk(getDiskImage().getId(), true);
             vms.forEach(vm -> locks.put(vm.getId().toString(),
                     LockMessagesMatchUtil.makeLockingPair(LockingGroup.VM, getDiskIsBeingTransferredLockMessage())));
+        }
+
+        if (getDiskImage() != null && getParameters().getTransferType() == TransferType.Download) {
+            locks.put(getDiskImage().getId().toString(),
+                    LockMessagesMatchUtil.makeLockingPair(LockingGroup.DISK, getDiskIsBeingTransferredLockMessage()));
         }
 
         return locks;
@@ -458,7 +484,8 @@ public class TransferDiskImageCommand<T extends TransferDiskImageParameters> ext
             // StartVmBackup should handle locks
             return locks;
         }
-        if (getDiskImage() != null) {
+
+        if (getDiskImage() != null && getParameters().getTransferType() == TransferType.Upload) {
             locks.put(getDiskImage().getId().toString(),
                     LockMessagesMatchUtil.makeLockingPair(LockingGroup.DISK, getDiskIsBeingTransferredLockMessage()));
         }
