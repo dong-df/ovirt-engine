@@ -9,7 +9,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -17,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
@@ -39,9 +37,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 public class AnsibleRunnerClient {
     private static Logger log = LoggerFactory.getLogger(AnsibleRunnerClient.class);
     private ObjectMapper mapper;
-    private AnsibleRunnerLogger runnerLogger;
     private static final int POLL_INTERVAL = 3000;
-    private AnsibleReturnValue returnValue;
 
     public AnsibleRunnerClient() {
         this.mapper = JsonMapper
@@ -49,7 +45,6 @@ public class AnsibleRunnerClient {
                 .findAndAddModules()
                 .build()
                 .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
-        this.returnValue = new AnsibleReturnValue(AnsibleReturnCode.ERROR);
     }
 
     public Boolean playHasEnded(String uuid, int lastEventId) {
@@ -59,32 +54,26 @@ public class AnsibleRunnerClient {
         return !msg.equalsIgnoreCase("running") && !(lastEventId < getTotalEvents(uuid));
     }
 
-    public AnsibleReturnValue artifactHandler(UUID uuid, int lastEventID, int timeout, BiConsumer<String, String> fn)
-            throws Exception {
+    public void artifactHandler(AnsibleReturnValue returnValue,
+            int timeout,
+            BiConsumer<String, String> fn,
+            AnsibleRunnerLogger runnerLogger) throws Exception {
         int executionTime = 0;
-        setReturnValue(uuid);
-        while (!playHasEnded(uuid.toString(), lastEventID)) {
-            lastEventID = processEvents(uuid.toString(), lastEventID, fn, "", Paths.get(""));
-            if (lastEventID == -1) {
-                return returnValue;
+        while (!playHasEnded(returnValue.getPlayUuid(), returnValue.getLastEventId())) {
+            processEvents(returnValue, fn, runnerLogger);
+            if (returnValue.getLastEventId() == -1) {
+                return;
             }
             executionTime += POLL_INTERVAL / 1000;
             if (executionTime > timeout * 60) {
                 // Cancel playbook, and raise exception in case timeout occur:
-                cancelPlaybook(uuid, timeout);
+                cancelPlaybook(returnValue.getPlayUuid(), timeout);
                 throw new TimeoutException(
                         "Play execution has reached timeout");
             }
             Thread.sleep(POLL_INTERVAL);
         }
         returnValue.setAnsibleReturnCode(AnsibleReturnCode.OK);
-        return returnValue;
-    }
-
-    public void setReturnValue(UUID uuid) {
-        returnValue.setPlayUuid(uuid.toString());
-        returnValue.setLogFile(runnerLogger.getLogFile());
-        returnValue.setStdout(Paths.get(this.getJobEventsDir(uuid.toString()), "../stdout").toString());
     }
 
     public String getEventFileName(String playUuid, int eventId) {
@@ -106,15 +95,13 @@ public class AnsibleRunnerClient {
         return String.format("%1$s/%2$s/artifacts/%2$s/job_events/", AnsibleConstants.ANSIBLE_RUNNER_PATH, playUuid);
     }
 
-    public int processEvents(String playUuid,
-            int lastEventId,
+    public void processEvents(AnsibleReturnValue returnValue,
             BiConsumer<String, String> fn,
-            String msg,
-            Path logFile) {
-        String jobEvents = getJobEventsDir(playUuid);
+            AnsibleRunnerLogger runnerLogger) {
+        String jobEvents = getJobEventsDir(returnValue.getPlayUuid());
         while(true){
             // get next event
-            String event = getEventFileName(playUuid, lastEventId + 1);
+            String event = getEventFileName(returnValue.getPlayUuid(), returnValue.getLastEventId() + 1);
             if (event == null) {
                 break;
             }
@@ -125,7 +112,8 @@ public class AnsibleRunnerClient {
             if (RunnerJsonNode.isEventUnreachable(currentNode)) {
                 runnerLogger.log(currentNode);
                 returnValue.setAnsibleReturnCode(AnsibleReturnCode.UNREACHABLE);
-                return -1;
+                returnValue.setLastEventId(-1);
+                break;
             }
 
             // might need special attention
@@ -135,7 +123,7 @@ public class AnsibleRunnerClient {
                 }
             }
 
-            log.debug("Current node event: {} lastEventId: {} ", currentNode.get("event").textValue(), lastEventId);
+            log.debug("Current node event: {} lastEventId: {} ", currentNode.get("event").textValue(), returnValue.getLastEventId());
             // want to log only these kind of events:
             if (RunnerJsonNode.isEventStart(currentNode) || RunnerJsonNode.isEventOk(currentNode)
                     || RunnerJsonNode.playbookStats(currentNode) || RunnerJsonNode.isEventFailed(currentNode)) {
@@ -178,10 +166,8 @@ public class AnsibleRunnerClient {
                     }
                 }
             }
-            lastEventId = Integer.valueOf(event.split("-")[0]);
-            returnValue.setLastEventId(lastEventId);
+            returnValue.setLastEventId(Integer.valueOf(event.split("-")[0]));
         }
-        return lastEventId;
     }
 
     private Boolean jsonIsValid(String content) {
@@ -194,7 +180,7 @@ public class AnsibleRunnerClient {
         }
     }
 
-    public void cancelPlaybook(UUID uuid, int timeout) throws Exception {
+    public void cancelPlaybook(String uuid, int timeout) throws Exception {
         File privateDataDir = new File(String.format("%1$s/%2$s/", AnsibleConstants.ANSIBLE_RUNNER_PATH, uuid));
         File output = new File(String.format("%1$s/output.log", privateDataDir));
         String command = String.format("ansible-runner stop %1$s", privateDataDir);
@@ -206,7 +192,7 @@ public class AnsibleRunnerClient {
         } catch (IOException e) {
             log.error(String.format("Failed to execute call to cancel playbook. %1$s, %2$s../stdout ",
                     output.toString(),
-                    Paths.get(this.getJobEventsDir(uuid.toString()))));
+                    Paths.get(this.getJobEventsDir(uuid))));
             log.debug("Exception: ", e);
             return;
         }
@@ -353,14 +339,6 @@ public class AnsibleRunnerClient {
         JsonNode event = getEvent(eventUrl);
         JsonNode taskNode = RunnerJsonNode.taskNode(event);
         return RunnerJsonNode.getStdout(taskNode);
-    }
-
-    public void setLogger(AnsibleRunnerLogger runnerLogger) {
-        this.runnerLogger = runnerLogger;
-    }
-
-    public AnsibleRunnerLogger getLogger() {
-        return this.runnerLogger;
     }
 
     public static class PlaybookStatus {

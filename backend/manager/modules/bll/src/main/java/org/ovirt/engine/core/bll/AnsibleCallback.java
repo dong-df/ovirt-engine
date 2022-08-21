@@ -44,8 +44,10 @@ public class AnsibleCallback implements CommandCallback {
     public void doPolling(Guid cmdId, List<Guid> childCmdIds) {
         CommandBase<AnsibleCommandParameters> command = getCommand(cmdId);
         String playUuid = command.getParameters().getPlayUuid();
+        AnsibleReturnValue ret = new AnsibleReturnValue(AnsibleReturnCode.ERROR);
+        ret.setPlayUuid(playUuid);
+        ret.setLastEventId(command.getParameters().getLastEventId());
         StringBuilder stdout = command.getParameters().getStringBuilder();
-        runnerClient.setLogger(new AnsibleRunnerLogger(command.getParameters().getLogFile()));
         BiConsumer<String, String> fn = (String taskName, String eventUrl) -> {
             AuditLogable logable = createAuditLogable(command, taskName);
             auditLogDirector.log(logable, AuditLogType.ANSIBLE_RUNNER_EVENT_NOTIFICATION);
@@ -59,8 +61,6 @@ public class AnsibleCallback implements CommandCallback {
             }
         };
 
-        AnsibleReturnValue ret = new AnsibleReturnValue(AnsibleReturnCode.ERROR);
-        ret.setLogFile(runnerClient.getLogger().getLogFile());
         int totalEvents;
         // Get the current status of the playbook:
         AnsibleRunnerClient.PlaybookStatus playbookStatus = runnerClient.getPlaybookStatus(playUuid);
@@ -68,17 +68,16 @@ public class AnsibleCallback implements CommandCallback {
         // Process the events if the playbook is running:
         totalEvents = runnerClient.getTotalEvents(playUuid);
 
-        log.debug("LastEventId: {} totalEvents: {} playbookStatus: {}", command.getParameters().getLastEventId(), totalEvents, playbookStatus);
+        log.debug("LastEventId: {} totalEvents: {} playbookStatus: {}", ret.getLastEventId(), totalEvents, playbookStatus);
         if (msg.equalsIgnoreCase("running") || msg.equalsIgnoreCase("successful")
                 && command.getParameters().getLastEventId() < totalEvents) {
-            command.getParameters().setLastEventId(runnerClient.processEvents(
-                    playUuid, command.getParameters().getLastEventId(), fn, msg, ret.getLogFile()));
+            runnerClient.processEvents(ret , fn, new AnsibleRunnerLogger(command.getParameters().getLogFile()));
+            command.getParameters().setLastEventId(ret.getLastEventId());
             return;
         } else if (msg.equalsIgnoreCase("successful")) {
             log.info("Playbook (Play uuid = {}, command = {}) has completed!",
                     command.getParameters().getPlayUuid(), command.getActionType().name());
             // Exit the processing if playbook finished:
-            ret.setAnsibleReturnCode(AnsibleReturnCode.OK);
             command.setSucceeded(true);
             command.setCommandStatus(CommandStatus.SUCCEEDED);
         } else {

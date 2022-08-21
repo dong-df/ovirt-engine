@@ -65,7 +65,6 @@ import org.ovirt.engine.core.compat.Guid;
 import org.ovirt.engine.core.dao.DiskImageDao;
 import org.ovirt.engine.core.dao.DiskVmElementDao;
 import org.ovirt.engine.core.dao.ImageStorageDomainMapDao;
-import org.ovirt.engine.core.dao.SnapshotDao;
 import org.ovirt.engine.core.dao.StorageDomainDao;
 import org.ovirt.engine.core.dao.UnregisteredDisksDao;
 import org.ovirt.engine.core.dao.VmDao;
@@ -100,8 +99,6 @@ public class MoveOrCopyDiskCommand<T extends MoveOrCopyImageGroupParameters> ext
     private UnregisteredDisksDao unregisteredDisksDao;
     @Inject
     private VmDao vmDao;
-    @Inject
-    private SnapshotDao snapshotDao;
     @Inject
     @Typed(ConcurrentChildCommandsExecutionCallback.class)
     private Instance<ConcurrentChildCommandsExecutionCallback> callbackProvider;
@@ -173,7 +170,21 @@ public class MoveOrCopyDiskCommand<T extends MoveOrCopyImageGroupParameters> ext
                 && checkIfNeedToBeOverride()
                 && setAndValidateDiskProfiles()
                 && setAndValidateQuota()
-                && validatePassDiscardSupportedForDestinationStorageDomain();
+                && validatePassDiscardSupportedForDestinationStorageDomain()
+                && noCopyBetweenLocalAndManagedBlockStorages();
+    }
+
+    protected boolean noCopyBetweenLocalAndManagedBlockStorages() {
+        Guid sourceDomainId = getParameters().getSourceDomainId();
+        StorageDomain sourceStorageDomain = storageDomainDao.getForStoragePool(sourceDomainId, getImage().getStoragePoolId());
+
+        if (getStorageDomain().getStorageType() == StorageType.MANAGED_BLOCK_STORAGE
+                && sourceStorageDomain.getStorageType() == StorageType.LOCALFS || getStorageDomain().getStorageType() == StorageType.LOCALFS
+                && sourceStorageDomain.getStorageType() == StorageType.MANAGED_BLOCK_STORAGE) {
+            return failValidation(EngineMessage.ACTION_TYPE_FAILED_UNSUPPORTED_ACTION_BETWEEN_MANAGED_BLOCK_STORAGE_TYPE_AND_LOCAL_STORAGE);
+        }
+
+        return true;
     }
 
     protected boolean isSourceAndDestTheSame() {

@@ -11,15 +11,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang.StringUtils;
 import org.ovirt.engine.core.common.businessentities.VDS;
 import org.ovirt.engine.core.utils.CorrelationIdTracker;
 import org.ovirt.engine.core.utils.EngineLocalConfig;
@@ -34,8 +30,7 @@ public class AnsibleCommandConfig implements LogFileConfig, PlaybookConfig {
     public static final String ANSIBLE_EXECUTION_METHOD = "start";
 
     private String cluster;
-    private List<String> hostnames;
-    private List<VDS> hosts;
+    private VDS host;
     private Map<String, Object> variables;
     private String variableFilePath;
     private String limit;
@@ -107,10 +102,6 @@ public class AnsibleCommandConfig implements LogFileConfig, PlaybookConfig {
         return playbook;
     }
 
-    public List<String> hostnames() {
-        return shallowCopy(hostnames);
-    }
-
     public String cluster() {
         return cluster;
     }
@@ -139,8 +130,8 @@ public class AnsibleCommandConfig implements LogFileConfig, PlaybookConfig {
         return playAction;
     }
 
-    public List<VDS> hosts() {
-        return hosts;
+    public VDS host() {
+        return this.host;
     }
 
     /**
@@ -186,11 +177,8 @@ public class AnsibleCommandConfig implements LogFileConfig, PlaybookConfig {
         return this;
     }
 
-    public AnsibleCommandConfig hosts(VDS... hosts) {
-        this.hostnames = Arrays.stream(hosts)
-                .map(h -> h.getHostName())
-                .collect(Collectors.toList());
-        this.hosts = Arrays.asList(hosts);
+    public AnsibleCommandConfig host(VDS host) {
+        this.host = host;
         return this;
     }
 
@@ -307,15 +295,18 @@ public class AnsibleCommandConfig implements LogFileConfig, PlaybookConfig {
     }
 
     private void createHostFile(File inventory) {
-        File hostsFile = new File(String.format("%1$s/hosts", inventory));
-        if (CollectionUtils.isNotEmpty(hostnames())) {
-            try {
-                hostsFile.createNewFile();
-                Files.write(hostsFile.toPath(), StringUtils.join(hostnames(), System.lineSeparator()).getBytes());
-            } catch (IOException ex) {
-                throw new AnsibleRunnerCallException(
-                    String.format("Failed to create inventory file '%s':", hostsFile.toString()), ex);
+        File hostFile = new File(String.format("%1$s/hosts", inventory));
+        try {
+            hostFile.createNewFile();
+            if (host != null) {
+                // if VDS is null then playbook is running on engine and ansible uses localhost inventory automatically
+                Files.write(hostFile.toPath(),
+                        String.format(this.host.getHostName() + " ansible_port=%1$s", this.host.getSshPort()).getBytes());
             }
+        } catch (IOException ex) {
+            throw new AnsibleRunnerCallException(
+                    String.format("Failed to create inventory file '%s':", hostFile.toString()),
+                    ex);
         }
     }
 

@@ -60,6 +60,8 @@ public class RemoveSnapshotSingleDiskLiveCommand<T extends RemoveSnapshotSingleD
         // Let doPolling() drive the execution; we don't have any guarantee that
         // executeCommand() will finish before doPolling() is called, and we don't
         // want to possibly run the first command twice.
+        getParameters().setCommandStep(getInitialMergeStepForImage(getParameters().getImageId()));
+        getParameters().setChildCommands(new HashMap<>());
         setSucceeded(true); // Allow runAction to succeed
     }
 
@@ -83,17 +85,12 @@ public class RemoveSnapshotSingleDiskLiveCommand<T extends RemoveSnapshotSingleD
 
     @Override
     public boolean performNextOperation(int completedChildCount) {
-
         // Steps are executed such that:
         //  a) all logic before the command runs is idempotent
         //  b) the command is the last action in the step
         // This allows for recovery after a crash at any point during command execution.
 
         log.debug("Proceeding with execution of RemoveSnapshotSingleDiskLiveCommand");
-        if (getParameters().getCommandStep() == null) {
-            getParameters().setCommandStep(getInitialMergeStepForImage(getParameters().getImageId()));
-            getParameters().setChildCommands(new HashMap<>());
-        }
 
         // Upon recovery or after invoking a new child command, our map may be missing an entry
         syncChildCommandList(getParameters());
@@ -181,6 +178,13 @@ public class RemoveSnapshotSingleDiskLiveCommand<T extends RemoveSnapshotSingleD
                 log.info("Image has been previously merged, proceeding with deletion");
                 return RemoveSnapshotSingleDiskStep.DESTROY_IMAGE;
             }
+        }
+        if (getImageInfoFromVdsm(getDestinationDiskImage()) == null) {
+            log.info("Image does not exist, attempting to synchronize the database");
+            Set<Guid> imagesToRemove = new HashSet<>();
+            imagesToRemove.add(getDestinationDiskImage().getImageId());
+            getParameters().setMergeStatusReturnValue(new MergeStatusReturnValue(imagesToRemove));
+            return RemoveSnapshotSingleDiskStep.COMPLETE;
         }
         return RemoveSnapshotSingleDiskStep.EXTEND;
     }
