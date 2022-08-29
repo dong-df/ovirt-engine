@@ -26,6 +26,7 @@ from ovirt_engine import util as outil
 from ovirt_engine_setup import constants as osetupcons
 from ovirt_engine_setup import util as osetuputil
 from ovirt_engine_setup.engine_common import constants as oengcommcons
+from ovirt_engine_setup.engine_common.constants import ProvisioningEnv
 
 from ovirt_setup_lib import dialog
 from ovirt_setup_lib import hostname as osetuphostname
@@ -953,6 +954,78 @@ class OvirtUtils(base.Base):
             ()
         ) + (
             {
+                'key': 'autovacuum_vacuum_scale_factor',
+                'expected': self.environment[
+                    ProvisioningEnv.PG_AUTOVACUUM_VACUUM_SCALE_FACTOR
+                ],
+                'ok': lambda key, current, expected: (
+                    float(current) <= float(expected)
+                ),
+                'check_on_use': True,
+                'needed_on_create': True,
+                'error_msg': '{specific}'.format(
+                    specific='%s' % AT_MOST_EXPECTED,
+                )
+            },
+            {
+                'key': 'autovacuum_analyze_scale_factor',
+                'expected': self.environment[
+                    ProvisioningEnv.PG_AUTOVACUUM_ANALYZE_SCALE_FACTOR
+                ],
+                'ok': lambda key, current, expected: (
+                    float(current) <= float(expected)
+                ),
+                'check_on_use': True,
+                'needed_on_create': True,
+                'error_msg': '{specific}'.format(
+                    specific=AT_MOST_EXPECTED,
+                )
+            },
+            {
+                'key': 'autovacuum_max_workers',
+                'expected': self.environment[
+                    ProvisioningEnv.PG_AUTOVACUUM_MAX_WORKERS
+                ],
+                'ok': lambda key, current, expected: (
+                    int(current) >= int(expected)
+                ),
+                'check_on_use': True,
+                'needed_on_create': True,
+                'error_msg': '{specific}'.format(
+                    specific=AT_LEAST_EXPECTED,
+                )
+            },
+            {
+                'key': 'maintenance_work_mem',
+                'expected': self.environment[
+                    ProvisioningEnv.PG_AUTOVACUUM_MAINTENANCE_WORK_MEM
+                ],
+                'useQueryForValue': True,
+                'ok': lambda key, current, expected: (
+                    int(current) >= int(expected)
+                ),
+                'check_on_use': True,
+                'needed_on_create': True,
+                'error_msg': '{specific}'.format(
+                    specific='%s' % AT_LEAST_EXPECTED,
+                )
+            },
+            {
+                'key': 'work_mem',
+                'expected': self.environment[
+                    ProvisioningEnv.PG_WORK_MEM_KB
+                ],
+                'useQueryForValue': True,
+                'ok': lambda key, current, expected: (
+                    int(current) >= int(expected)
+                ),
+                'check_on_use': True,
+                'needed_on_create': True,
+                'error_msg': '{specific}'.format(
+                    specific='%s' % AT_LEAST_EXPECTED,
+                )
+            },
+            {
                 'key': 'server_encoding',
                 'expected': 'UTF8',
                 'ok': self._lower_equal_no_dash,
@@ -1175,7 +1248,6 @@ class OvirtUtils(base.Base):
     def getCredentials(
         self,
         name,
-        queryprefix,
         defaultdbenvkeys,
         show_create_msg=False,
         note=None,
@@ -1241,6 +1313,9 @@ class OvirtUtils(base.Base):
             ):
                 dbenv[self._dbenvkeys[k]] = _ind_env(self, k)
 
+            def question_name(what):
+                return self._dbenvkeys[DEK.CREDS_Q_NAME_FUNC](what.upper())
+
             def query_dbenv(
                 what,
                 note,
@@ -1248,10 +1323,7 @@ class OvirtUtils(base.Base):
                 **kwargs
             ):
                 dialog.queryEnvKey(
-                    name='{qpref}{what}'.format(
-                        qpref=queryprefix,
-                        what=what.upper(),
-                    ),
+                    name=question_name(what.upper()),
                     dialog=self.dialog,
                     logger=self.logger,
                     env=dbenv,
@@ -1292,7 +1364,7 @@ class OvirtUtils(base.Base):
             if dbenv[self._dbenvkeys[DEK.SECURED]] is None:
                 dbenv[self._dbenvkeys[DEK.SECURED]] = dialog.queryBoolean(
                     dialog=self.dialog,
-                    name='{qpref}SECURED'.format(qpref=queryprefix),
+                    name=question_name('SECURED'),
                     note=_(
                         '{name} database secured connection (@VALUES@) '
                         '[@DEFAULT@]: '
@@ -1311,9 +1383,7 @@ class OvirtUtils(base.Base):
                     self._dbenvkeys[DEK.HOST_VALIDATION]
                 ] = dialog.queryBoolean(
                     dialog=self.dialog,
-                    name='{qpref}SECURED_HOST_VALIDATION'.format(
-                        qpref=queryprefix
-                    ),
+                    name=question_name('SECURED_HOST_VALIDATION'),
                     note=_(
                         '{name} database host name validation in secured '
                         'connection (@VALUES@) [@DEFAULT@]: '
