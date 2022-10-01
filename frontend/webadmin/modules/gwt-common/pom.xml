@@ -4,7 +4,7 @@
   <parent>
     <groupId>org.ovirt.engine.ui</groupId>
     <artifactId>webadmin-modules</artifactId>
-    <version>4.5.3-SNAPSHOT</version>
+    <version>4.5.4-SNAPSHOT</version>
   </parent>
   <artifactId>gwt-common</artifactId>
   <packaging>jar</packaging>
@@ -23,45 +23,38 @@
     <dependency>
       <groupId>org.gwtbootstrap3</groupId>
       <artifactId>gwtbootstrap3</artifactId>
-      <version>${gwtbootstrap3.version}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.gwtbootstrap3</groupId>
       <artifactId>gwtbootstrap3-extras</artifactId>
-      <version>${gwtbootstrap3.version}</version>
       <scope>provided</scope>
     </dependency>
     <!-- GWTP MVP component -->
     <dependency>
       <groupId>com.gwtplatform</groupId>
       <artifactId>gwtp-mvp-client</artifactId>
-      <version>${gwtp.version}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.gwtplatform</groupId>
       <artifactId>gwtp-processors</artifactId>
-      <version>${gwtp.version}</version>
       <scope>provided</scope>
     </dependency>
     <!-- Guice and GIN -->
     <dependency>
       <groupId>com.google.inject</groupId>
       <artifactId>guice</artifactId>
-      <version>${guice.version}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.google.inject.extensions</groupId>
       <artifactId>guice-assistedinject</artifactId>
-      <version>${guice.version}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>io.github.gwtplus.gin</groupId>
       <artifactId>gin</artifactId>
-      <version>${gin.version}</version>
       <scope>provided</scope>
     </dependency>
     <!-- oVirt dependencies -->
@@ -115,7 +108,6 @@
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>properties-maven-plugin</artifactId>
-        <version>1.0.0</version>
         <executions>
           <execution>
             <goals>
@@ -141,7 +133,6 @@
       <plugin>
         <groupId>org.bsc.maven</groupId>
         <artifactId>maven-processor-plugin</artifactId>
-        <version>${maven-processor-plugin.version}</version>
         <executions>
           <execution>
             <id>process</id>

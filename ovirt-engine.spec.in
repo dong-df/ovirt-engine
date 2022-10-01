@@ -42,17 +42,17 @@
 %if 0%{!?ovirt_build_all_user_agents:1}
 %global ovirt_build_all_user_agents 1
 %endif
-# define "rhv_build 1" to perform RHV Manager build
-#if True
-%global rhv_build 1
-#else
+
+# Limit GWT resources to pass the build in CBS
+%global ovirt_build_extra_flags_rpm -Dgwt.compiler.localWorkers=1
+
+# Set "rhv_build 1" to perform RHV Manager build
 %global rhv_build 0
-#end if
+
 #
 # CUSTOMIZATION-END
 #
 
-#raw
 
 # Do not repack .jar files, as it takes a long time and doesn't have a
 # real benefit:
@@ -70,8 +70,8 @@
 # rpm does not support override
 # nor modify of variables
 #
-%if %{?_ovirt_build_extra_flags:1}%{?ovirt_build_extra_flags:1}0
-%global EXTRA_BUILD_FLAGS %{?_ovirt_build_extra_flags:%{_ovirt_build_extra_flags}}%{?ovirt_build_extra_flags: %{ovirt_build_extra_flags}}
+%if %{?ovirt_build_extra_flags_rpm:1}%{?_ovirt_build_extra_flags:1}%{?ovirt_build_extra_flags:1}0
+%global EXTRA_BUILD_FLAGS %{ovirt_build_extra_flags_rpm} %{?_ovirt_build_extra_flags:%{_ovirt_build_extra_flags}}%{?ovirt_build_extra_flags: %{ovirt_build_extra_flags}}
 %endif
 
 #
@@ -79,8 +79,6 @@
 # Fedora >= 30
 # EL >= 7
 #
-
-%global ovirt_install_poms 1
 
 %global ovirt_product_name oVirt Engine
 %global ovirt_product_name_short oVirt Engine
@@ -150,10 +148,8 @@ getent passwd %1 >/dev/null || useradd -r -u %2 -g %3 -c %5 -s /sbin/nologin -d 
 %if %{rhv_build}
 %global wildfly_overlay_modules ""
 %define extra_common_opts \\\
-	MVN=true \\\
 	BUILD_ENV_VALIDATION=0 \\\
-	JBOSS_HOME=/opt/rh/eap7/root/usr/share/wildfly \\\
-	MAVEN_OUTPUT_DIR=%{_sourcedir}
+	JBOSS_HOME=/opt/rh/eap7/root/usr/share/wildfly
 %else
 %global wildfly_overlay_modules "/usr/share/ovirt-engine-wildfly-overlay/modules"
 %endif
@@ -207,80 +203,38 @@ getent passwd %1 >/dev/null || useradd -r -u %2 -g %3 -c %5 -s /sbin/nologin -d 
 %global spice_version 8.0
 %endif
 
-%if !%{rhv_build}
 Name:		@PACKAGE_NAME@
 Version:	@RPM_VERSION@
 Release:	@RPM_RELEASE@%{?release_suffix}%{?dist}
-%else
-Name:		ovirt-engine
-# start of cheetah processed code
-#end raw
-#import os
-#import zipfile
-#import re
-#for $artifact in $all_artifacts
-   #if $artifact.endswith('-sources.zip')
-     #set $sourcezip = zipfile.ZipFile($artifact)
-     #set $entry = $sourcezip.namelist()[0]
-     #set $source_rootdir = $entry.split('/')[0]
-     #set $versionmak = $sourcezip.open(os.path.join(source_rootdir, 'version.mak')).read().decode()
-     #set $downstream_rpm_release_prefix = re.search('DOWNSTREAM_RPM_RELEASE_PREFIX=(.*)', $versionmak).group(1)
-     #set $pomxmlhead = $sourcezip.open(os.path.join(source_rootdir, 'pom.xml')).read().decode().splitlines()[:20]
-     #set $pomversionline = [ l for l in $pomxmlhead if '<version>' in l ][0]
-     #set $pomversion = re.search('.*>(.*)<.*', $pomversionline).group(1)
-     #set $release_suffix = ''
-     #if 'SNAPSHOT' in $pomversion
-       #set $release_suffix = '.master'
-     #end if
-   #end if
-#end for
-Version:	$version
-Release:	$downstream_rpm_release_prefix$release$release_suffix%{?dist}
-%endif
 Summary:	Management server for Open Virtualization
 Group:		%{ovirt_product_group}
 License:	ASL 2.0
 %if !%{rhv_build}
 URL:		http://www.ovirt.org
-Source0:	http://resources.ovirt.org/pub/ovirt-master-snapshot/src/@PACKAGE_NAME@/@PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz
 %else
 URL:		http://www.redhat.com/products/virtualization
-#
-# Acquire brew/mead pre-built resources.
-#
-#set $i = 0
-#for $artifact in $all_artifacts
-   #set $source = $artifact.split('/')[-1]
-Source$i:   $source
-   #set $i += 1
-#end for
 %endif
 
+Source0:	http://resources.ovirt.org/pub/ovirt-master-snapshot/src/@PACKAGE_NAME@/@PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz
+
 BuildArch:	noarch
+ExcludeArch:	s390x ppc64le
 
 %if %{rhv_build}
 BuildRequires:  perl
-%else
-BuildRequires:	assertj-core >= 2.2.0
-BuildRequires:	maven >= 3.6.0
-BuildRequires:  maven-enforcer-plugin
 %endif
 
 BuildRequires:	java-11-openjdk-devel >= %{openjdk_version}
 BuildRequires:	javapackages-tools
 BuildRequires:	make
+BuildRequires:	maven >= 3.6.0
 BuildRequires:	python3-devel
 BuildRequires:	python3-distro
 BuildRequires:	systemd
 BuildRequires:	unzip
-BuildRequires:	ovirt-jboss-modules-maven-plugin >= 2.0.1
 BuildRequires:	javapackages-local
 
-# backend
-BuildRequires:	%{name}-extensions-api >= 1.0.1
-
-# findbugs filter
-BuildRequires:	maven-surefire-plugin
+BuildRequires:	ovirt-engine-build-dependencies >= 4.5.3
 
 Requires(pre):	shadow-utils
 
@@ -312,6 +266,11 @@ Requires:	%{name}-ui-extensions >= 1.0.4
 # From ovirt-engine-4.5.0 ansible-core and ansible-runner are required,
 # ansible-runner-service is obsoleted
 Requires:	ansible-core >= 2.12.0
+# ansible-core 2.13 uses Python 3.9, and many modules are missing a Python 3.9
+# build on el8. TODO: Provide them? Instead of or in addition to Python 3.8?
+%if 0%{?rhel} < 9
+Conflicts:	ansible-core >= 2.13.0
+%endif
 Requires:	ansible-runner >= 2.1.3
 %if 0%{?rhel} < 9
 Obsoletes:	ansible-runner-service < 1.1.0
@@ -319,7 +278,6 @@ Obsoletes:	python3-ansible-runner < 2.0.0
 %endif
 
 Requires:	apache-commons-compress
-Requires:	apache-commons-configuration
 Requires:	apache-commons-jxpath
 Requires:	java-11-openjdk-headless >= %{openjdk_version}
 Requires:	javapackages-tools
@@ -534,7 +492,7 @@ Requires:	python3-paramiko
 Requires:	python3-distro
 Requires(pre):	shadow-utils
 Conflicts:	%{name}-dwh < 4.4.0
-Conflicts:	%{name}-dwh-setup < 4.5.5
+Conflicts:	%{name}-dwh-setup < 4.5.6
 Conflicts:	%{name}-keycloak-setup < 15.0.2-6
 
 %description setup-base
@@ -781,26 +739,7 @@ Requires:	ovirt-imageio-daemon >= 2.0.10-1
 Setup imageio service.
 
 %prep
-%if !%{rhv_build}
 %setup -c -q
-%else
-#
-# Collect brew/mead binary artifacts
-#
-#import zipfile
-#set $i = 0
-#for $artifact in $all_artifacts
-   #if $artifact.endswith('-sources.zip')
-     #set $sourcezip = zipfile.ZipFile($artifact)
-     #set $entry = $sourcezip.namelist()[0]
-     #set $source_rootdir = $entry.split('/')[0]
-%setup -q -T -b $i -n $source_rootdir
-   #end if
-   #set $i += 1
-#end for
-#raw
-# end cheetah processed code
-%endif
 
 %build
 
@@ -894,56 +833,6 @@ __EOF__
 ln -s "%{engine_name}" "%{buildroot}%{engine_java}/../%{name}"
 %endif
 
-#
-# Register poms
-#
-while read package pom; do
-	pomdir="$(dirname "%{_mavenpomdir}/${pom}")"
-	pom="$(basename "${pom}")"
-	jpppom="JPP.${pom}"
-	mv "%{buildroot}${pomdir}/${pom}" "%{buildroot}${pomdir}/${jpppom}"
-	artifact_id="$(echo "${pom}" | sed -e 's/^%{name}-//' -e 's/\.pom//')"
-	if [ -f "%{buildroot}%{engine_java}/${artifact_id}.jar" ]; then
-		%add_maven_depmap -f "${package}" "${jpppom}" "%{name}/${artifact_id}.jar"
-	else
-		%add_maven_depmap -f "${package}" "${jpppom}"
-	fi
-done << __EOF__
-backend %{name}-aaa.pom
-backend %{name}-backend.pom
-backend %{name}-bll.pom
-backend %{name}-builtin.pom
-backend %{name}-dal.pom
-backend %{name}-manager-modules.pom
-backend %{name}-manager.pom
-backend %{name}-scheduler.pom
-backend %{name}-searchbackend.pom
-backend %{name}-vdsbroker.pom
-base %{name}-branding.pom
-base %{name}-common.pom
-base %{name}-compat.pom
-base %{name}-extensions-manager.pom
-base %{name}-logutils.pom
-base %{name}-root.pom
-base %{name}-utils.pom
-base %{name}-uutils.pom
-restapi %{name}-interface-common-jaxrs.pom
-restapi %{name}-restapi-definition.pom
-restapi %{name}-restapi-jaxrs.pom
-restapi %{name}-restapi-parent.pom
-restapi %{name}-restapi-types.pom
-tools %{name}-extensions-tool.pom
-tools %{name}-sso-client-registration-tool.pom
-tools %{name}-tools.pom
-__EOF__
-
-%if "%{name}" != "%{engine_name}"
-sed -i 's#%{_javadir}/%{name}#%{engine_java}#' .mfiles*
-%endif
-
-%if !%{ovirt_install_poms}
-rm -fr "%{buildroot}%{_mavenpomdir}"
-%endif
 
 #
 # Link dependencies to system provided
@@ -970,7 +859,6 @@ common/com/woorea/openstack/sdk/main/resteasy-connector.jar openstack-java-sdk/r
 common/net/i2p/crypto/eddsa/main/eddsa.jar
 common/org/aopalliance/main/aopalliance.jar
 common/org/apache/commons/compress/main/commons-compress.jar
-common/org/apache/commons/configuration/main/commons-configuration.jar
 common/org/apache/commons/jxpath/main/commons-jxpath.jar
 common/org/apache/sshd/main/sshd-core.jar apache-sshd/sshd-core.jar
 common/org/apache/sshd/main/sshd-common.jar apache-sshd/sshd-common.jar
@@ -1070,6 +958,8 @@ perl -i -pe 's/^SHA1-Digest: [^\n]+\n//g' "%{buildroot}%{engine_ear}/META-INF/MA
 
 %endif
 
+echo "Install complete"
+
 %preun
 if [ "$1" -eq 0 ]; then
 	#
@@ -1099,7 +989,7 @@ fi
 %pre
 %ovirt_create_user_engine
 
-%files -f .mfiles-base
+%files
 %dir %attr(-, %{engine_user}, %{engine_group}) %{engine_cache}
 # see also relevant install command to set permissions
 %dir %attr(700, %{engine_user}, %{engine_group}) %{engine_log}
@@ -1116,13 +1006,14 @@ fi
 %dir %{engine_etc}
 %dir %{engine_etc}/ansible
 %dir %{engine_etc}/branding
+%dir %{engine_etc}/cinderlib/
 %dir %{engine_etc}/extensions.d
 %dir %{engine_java}
 %license LICENSE
 %{engine_data}/brands/ovirt.brand/
 %{engine_etc}/branding/00-ovirt.brand
 %{engine_etc}/engine.conf.d/
-%{engine_etc}/cinderlib/
+%{engine_etc}/cinderlib/README
 %{engine_etc}/timezones/
 %config %{engine_data}/cinderlib/logger.conf
 %config %attr(0700,%{engine_user},%{engine_group}) %{engine_etc}/cinderlib/ssh_known_hosts
@@ -1141,6 +1032,24 @@ fi
 %{_javadir}/%{name}
 %endif
 
+%{_datadir}/maven-metadata/ovirt-engine-base.xml
+%{_mavenpomdir}/ovirt-engine/root.pom
+%{_mavenpomdir}/ovirt-engine/logutils.pom
+%{_mavenpomdir}/ovirt-engine/branding.pom
+%{_mavenpomdir}/ovirt-engine/common.pom
+%{_mavenpomdir}/ovirt-engine/compat.pom
+%{_mavenpomdir}/ovirt-engine/extensions-manager.pom
+%{_mavenpomdir}/ovirt-engine/utils.pom
+%{_mavenpomdir}/ovirt-engine/uutils.pom
+%{_javadir}/ovirt-engine/branding.jar
+%{_javadir}/ovirt-engine/common.jar
+%{_javadir}/ovirt-engine/compat.jar
+%{_javadir}/ovirt-engine/extensions-manager.jar
+%{_javadir}/ovirt-engine/logutils.jar
+%{_javadir}/ovirt-engine/utils.jar
+%{_javadir}/ovirt-engine/uutils.jar
+
+
 %if %{rhv_build}
 %files -n rhvm
 %license LICENSE
@@ -1151,7 +1060,7 @@ fi
 %{engine_data}/bin/java-home
 %{python3_sitelib}/ovirt_engine/
 
-%files backend -f .mfiles-backend
+%files backend
 %license LICENSE
 %license backend/manager/modules/services/src/main/webapp/gpl-3.0.txt
 %license backend/manager/modules/services/src/main/webapp/lgpl-3.0.txt
@@ -1189,6 +1098,25 @@ fi
 %{engine_ear}/welcome.war/
 %{engine_etc}/osinfo.conf.d/
 %{engine_jboss_modules}/
+
+%{_datadir}/maven-metadata/ovirt-engine-backend.xml
+%{_mavenpomdir}/ovirt-engine/backend.pom
+%{_mavenpomdir}/ovirt-engine/manager.pom
+%{_mavenpomdir}/ovirt-engine/manager-modules.pom
+%{_mavenpomdir}/ovirt-engine/aaa.pom
+%{_mavenpomdir}/ovirt-engine/bll.pom
+%{_mavenpomdir}/ovirt-engine/builtin.pom
+%{_mavenpomdir}/ovirt-engine/dal.pom
+%{_mavenpomdir}/ovirt-engine/scheduler.pom
+%{_mavenpomdir}/ovirt-engine/searchbackend.pom
+%{_mavenpomdir}/ovirt-engine/vdsbroker.pom
+%{_javadir}/ovirt-engine/aaa.jar
+%{_javadir}/ovirt-engine/bll.jar
+%{_javadir}/ovirt-engine/builtin.jar
+%{_javadir}/ovirt-engine/dal.jar
+%{_javadir}/ovirt-engine/scheduler.jar
+%{_javadir}/ovirt-engine/searchbackend.jar
+%{_javadir}/ovirt-engine/vdsbroker.jar
 
 %{engine_data}/services/ovirt-engine
 %{_unitdir}/ovirt-engine.service
@@ -1315,10 +1243,22 @@ fi
 %license LICENSE
 %{engine_data}/dbscripts/
 
-%files restapi -f .mfiles-restapi
+%files restapi
 %license LICENSE
 %{engine_restapi_war}/
 %{engine_apidoc_war}/
+%{_datadir}/maven-metadata/ovirt-engine-restapi.xml
+%{_mavenpomdir}/ovirt-engine/restapi-parent.pom
+%{_mavenpomdir}/ovirt-engine/interface.pom
+%{_mavenpomdir}/ovirt-engine/common-parent.pom
+%{_mavenpomdir}/ovirt-engine/interface-common-jaxrs.pom
+%{_mavenpomdir}/ovirt-engine/restapi-definition.pom
+%{_mavenpomdir}/ovirt-engine/restapi-jaxrs.pom
+%{_mavenpomdir}/ovirt-engine/restapi-types.pom
+%{_javadir}/ovirt-engine/interface-common-jaxrs.jar
+%{_javadir}/ovirt-engine/restapi-definition.jar
+%{_javadir}/ovirt-engine/restapi-jaxrs.jar
+%{_javadir}/ovirt-engine/restapi-types.jar
 
 %files webadmin-portal
 %license LICENSE
@@ -1340,7 +1280,7 @@ fi
 %{engine_data}/conf/ovirt-vmconsole-proxy-helper.conf
 %{engine_etc}/ovirt-vmconsole-proxy-helper.conf.d/
 
-%files tools -f .mfiles-tools
+%files tools
 %license LICENSE
 %config %{_sysconfdir}/logrotate.d/ovirt-engine-notifier
 %config(noreplace) %{engine_etc}/engine-config/engine-config.conf
@@ -1394,7 +1334,13 @@ fi
 %{engine_etc}/engine-config/engine-config.*properties
 %{engine_etc}/notifier/notifier.conf.d/
 %{engine_etc}/ovirt-fence-kdump-listener.conf.d/
-
+%{_datadir}/maven-metadata/ovirt-engine-tools.xml
+%{_mavenpomdir}/ovirt-engine/extensions-tool.pom
+%{_mavenpomdir}/ovirt-engine/sso-client-registration-tool.pom
+%{_mavenpomdir}/ovirt-engine/tools.pom
+%{_javadir}/ovirt-engine/extensions-tool.jar
+%{_javadir}/ovirt-engine/sso-client-registration-tool.jar
+%{_javadir}/ovirt-engine/tools.jar
 
 %{_unitdir}/ovirt-engine-notifier.service
 %{_unitdir}/ovirt-fence-kdump-listener.service
@@ -1416,6 +1362,12 @@ fi
 %{engine_data}/setup/bin/ovirt-engine-health
 
 %changelog
+* Fri Sep 30 2022 Martin Perina <mperina@redhat.com> - 4.5.3.1
+- Bump version to 4.5.3.1
+
+* Thu Sep 15 2022 Martin Perina <mperina@redhat.com> - 4.5.3
+- Bump version to 4.5.3
+
 * Tue Aug 09 2022 Martin Perina <mperina@redhat.com> - 4.5.2.2
 - Bump version to 4.5.2.2
 

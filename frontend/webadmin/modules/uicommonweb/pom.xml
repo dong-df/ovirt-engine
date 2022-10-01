@@ -5,7 +5,7 @@
     <parent>
         <groupId>org.ovirt.engine.ui</groupId>
         <artifactId>webadmin-modules</artifactId>
-        <version>4.5.3-SNAPSHOT</version>
+        <version>4.5.4-SNAPSHOT</version>
     </parent>
 
     <artifactId>uicommonweb</artifactId>
@@ -38,7 +38,6 @@
         <dependency>
           <groupId>com.google.inject</groupId>
           <artifactId>guice</artifactId>
-          <version>${guice.version}</version>
           <scope>provided</scope>
         </dependency>
     </dependencies>

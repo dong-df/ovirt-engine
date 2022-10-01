@@ -5,7 +5,7 @@
   <parent>
     <groupId>org.ovirt.engine.core</groupId>
     <artifactId>manager-modules</artifactId>
-    <version>4.5.3-SNAPSHOT</version>
+    <version>4.5.4-SNAPSHOT</version>
   </parent>
   <groupId>org.ovirt.engine.extension.aaa</groupId>
   <artifactId>builtin</artifactId>
@@ -19,7 +19,6 @@
     <dependency>
       <groupId>org.ovirt.engine.api</groupId>
       <artifactId>ovirt-engine-extensions-api</artifactId>
-      <version>${ovirt-engine-extensions-api.version}</version>
     </dependency>
   </dependencies>
 </project>

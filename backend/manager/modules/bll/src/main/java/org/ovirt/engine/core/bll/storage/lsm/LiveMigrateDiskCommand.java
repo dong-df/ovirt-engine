@@ -1,5 +1,6 @@
 package org.ovirt.engine.core.bll.storage.lsm;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -25,6 +26,7 @@ import org.ovirt.engine.core.bll.storage.utils.VdsCommandsHelper;
 import org.ovirt.engine.core.bll.tasks.CommandHelper;
 import org.ovirt.engine.core.bll.tasks.interfaces.CommandCallback;
 import org.ovirt.engine.core.bll.utils.PermissionSubject;
+import org.ovirt.engine.core.bll.validator.storage.MultipleStorageDomainsValidator;
 import org.ovirt.engine.core.bll.validator.storage.StorageDomainValidator;
 import org.ovirt.engine.core.common.AuditLogType;
 import org.ovirt.engine.core.common.FeatureSupported;
@@ -81,12 +83,14 @@ import org.ovirt.engine.core.dao.ImageStorageDomainMapDao;
 import org.ovirt.engine.core.dao.StorageDomainDao;
 import org.ovirt.engine.core.dao.StorageDomainStaticDao;
 import org.ovirt.engine.core.dao.VmDao;
+import org.ovirt.engine.core.utils.lock.EngineLock;
 import org.ovirt.engine.core.utils.transaction.TransactionSupport;
 import org.ovirt.engine.core.vdsbroker.ResourceManager;
 import org.ovirt.engine.core.vdsbroker.builder.vminfo.VmInfoBuildUtils;
 
 @NonTransactiveCommandAttribute(forceCompensation = true)
-public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends MoveOrCopyDiskCommand<T>implements SerialChildExecutingCommand {
+public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends MoveOrCopyDiskCommand<T>
+        implements SerialChildExecutingCommand {
 
     private Guid sourceQuotaId;
     private Guid sourceDiskProfileId;
@@ -174,8 +178,8 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
     private CloneImageGroupVolumesStructureCommandParameters buildCloneImageGroupVolumesStructureCommandParams() {
         CloneImageGroupVolumesStructureCommandParameters p =
                 new CloneImageGroupVolumesStructureCommandParameters(getParameters().getStoragePoolId(),
-                        getParameters().getSourceStorageDomainId(),
-                        getParameters().getTargetStorageDomainId(),
+                        getParameters().getSourceDomainId(),
+                        getParameters().getDestDomainId(),
                         getImageGroupId(),
                         getActionType(),
                         getParameters());
@@ -229,7 +233,7 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
 
     private Map<Guid, DiskImage> createDiskImagesMap() {
         if (FeatureSupported.isReplicateExtendSupported(getCluster().getCompatibilityVersion())) {
-            StorageDomainStatic sourceDomain = storageDomainStaticDao.get(getParameters().getSourceStorageDomainId());
+            StorageDomainStatic sourceDomain = storageDomainStaticDao.get(getParameters().getSourceDomainId());
             if (sourceDomain.getStorageType().isBlockDomain()) {
                 DiskImage disk = getDiskImage();
                 DiskImage diskParams = new DiskImage();
@@ -273,7 +277,7 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
             }
 
             updateStage(LiveDiskMigrateStage.SOURCE_IMAGE_DELETION);
-            removeImage(getParameters().getSourceStorageDomainId(),
+            removeImage(getParameters().getSourceDomainId(),
                     getParameters().getImageGroupID(),
                     getParameters().getDestinationImageId(),
                     AuditLogType.USER_MOVE_IMAGE_GROUP_FAILED_TO_DELETE_SRC_IMAGE);
@@ -289,7 +293,8 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
             // at the end of CreateSnapshotForVm command called from the executeCommand() method.
             // Here the lock is acquired again and will be released when this command (LiveMigrateDisk)
             // finishes.
-            if (!lockManager.acquireLock(getLock()).isAcquired()) {
+            EngineLock removeSnapshotLock = createEngineLockForSnapshotRemove();
+            if (!lockManager.acquireLock(removeSnapshotLock).isAcquired()) {
                 log.info("Failed to acquire VM lock, will retry on the next polling cycle");
                 return true;
             }
@@ -359,6 +364,17 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
         imageDao.updateStatusOfImagesByImageGroupId(getParameters().getImageGroupID(), ImageStatus.OK);
     }
 
+    private void releaseSnapshotLock() {
+        EngineLock removeSnapshotLock = createEngineLockForSnapshotRemove();
+        lockManager.releaseLock(removeSnapshotLock);
+    }
+
+    private EngineLock createEngineLockForSnapshotRemove() {
+        return new EngineLock(
+                getExclusiveLocksForSnapshotRemove(),
+                getSharedLocksForSnapshotRemove());
+    }
+
     private boolean isConsiderSuccessful() {
         return getParameters().getLiveDiskMigrateStage() == LiveDiskMigrateStage.AUTO_GENERATED_SNAPSHOT_REMOVE_END;
     }
@@ -368,6 +384,7 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
         super.endSuccessfully();
         updateImagesInfo();
         unlockDisk();
+        releaseSnapshotLock();
         setSucceeded(true);
     }
 
@@ -403,14 +420,13 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
 
     private boolean completeLiveMigration() {
         // Update the DB before sending the command (perform rollback on failure)
-        moveDiskInDB(getParameters().getSourceStorageDomainId(),
-                getParameters().getTargetStorageDomainId(),
+        moveDiskInDB(getParameters().getSourceDomainId(),
+                getParameters().getDestDomainId(),
                 getParameters().getQuotaId(),
                 getParameters().getDiskProfileId());
 
         try {
-            replicateDiskFinish(getParameters().getSourceStorageDomainId(),
-                    getParameters().getTargetStorageDomainId());
+            replicateDiskFinish(getParameters().getSourceDomainId(), getParameters().getDestDomainId());
         } catch (Exception e) {
             if (e instanceof EngineException &&
                     EngineError.unavail.equals(((EngineException) e).getErrorCode())) {
@@ -418,8 +434,8 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
                 return false;
             }
 
-            moveDiskInDB(getParameters().getTargetStorageDomainId(),
-                    getParameters().getSourceStorageDomainId(),
+            moveDiskInDB(getParameters().getDestDomainId(),
+                    getParameters().getSourceDomainId(),
                     sourceQuotaId,
                     sourceDiskProfileId);
             log.error("Failed VmReplicateDiskFinish (Disk '{}', VM '{}')",
@@ -449,17 +465,17 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
         }
     }
 
-    private boolean isMoveDiskInDbSucceeded(Guid targetStorageDomainId) {
+    private boolean isMoveDiskInDbSucceeded(Guid destDomainId) {
         Guid destinationImageId = getParameters().getDestinationImageId();
         DiskImage diskImage = diskImageDao.get(destinationImageId);
-        return diskImage != null && targetStorageDomainId.equals(diskImage.getStorageIds().get(0));
+        return diskImage != null && destDomainId.equals(diskImage.getStorageIds().get(0));
     }
 
-    private void moveDiskInDB(final Guid sourceStorageDomainId,
-            final Guid targetStorageDomainId,
-            final Guid targetQuota,
-            final Guid targetDiskProfile) {
-        if (isMoveDiskInDbSucceeded(targetStorageDomainId)) {
+    private void moveDiskInDB(final Guid sourceDomainId,
+            final Guid destDomainId,
+            final Guid destQuota,
+            final Guid destDiskProfile) {
+        if (isMoveDiskInDbSucceeded(destDomainId)) {
             return;
         }
 
@@ -467,11 +483,11 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
                 () -> {
                     for (DiskImage di : diskImageDao.getAllSnapshotsForImageGroup(getParameters().getImageGroupID())) {
                         imageStorageDomainMapDao.remove(new ImageStorageDomainMapId(di.getImageId(),
-                                sourceStorageDomainId));
+                                sourceDomainId));
                         imageStorageDomainMapDao.save(new ImageStorageDomainMap(di.getImageId(),
-                                targetStorageDomainId,
-                                targetQuota,
-                                targetDiskProfile));
+                                destDomainId,
+                                destQuota,
+                                destDiskProfile));
                         // since moveDiskInDB can be called to 'rollback' the entity in case of
                         // an exception, we store locally the old quota and disk profile id.
                         if (sourceQuotaId == null) {
@@ -491,7 +507,7 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
             VDSReturnValue ret = runVdsCommand(
                     VDSCommandType.GetImageInfo,
                     new GetImageInfoVDSCommandParameters(getParameters().getStoragePoolId(),
-                            getParameters().getTargetStorageDomainId(),
+                            getParameters().getDestDomainId(),
                             getParameters().getImageGroupID(),
                             image.getImageId()));
             DiskImage imageFromIRS = (DiskImage) ret.getReturnValue();
@@ -518,9 +534,9 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
         Guid vdsId = vdsCommandsHelper.getHostForExecution(getParameters().getStoragePoolId());
         CopyImageGroupVolumesDataCommandParameters parameters =
                 new CopyImageGroupVolumesDataCommandParameters(getParameters().getStoragePoolId(),
-                        getParameters().getSourceStorageDomainId(),
+                        getParameters().getSourceDomainId(),
                         getParameters().getImageGroupID(),
-                        getParameters().getTargetStorageDomainId(),
+                        getParameters().getDestDomainId(),
                         getActionType(),
                         getParameters());
 
@@ -544,15 +560,15 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
                     "VM " + getParameters().getVmId() + " is not running on any VDS");
         }
 
-        StorageType targetType = getDstStorageDomain().getStorageStaticData().getStorageType();
-        Optional<String> diskType = vmInfoBuildUtils.getNetworkDiskType(getVm(), targetType);
+        StorageType destType = getDstStorageDomain().getStorageStaticData().getStorageType();
+        Optional<String> diskType = vmInfoBuildUtils.getNetworkDiskType(getVm(), destType);
 
         // Start disk migration
         VmReplicateDiskParameters migrationStartParams = new VmReplicateDiskParameters(getParameters().getVdsId(),
                 getParameters().getVmId(),
                 getParameters().getStoragePoolId(),
-                getParameters().getSourceStorageDomainId(),
-                getParameters().getTargetStorageDomainId(),
+                getParameters().getSourceDomainId(),
+                getParameters().getDestDomainId(),
                 getParameters().getImageGroupID(),
                 getParameters().getDestinationImageId(),
                 diskType.orElse(null));
@@ -618,8 +634,6 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
             return failValidation(EngineMessage.CANNOT_LIVE_MIGRATE_VM_SHOULD_BE_IN_PAUSED_OR_UP_STATUS);
         }
 
-        setStoragePoolId(getVm().getStoragePoolId());
-
         if (!validate(new StorageDomainValidator(getDstStorageDomain()).isNotBackupDomain())
                 || !validateDestDomainsSpaceRequirements()) {
             return false;
@@ -651,17 +665,13 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
 
     private StorageDomain getDstStorageDomain() {
         if (dstStorageDomain == null) {
-            dstStorageDomain = storageDomainDao.getForStoragePool(getParameters().getTargetStorageDomainId(),
+            dstStorageDomain = storageDomainDao.getForStoragePool(getParameters().getDestDomainId(),
                     getStoragePoolId());
         }
         return dstStorageDomain;
     }
 
     protected boolean validateDestDomainsSpaceRequirements() {
-        if (!isStorageDomainWithinThresholds(getDstStorageDomain())) {
-            return false;
-        }
-
         DiskImage diskImage = getDiskImageByImageId(getParameters().getImageId());
         List<DiskImage> allImageSnapshots = diskImageDao.getAllSnapshotsForLeaf(diskImage.getImageId());
         diskImage.getSnapshots().addAll(allImageSnapshots);
@@ -674,8 +684,14 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
         return true;
     }
 
-    protected boolean isStorageDomainWithinThresholds(StorageDomain storageDomain) {
-        return validate(new StorageDomainValidator(storageDomain).isDomainWithinThresholds());
+    @Override
+    protected MultipleStorageDomainsValidator createMultipleStorageDomainsValidator() {
+        List<Guid> sdsToValidate = new ArrayList<>();
+
+        sdsToValidate.add(getParameters().getSourceDomainId());
+        sdsToValidate.add(getParameters().getDestDomainId());
+
+        return new MultipleStorageDomainsValidator(getStoragePoolId(), sdsToValidate);
     }
 
     private DiskImage getDiskImageByImageId(Guid imageId) {
@@ -705,7 +721,17 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
     }
 
     protected StorageDomainValidator createStorageDomainValidator(StorageDomain storageDomain) {
-        return new StorageDomainValidator(storageDomain);
+        return new StorageDomainValidator(storageDomain) {
+            @Override
+            protected double getTotalSizeForClonedDisk(DiskImage diskImage) {
+                double basicSize = super.getTotalSizeForClonedDisk(diskImage);
+                // Add additional snapshot overhead (relevant only for Live Storage flow, cluster version 4.7 or above).
+                if (FeatureSupported.isReplicateExtendSupported(getCluster().getCompatibilityVersion())) {
+                    basicSize += ImagesHandler.computeImageInitialSizeInBytes(diskImage.getImage());
+                }
+                return basicSize;
+            }
+        };
     }
 
     @Override
@@ -728,13 +754,21 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
 
     @Override
     protected Map<String, Pair<String, String>> getExclusiveLocks() {
+        return Collections.emptyMap();
+    }
+
+    @Override
+    protected Map<String, Pair<String, String>> getSharedLocks() {
+        return Collections.emptyMap();
+    }
+
+    private Map<String, Pair<String, String>> getExclusiveLocksForSnapshotRemove() {
         return Collections.singletonMap(getParameters().getImageGroupID().toString(),
                 LockMessagesMatchUtil.makeLockingPair(LockingGroup.DISK,
                         getDiskIsBeingMigratedMessage(getDiskImageByDiskId(getParameters().getImageGroupID()))));
     }
 
-    @Override
-    protected Map<String, Pair<String, String>> getSharedLocks() {
+    private Map<String, Pair<String, String>> getSharedLocksForSnapshotRemove() {
         return Collections.singletonMap(getVmId().toString(),
                 LockMessagesMatchUtil.makeLockingPair(LockingGroup.VM, EngineMessage.ACTION_TYPE_FAILED_OBJECT_LOCKED));
     }
@@ -753,31 +787,30 @@ public class LiveMigrateDiskCommand<T extends LiveMigrateDiskParameters> extends
         if (getParameters().getLiveDiskMigrateStage() != LiveDiskMigrateStage.CLONE_IMAGE_STRUCTURE) {
             if (Guid.Empty.equals(getParameters().getVdsId())) {
                 log.error("Failed during live storage migration of disk '{}' of vm '{}', as the vm is not running" +
-                                " on any host not attempting to end the replication before the target disk deletion",
+                                " on any host not attempting to end the replication before the destination disk deletion",
                         getParameters().getImageGroupID(), getParameters().getVmId());
             } else {
                 log.error("Failed during live storage migration of disk '{}' of vm '{}', attempting to end " +
-                        "replication before deleting the target disk",
+                        "replication before deleting the destination disk",
                         getParameters().getImageGroupID(), getParameters().getVmId());
                 try {
-                    replicateDiskFinish(getParameters().getSourceStorageDomainId(),
-                            getParameters().getSourceStorageDomainId());
+                    replicateDiskFinish(getParameters().getSourceDomainId(), getParameters().getSourceDomainId());
                 } catch (Exception e) {
                     if (e instanceof EngineException &&
                             EngineError.ReplicationNotInProgress.equals(((EngineException) e).getErrorCode())) {
-                        log.warn("Replication is not in progress, proceeding with removing the target disk");
+                        log.warn("Replication is not in progress, proceeding with removing the destination disk");
                     } else {
                         log.error("Replication end of disk '{}' in vm '{}' back to the source failed, skipping deletion of " +
-                                "the target disk", getParameters().getImageGroupID(), getParameters().getVmId());
+                                "the destination disk", getParameters().getImageGroupID(), getParameters().getVmId());
                         return;
                     }
                 }
             }
         }
 
-        log.error("Attempting to delete the target of disk '{}' of vm '{}'",
+        log.error("Attempting to delete the destination of disk '{}' of vm '{}'",
                 getParameters().getImageGroupID(), getParameters().getVmId());
-        removeImage(getParameters().getTargetStorageDomainId(),
+        removeImage(getParameters().getDestDomainId(),
                 getParameters().getImageGroupID(),
                 getParameters().getDestinationImageId(),
                 AuditLogType.USER_MOVE_IMAGE_GROUP_FAILED_TO_DELETE_DST_IMAGE);
