@@ -15,8 +15,10 @@ jobs:
         include:
           - name: centos-stream-8
             container-name: el8stream
+            pip-command: pip3.9
           - name: centos-stream-9
             container-name: el9stream
+            pip-command: pip3
 
     name: ${{ matrix.name }}
 
@@ -27,6 +29,9 @@ jobs:
       image: quay.io/ovirt/buildcontainer:${{ matrix.container-name }}
 
     steps:
+    - name: Install required PyPI packages
+      run: ${{ matrix.pip-command }} install "ansible-lint>=6.0.0,<6.8.3"
+
     - name: Checkout sources
       uses: ovirt/checkout-action@main
 
@@ -39,6 +44,6 @@ jobs:
         createrepo_c $ARTIFACTS_DIR
 
     - name: Upload artifacts
-      uses: ovirt/upload-rpms-action@v2
+      uses: ovirt/upload-rpms-action@main
       with:
         directory: ${{ env.ARTIFACTS_DIR }}

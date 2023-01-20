@@ -1,10 +1,10 @@
 ---
 - name: Include packages, vdsmid, pki, configure, and restart services tasks
-  include_tasks: "{{ item }}.yml"
+  ansible.builtin.include_tasks: "{{ item }}.yml"
   with_items:
-  - libvirt_presets_configure
-  - packages
-  - vdsmid
-  - pki
-  - configure
-  - restart_services
+    - libvirt_presets_configure
+    - packages
+    - vdsmid
+    - pki
+    - configure
+    - restart_services

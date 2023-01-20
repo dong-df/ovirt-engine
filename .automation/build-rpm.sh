@@ -3,7 +3,7 @@
 source $(dirname "$(readlink -f "$0")")/build-srpm.sh
 
 # Install build dependencies
-dnf builddep -y rpmbuild/SRPMS/*src.rpm
+$([ "$EUID" -eq 0 ] || echo /usr/bin/sudo) dnf builddep -y rpmbuild/SRPMS/*src.rpm
 
 # Perform reasonable quick build with unit tests execution
 BUILD_UT=1
@@ -14,7 +14,7 @@ BUILD_LOCALES=0
 rpmbuild \
     -D "_topmdir rpmbuild" \
     -D "_rpmdir rpmbuild" \
-    ${RELEASE:+-D "release_suffix ${RELEASE}"} \
+    ${SUFFIX:+-D "release_suffix ${SUFFIX}"} \
     -D "ovirt_build_ut ${BUILD_UT}" \
     -D "ovirt_build_all_user_agents ${BUILD_ALL_USER_AGENTS}" \
     -D "ovirt_build_locales ${BUILD_LOCALES}" \
