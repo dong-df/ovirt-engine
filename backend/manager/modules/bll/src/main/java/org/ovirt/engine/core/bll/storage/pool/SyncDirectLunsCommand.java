@@ -218,7 +218,7 @@ public class SyncDirectLunsCommand<T extends SyncDirectLunsParameters> extends A
     }
 
     private List<VM> getPluggedVms(Guid diskId) {
-        return vmDao.getForDisk(diskId, false).get(Boolean.TRUE);
+        return vmDao.getForDisk(diskId, false).computeIfAbsent(Boolean.TRUE, b -> Collections.emptyList());
     }
 
     private Stream<Guid> getIdsOfDirectLunsToSync() {
