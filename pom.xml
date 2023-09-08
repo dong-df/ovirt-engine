@@ -78,6 +78,7 @@
     <infinispan.version>9.4.18.Final</infinispan.version>
     <istack-commons-runtime.version>3.0.10</istack-commons-runtime.version>
     <jackson2.version>2.12.7</jackson2.version>
+    <jackson2-databind.version>2.12.7.1</jackson2-databind.version>
     <jakarta-el.version>3.0.3</jakarta-el.version>
     <javacc.version>2.6</javacc.version>
     <javassist.version>3.23.1-GA</javassist.version>
@@ -109,7 +110,7 @@
     <resteasy.version>3.9.3.Final</resteasy.version>
     <slf4j.version>1.7.22</slf4j.version>
     <snakeyaml.version>1.33</snakeyaml.version>
-    <spring.version>5.3.19</spring.version>
+    <spring.version>5.3.27</spring.version>
     <sshd-core.version>2.9.2</sshd-core.version>
     <validation-api.version>2.0.1.Final</validation-api.version>
     <ws-commons-util.version>1.0.2</ws-commons-util.version>
@@ -515,7 +516,7 @@
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
-        <version>${jackson2.version}</version>
+        <version>${jackson2-databind.version}</version>
         <scope>provided</scope>
       </dependency>
       <dependency>
