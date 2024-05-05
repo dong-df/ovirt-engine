@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -51,6 +52,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class ExternalOIDCService {
 
+    private static final String OPENID_SCOPE = "openid";
     private static Logger log = LoggerFactory.getLogger(ExternalOIDCService.class);
 
     // Reference to the HTTP client used to send the requests to the SSO server:
@@ -123,6 +125,12 @@ public class ExternalOIDCService {
         String externalOidcClientId = ssoContext.getSsoLocalConfig().getProperty("EXTERNAL_OIDC_CLIENT_ID");
         String externalOidcClientSecret = ssoContext.getSsoLocalConfig().getProperty("EXTERNAL_OIDC_CLIENT_SECRET");
         String scope = SsoService.getScopeRequestParameter(request, "");
+
+        // We should request this scope by RFC (https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest)
+        // to have possibility for working with other oidc endpoints.
+        if( ! scope.contains(OPENID_SCOPE)) {
+            scope = scope + " " + OPENID_SCOPE;
+        }
 
         HttpPost post = createPost(externalOidcTokenEndPoint);
         List<BasicNameValuePair> form = new ArrayList<>();
@@ -200,8 +208,14 @@ public class ExternalOIDCService {
     }
 
     private static Collection<ExtMap> buildPrincipalRecordGroups(Map<String, Object> response) {
+        List<String> groupNames;
+        if (response.containsKey("groups")) {
+            groupNames = (List<String>) response.get("groups");
+        } else {
+            return Collections.emptyList();
+        }
+
         LinkedList<ExtMap> groups = new LinkedList<>();
-        List<String> groupNames = (List<String>) response.get("groups");
         for (String groupName : groupNames) {
             groupName = groupName.replaceFirst("^/", "");
             ExtMap group = new ExtMap();
