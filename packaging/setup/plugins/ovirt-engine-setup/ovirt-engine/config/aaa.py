@@ -116,9 +116,21 @@ class Plugin(plugin.PluginBase):
         condition=lambda self: (
             self.environment[
                 oenginecons.CoreEnv.ENABLE
-            ] and self.environment[
-                oenginecons.EngineDBEnv.NEW_DATABASE
-            ] and self.environment[
+            ]
+            and (
+                self.environment[
+                    oenginecons.EngineDBEnv.NEW_DATABASE
+                ]
+                or (
+                    self.environment[
+                        oengcommcons.KeycloakEnv.ENABLE
+                    ]
+                    and not self.environment[
+                        oengcommcons.KeycloakEnv.CONFIGURED
+                    ]
+                )
+            )
+            and self.environment[
                 oenginecons.ConfigEnv.ADMIN_PASSWORD
             ] is None
         ),
@@ -144,7 +156,7 @@ class Plugin(plugin.PluginBase):
                 self.logger.warning(_('Passwords do not match'))
             else:
                 try:
-                    if(_use_pwquality):
+                    if (_use_pwquality):
                         pwq = pwquality.PWQSettings()
                         pwq.read_config()
                         pwq.check(password, None, None)
@@ -183,9 +195,9 @@ class Plugin(plugin.PluginBase):
         ),
     )
     def _validation_late(self):
-        adminPassword = None
+        admin_password = None
         try:
-            adminPassword = vdcoption.VdcOption(
+            admin_password = vdcoption.VdcOption(
                 statement=database.Statement(
                     dbenvkeys=oenginecons.Const.ENGINE_DB_ENV_KEYS,
                     environment=self.environment,
@@ -199,7 +211,7 @@ class Plugin(plugin.PluginBase):
 
         # we have legacy user. Shouldn't happen anymore, after
         # 3.6 https://gerrit.ovirt.org/q/Ica85b6a
-        if adminPassword is not None:
+        if admin_password is not None:
             self.dialog.note(
                 text=_(
                     'Old AdminPassword found in vdc_options. This should not '

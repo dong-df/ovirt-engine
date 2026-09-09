@@ -51,7 +51,6 @@ import org.ovirt.engine.core.common.businessentities.network.VmNic;
 import org.ovirt.engine.core.common.businessentities.network.VnicProfile;
 import org.ovirt.engine.core.common.businessentities.qos.StorageQos;
 import org.ovirt.engine.core.common.businessentities.storage.CinderDisk;
-import org.ovirt.engine.core.common.businessentities.storage.CinderVolumeDriver;
 import org.ovirt.engine.core.common.businessentities.storage.Disk;
 import org.ovirt.engine.core.common.businessentities.storage.DiskImage;
 import org.ovirt.engine.core.common.businessentities.storage.DiskInterface;
@@ -59,6 +58,7 @@ import org.ovirt.engine.core.common.businessentities.storage.DiskStorageType;
 import org.ovirt.engine.core.common.businessentities.storage.DiskVmElement;
 import org.ovirt.engine.core.common.businessentities.storage.LunDisk;
 import org.ovirt.engine.core.common.businessentities.storage.ManagedBlockStorageDisk;
+import org.ovirt.engine.core.common.businessentities.storage.ManagedVolumeDriver;
 import org.ovirt.engine.core.common.businessentities.storage.PropagateErrors;
 import org.ovirt.engine.core.common.businessentities.storage.VolumeFormat;
 import org.ovirt.engine.core.common.config.Config;
@@ -779,7 +779,7 @@ public class LibvirtVmXmlBuilder {
         boolean acpiEnabled = vm.getAcpiEnable();
         boolean kaslrEnabled = vmInfoBuildUtils.isKASLRDumpEnabled(vm.getVmOsId());
         boolean secureBootEnabled = vm.getBiosType() == BiosType.Q35_SECURE_BOOT;
-        Integer tsegSize = vmInfoBuildUtils.tsegSizeMB(vm, hostDevicesSupplier);
+        Long tsegSize = vmInfoBuildUtils.tsegSizeMB(vm, hostDevicesSupplier);
         if (!acpiEnabled && !hypervEnabled && !kaslrEnabled && !secureBootEnabled && tsegSize == null) {
             return;
         }
@@ -2075,13 +2075,14 @@ public class LibvirtVmXmlBuilder {
                 break;
 
             case VNC:
-                writer.writeAttributeString("keymap",
-                        vm.getDynamicData().getVncKeyboardLayout() != null ?
+                String vncKeyboardLayout = vm.getDynamicData().getVncKeyboardLayout() != null ?
                                 vm.getDynamicData().getVncKeyboardLayout()
                                 : vm.getDefaultVncKeyboardLayout() != null ?
-                                        vm.getDefaultVncKeyboardLayout()
-                                        : Config.getValue(ConfigValues.VncKeyboardLayout));
-
+                                    vm.getDefaultVncKeyboardLayout()
+                                    : Config.getValue(ConfigValues.VncKeyboardLayout);
+                if (!"none".equals(vncKeyboardLayout)) {
+                    writer.writeAttributeString("keymap", vncKeyboardLayout);
+                }
                 break;
         }
 
@@ -2291,7 +2292,7 @@ public class LibvirtVmXmlBuilder {
         writer.writeAttributeString("name", "qemu");
         if (dve.isPassDiscard()) {
             writer.writeAttributeString("discard", "unmap");
-            if ((boolean) Config.getValue(ConfigValues.EnableQemuDiscardNoUnref, vm.getClusterCompatibilityVersion().toString())) {
+            if (FeatureSupported.isDiscardNoUnrefSupported(vm.getCompatibilityVersion())) {
                 writer.writeAttributeString("discard_no_unref", "on");
             }
         }
@@ -2460,12 +2461,15 @@ public class LibvirtVmXmlBuilder {
                     path = (String) managedBlockStorageDisk.getDevice().get(DeviceInfoReturn.PATH);
                 }
 
-                if (managedBlockStorageDisk.getCinderVolumeDriver() == CinderVolumeDriver.RBD) {
+                if (managedBlockStorageDisk.getManagedVolumeDriver() == ManagedVolumeDriver.RBD) {
                     metadata.put("RBD", path);
-                } else if (managedBlockStorageDisk.getCinderVolumeDriver() == CinderVolumeDriver.BLOCK) {
+                } else if (managedBlockStorageDisk.getManagedVolumeDriver() == ManagedVolumeDriver.BLOCK) {
                     Map<String, Object> attachment =
                             (Map<String, Object>) managedBlockStorageDisk.getDevice().get(DeviceInfoReturn.ATTACHMENT);
-                    metadata.put("GUID", (String) attachment.get(DeviceInfoReturn.SCSI_WWN));
+                    String scsiWwn = (String) attachment.get(DeviceInfoReturn.SCSI_WWN);
+                    if (scsiWwn != null && !scsiWwn.isEmpty()) {
+                        metadata.put("GUID", scsiWwn);
+                    }
                 }
 
                 metadata.put("managed", "true");

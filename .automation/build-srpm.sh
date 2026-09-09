@@ -3,10 +3,6 @@
 # Mark current directory as safe for git to be able to parse git hash
 git config --global --add safe.directory $(pwd)
 
-# git hash of current commit passed from GitHub or HEAD
-GIT_HASH=$(git rev-parse --short ${GITHUB_SHA:-HEAD})
-SUFFIX=$(grep -E "<version"  pom.xml | head -n1 | awk -F '[<>]' '/version/{print $3}' | grep -q -- -SNAPSHOT && echo .git${GIT_HASH} || :)
-
 # Directory, where build artifacts will be stored, should be passed as the 1st parameter
 ARTIFACTS_DIR=${1:-exported-artifacts}
 
@@ -17,11 +13,9 @@ EXTRA_BUILD_FLAGS="${EXTRA_BUILD_FLAGS} --no-transfer-progress"
 EXTRA_BUILD_FLAGS="${EXTRA_BUILD_FLAGS} -Dgwt.userAgent=gecko1_8,safari"
 EXTRA_BUILD_FLAGS="${EXTRA_BUILD_FLAGS} -Dgwt.compiler.localWorkers=1"
 EXTRA_BUILD_FLAGS="${EXTRA_BUILD_FLAGS} -Dgwt.jvmArgs='-Xms1G -Xmx3G'"
+[ "${GITHUB_ACTIONS:-}" = "true" ] && EXTRA_BUILD_FLAGS="${EXTRA_BUILD_FLAGS} -P enable-dao-tests"
 
 export MAVEN_OPTS="-Xms1G -Xmx2G"
-
-# Set the location of the JDK that will be used for compilation:
-export JAVA_HOME="${JAVA_HOME:=/usr/lib/jvm/java-11}"
 
 [ -d ${ARTIFACTS_DIR} ] || mkdir -p ${ARTIFACTS_DIR}
 [ -d rpmbuild/SOURCES ] || mkdir -p rpmbuild/SOURCES
@@ -35,5 +29,5 @@ mv *.tar.gz rpmbuild/SOURCES
 # create the src.rpm
 rpmbuild \
     -D "_topdir rpmbuild" \
-    ${SUFFIX:+-D "release_suffix ${SUFFIX}"} \
+    ${RELEASE_SUFFIX:+-D "release_suffix ${RELEASE_SUFFIX}"} \
     -ts rpmbuild/SOURCES/*.gz

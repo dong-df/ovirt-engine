@@ -13,12 +13,12 @@ import socket
 import ssl
 import struct
 import sys
-from six.moves.urllib import parse
+from urllib import parse
 
 import websocket
 import websockify
 
-import config
+import websocket_config
 
 
 from ovirt_engine import configfile
@@ -208,7 +208,8 @@ class VenCryptSocket(object):
         # Do a regular TLS negotiation
         self.log.info(
             "VeNCrypt negotiation succeeded. Setting up TLS connection")
-        self.sock = ssl.wrap_socket(self.sock)
+        context = ssl.SSLContext()
+        self.sock = context.wrap_socket(self.sock)
         self.log.info("VeNCrypt negotiation done")
 
 
@@ -445,7 +446,7 @@ class Daemon(service.Daemon):
         self._config = configfile.ConfigFile(
             (
                 self._defaults,
-                config.ENGINE_WSPROXY_VARS,
+                websocket_config.ENGINE_WSPROXY_VARS,
             ),
         )
 
@@ -457,7 +458,8 @@ class Daemon(service.Daemon):
         with open(
             self._config.get(
                 'CERT_FOR_DATA_VERIFICATION'
-            )
+            ),
+            encoding='utf-8'
         ) as f:
             peer = f.read()
 

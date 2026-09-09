@@ -9,13 +9,15 @@
 
 import atexit
 import datetime
-import distutils.version
 import gettext
 import os
 import re
 import tempfile
 
 import psycopg2
+
+
+from looseversion import LooseVersion
 
 from otopi import base
 from otopi import constants as otopicons
@@ -79,7 +81,7 @@ def _ind_env(inst, keykey):
 
 
 def getInvalidConfigItemsMessage(invalid_config_items):
-    return '\n'.join(
+    base_message = '\n'.join(
         [
             e['format_str'].format(**e)
             for e in invalid_config_items
@@ -103,6 +105,25 @@ def getInvalidConfigItemsMessage(invalid_config_items):
         ),
         pg_host=invalid_config_items[0]['pg_host'],
     )
+
+    password_encryption_issues = [
+        e for e in invalid_config_items
+        if e.get('key') == 'password_encryption' and e['needed_on_create']
+    ]
+
+    if password_encryption_issues:
+        base_message += '\n\n' + _(
+            "IMPORTANT: After changing password_encryption, you must also:\n"
+            "1. Update pg_hba.conf to use the new authentication method "
+            "(e.g., change 'md5' to 'scram-sha-256')\n"
+            "2. Regenerate password verifiers for existing users:\n"
+            "   postgres=# ALTER USER <username> PASSWORD '<password>';\n"
+            "3. Restart or reload PostgreSQL service\n"
+            "\nFor more details, see PostgreSQL documentation on "
+            "password authentication methods."
+        )
+
+    return base_message
 
 
 @util.export
@@ -397,7 +418,7 @@ class OvirtUtils(base.Base):
                 _('Cannot connect to database: {error}').format(
                     error=e,
                 )
-            )
+            ) from e
 
     def isNewDatabase(
         self,
@@ -488,7 +509,7 @@ class OvirtUtils(base.Base):
         password=None,
         database=None,
     ):
-        server_v = distutils.version.LooseVersion(
+        server_v = LooseVersion(
             self.checkServerVersion(
                 host,
                 port,
@@ -498,7 +519,7 @@ class OvirtUtils(base.Base):
                 database,
             )
         ).version[:2]
-        client_v = distutils.version.LooseVersion(
+        client_v = LooseVersion(
             self.checkClientVersion()
         ).version[:2]
         return server_v < client_v
@@ -773,7 +794,7 @@ class OvirtUtils(base.Base):
                     'args': f_infos[filt]['dump']
                 }
             )
-            stdout = open(backupFile, 'w')
+            stdout = open(backupFile, 'w', encoding='utf-8')
 
         res = None
         try:
@@ -821,6 +842,8 @@ class OvirtUtils(base.Base):
         # This happens because we do some GRANTs for grafana's user on dwh db,
         # but dwh db user has no right to do them itself:
         'must be member of role "postgres"',
+        # On PostgreSQL 16+ this gives the following error:
+        'permission denied to change default privileges',
     )
 
     _RE_IGNORED_ERRORS = re.compile(
@@ -860,7 +883,7 @@ class OvirtUtils(base.Base):
                     'args': f_infos[filt]['restore'],
                 }
             )
-            stdin = open(backupFile, 'r')
+            stdin = open(backupFile, 'r', encoding='utf-8')
 
         dumper = _ind_env(self, DEK.DUMPER)
         d_infos = self._backup_restore_dumpers_info(
@@ -934,11 +957,12 @@ class OvirtUtils(base.Base):
         )
 
     @staticmethod
-    def _pg_versions_match(key, current, expected):
-        return (
-            distutils.version.LooseVersion(current).version[:2] ==
-            distutils.version.LooseVersion(expected).version[:2]
-        )
+    def _pg_client_version_compatible(key, current, expected):
+        server_version = LooseVersion(current).version
+        client_version = LooseVersion(expected).version
+        server_major = server_version[0] if server_version else 0
+        client_major = client_version[0] if client_version else 0
+        return client_major >= server_major
 
     @staticmethod
     def _lower_equal_no_dash(key, current, expected):
@@ -949,6 +973,8 @@ class OvirtUtils(base.Base):
         )
 
     def _pg_conf_info(self):
+        from ovirt_engine_setup.engine_common.postgres import Provisioning
+        auth_method = Provisioning.get_postgres_auth_method(self.environment)
         return self.environment.get(
             oengcommcons.ProvisioningEnv.POSTGRES_EXTRA_CONFIG_ITEMS,
             ()
@@ -1092,14 +1118,15 @@ class OvirtUtils(base.Base):
                 )[
                     -1
                 ],
-                'ok': self._pg_versions_match,
+                'ok': self._pg_client_version_compatible,
                 'check_on_use': True,
                 'skip_on_dbmsupgrade': True,
                 'needed_on_create': False,
                 'error_msg': _(
-                    "Postgresql client version is '{expected}', whereas "
-                    "the version on '{pg_host}' is '{current}'. "
-                    "Please use a PostgreSQL server of version '{expected}'."
+                    "PostgreSQL client version is '{expected}', whereas "
+                    "the server version on '{pg_host}' is '{current}'. "
+                    "Please use a PostgreSQL client with a major version "
+                    "greater than or equal to the server's major version."
                 ),
             },
             {
@@ -1127,6 +1154,16 @@ class OvirtUtils(base.Base):
                 'check_on_use': False,
                 'needed_on_create': True,
                 'error_msg': None,
+            },
+            {
+                'key': 'password_encryption',
+                'expected': auth_method,
+                'ok': self._lower_equal,
+                'check_on_use': True,
+                'needed_on_create': True,
+                'error_msg': '{specific}'.format(
+                    specific=_('{key} must be {expected}'),
+                ),
             },
         )
 
@@ -1191,7 +1228,7 @@ class OvirtUtils(base.Base):
                     formatted_msg = ''
                     if item['error_msg']:
                         formatted_msg = item['error_msg'].format(**item_data)
-                    self.logger.warn(
+                    self.logger.warning(
                         formatted_msg
                         if formatted_msg and not item['needed_on_create']
                         else _(
@@ -1235,7 +1272,7 @@ class OvirtUtils(base.Base):
                         current=m.group('value'),
                         expected=item['expected']
                     ):
-                        del(edit_params[item['key']])
+                        del edit_params[item['key']]
 
         needUpdate = len(edit_params) > 0
         if needUpdate:

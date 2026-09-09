@@ -4,6 +4,7 @@
 # mvn folders
 ###########################
 target
+repository/
 
 # build-time files
 ###########################
@@ -46,7 +47,6 @@ __pycache__
 
 # Files generated from templates
 ###########################
-.automation/milestone-config.sh
 ovirt-engine.spec
 build/helptag.py
 build/helptag_checker.py
@@ -80,12 +80,12 @@ packaging/services/ovirt-engine/ovirt-engine.conf
 packaging/services/ovirt-engine/ovirt-engine.py
 packaging/services/ovirt-engine/ovirt-engine.systemd
 packaging/services/ovirt-engine/ovirt-engine.sysv
-packaging/services/ovirt-fence-kdump-listener/config.py
+packaging/services/ovirt-fence-kdump-listener/fence_kdump_config.py
 packaging/services/ovirt-fence-kdump-listener/ovirt-fence-kdump-listener.conf
 packaging/services/ovirt-fence-kdump-listener/ovirt-fence-kdump-listener.py
 packaging/services/ovirt-fence-kdump-listener/ovirt-fence-kdump-listener.systemd
 packaging/services/ovirt-fence-kdump-listener/ovirt-fence-kdump-listener.sysv
-packaging/services/ovirt-websocket-proxy/config.py
+packaging/services/ovirt-websocket-proxy/websocket_config.py
 packaging/services/ovirt-websocket-proxy/ovirt-websocket-proxy.conf
 packaging/services/ovirt-websocket-proxy/ovirt-websocket-proxy.py
 packaging/services/ovirt-websocket-proxy/ovirt-websocket-proxy.systemd
@@ -103,8 +103,8 @@ packaging/setup/ovirt_engine_setup/websocket_proxy/config.py
 packaging/sys-etc/logrotate.d/ovirt-engine
 packaging/sys-etc/logrotate.d/ovirt-engine-notifier
 packaging/sys-etc/logrotate.d/ovirt-engine-setup
-packaging/cinderlib/config.py
-packaging/cinderlib/cinderlib-client.py
+packaging/managedblock/config.py
+packaging/managedblock/cinderlib-client.py
 
 
 # dbscripts
